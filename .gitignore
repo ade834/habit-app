@@ -1,0 +1,6 @@
+.idea/
+.vscode/
+**/.dart_tool/
+**/build/
+**/GeneratedPluginRegistrant.*
+
