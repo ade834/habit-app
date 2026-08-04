@@ -25,7 +25,7 @@
 
 ## 已知问题
 - 产品规格 H2 的完成规则已是30分钟，但6.3节介绍和反馈仍残留“25分钟”，大C下次统一为30分钟。
-- Windows首次 Android 构建正在补装 SDK Platform 35；iOS 无法在 Windows 验证。
+- Android SDK Platform 35 已补装；首次 Gradle 构建因依赖下载长时间无输出而中止，APK构建待缓存/网络稳定后复验。iOS 无法在 Windows 验证。
 - 应用名“习惯花园”和包名前缀 `com.habitapp` 暂作开发占位，上架前由用户确定正式名称和 Bundle ID。
 - Drift 生成工具因当前 Flutter SDK 的依赖约束暂锁定 `drift/drift_dev 2.33.0` 与 `sqlparser 0.44.5`。
 
