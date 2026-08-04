@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:habit_app/data/app_database.dart';
@@ -34,5 +36,25 @@ void main() {
       ),
       throwsArgumentError,
     );
+  });
+
+  test('关闭后重新打开数据库仍保留已选习惯', () async {
+    await database.close();
+    final directory = await Directory.systemTemp.createTemp('habit_app_test_');
+    final file = File('${directory.path}/habit.sqlite');
+    final first = AppDatabase.forTesting(NativeDatabase(file));
+
+    await first.saveOnboarding(
+      habitIds: {'H1', 'H2'},
+      commitmentNote: '为了长期成长',
+    );
+    await first.close();
+
+    final reopened = AppDatabase.forTesting(NativeDatabase(file));
+    final selections = await reopened.watchSelectedHabits().first;
+    expect(selections.map((item) => item.habitId), containsAll(['H1', 'H2']));
+
+    await reopened.close();
+    await directory.delete(recursive: true);
   });
 }
