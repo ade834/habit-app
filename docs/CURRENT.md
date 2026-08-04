@@ -1,7 +1,7 @@
-# 当前迭代：阶段1 —— 可运行骨架
+# 当前迭代：阶段1 —— Mac首次iOS验证
 
 ## 当前目标
-建立 iOS / Android 共用的 Flutter 可运行骨架，完成首次启动选择与本地数据底座。
+阶段0正式关闭；Windows端骨架验收通过。下一步在Mac验证iOS模拟器和iPad真机。
 
 ## 本阶段范围
 - Flutter 共用代码与 iOS 工程（Android目录仅保留Flutter自动生成空壳，本阶段冻结）
@@ -24,10 +24,11 @@
 - 首次选择后重启 App 仍从 SQLite 读取已选习惯
 
 ## 已知问题
-- 产品规格 H2 的完成规则已是30分钟，但6.3节介绍和反馈仍残留“25分钟”，大C下次统一为30分钟。
 - Windows不能运行苹果iOS Simulator，也不能编译iOS；阶段1代码完成后需在Mac + Xcode做第一次iOS验证。Android本阶段不构建、不测试。
 - 应用名“习惯花园”和包名前缀 `com.habitapp` 暂作开发占位，上架前由用户确定正式名称和 Bundle ID。
 - Drift 生成工具因当前 Flutter SDK 的依赖约束暂锁定 `drift/drift_dev 2.33.0` 与 `sqlparser 0.44.5`。
 
 ## 下一步
 在Mac拉取Git项目并完成首次iOS模拟器/真机验证 → 用户试跑首次选择流程 → 大C根据截图评审 → 大D进入阶段2核心正反馈循环。
+
+Mac接手细节见 `docs/MAC_HANDOFF.md`。
