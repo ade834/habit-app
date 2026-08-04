@@ -4,7 +4,7 @@
 建立 iOS / Android 共用的 Flutter 可运行骨架，完成首次启动选择与本地数据底座。
 
 ## 本阶段范围
-- Flutter iOS、Android 工程
+- Flutter 共用代码与 iOS 工程（Android目录仅保留Flutter自动生成空壳，本阶段冻结）
 - Riverpod 应用入口
 - 首页、习惯、养成物、复盘、设置五个主页面骨架
 - 首次启动从4项习惯中选择1~3项并保存承诺文字
@@ -20,14 +20,14 @@
 ## 验收条件
 - `flutter analyze` 无问题
 - 自动测试覆盖首次选择边界与重复打卡不重复发积分
-- Android 调试构建通过；iOS 构建留到 Mac + Xcode
+- Windows完成静态分析与自动测试；iOS模拟器、编译和真机验证转到 Mac + Xcode
 - 首次选择后重启 App 仍从 SQLite 读取已选习惯
 
 ## 已知问题
 - 产品规格 H2 的完成规则已是30分钟，但6.3节介绍和反馈仍残留“25分钟”，大C下次统一为30分钟。
-- Android SDK Platform 35 已补装；首次 Gradle 构建因依赖下载长时间无输出而中止，APK构建待缓存/网络稳定后复验。iOS 无法在 Windows 验证。
+- Windows不能运行苹果iOS Simulator，也不能编译iOS；阶段1代码完成后需在Mac + Xcode做第一次iOS验证。Android本阶段不构建、不测试。
 - 应用名“习惯花园”和包名前缀 `com.habitapp` 暂作开发占位，上架前由用户确定正式名称和 Bundle ID。
 - Drift 生成工具因当前 Flutter SDK 的依赖约束暂锁定 `drift/drift_dev 2.33.0` 与 `sqlparser 0.44.5`。
 
 ## 下一步
-完成 Android 构建验证和 Git 基线提交 → 用户试跑首次选择流程 → 大C根据截图评审 → 大D进入阶段2核心正反馈循环。
+在Mac拉取Git项目并完成首次iOS模拟器/真机验证 → 用户试跑首次选择流程 → 大C根据截图评审 → 大D进入阶段2核心正反馈循环。
