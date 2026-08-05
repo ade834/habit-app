@@ -39,6 +39,17 @@ class DisconnectAttemptState {
       lockedUntil != null && DateTime.now().isBefore(lockedUntil!);
 }
 
+String disconnectAttemptMessage(
+  int consecutiveFailures, {
+  String? lockedUntilLabel,
+}) => switch (consecutiveFailures) {
+  1 => '手机只是想再陪你一下，可睡前该让它先休息啦。倒计时已重置，你还有2次机会。',
+  2 => '又被手机抓回来一次啦。睡前就别再碰它了，这是最后1次机会；再离开，今晚的任务就失败。',
+  _ when consecutiveFailures >= 3 =>
+    '手机赢了三回合，今晚的断网任务失败啦。先把它放远一点，${lockedUntilLabel ?? '冷却结束'}后再来认真挑战。',
+  _ => '',
+};
+
 TimerProgress timerProgress({
   required DateTime startedAt,
   required DateTime now,

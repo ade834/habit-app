@@ -430,8 +430,6 @@ class DisconnectToolPage extends StatefulWidget {
 
 class _DisconnectToolPageState extends State<DisconnectToolPage>
     with WidgetsBindingObserver {
-  static const _maximumFailures = 3;
-
   int _minutes = 30;
   Timer? _ticker;
   StreamSubscription<DisconnectAttemptState>? _attemptSubscription;
@@ -511,9 +509,12 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                _attemptState.isLocked
-                    ? '这次任务已失败。你连续3次离开倒计时，现在不能再开始。先放下自责，但也请认真对待自己的承诺。${_formatDateTime(_attemptState.lockedUntil!)}后可再尝试。'
-                    : '你刚才离开了倒计时，所以本次已重置。可以重新开始，但请不要轻易中途离开；连续3次将失败并锁定10小时，你还剩 ${_maximumFailures - _attemptState.consecutiveFailures} 次机会。',
+                disconnectAttemptMessage(
+                  _attemptState.consecutiveFailures,
+                  lockedUntilLabel: _attemptState.lockedUntil == null
+                      ? null
+                      : _formatDateTime(_attemptState.lockedUntil!),
+                ),
               ),
             ),
           ),
