@@ -121,6 +121,16 @@ void main() {
     expect(await database.pointBalance(), 1);
   });
 
+  test('H2计时会话保留用户选择的思考议题', () async {
+    final session = await database.startTimer(
+      habitId: 'H2',
+      targetSeconds: 30 * 60,
+      focusTopic: '善良的边界该如何取舍？',
+      now: DateTime(2026, 8, 5, 10),
+    );
+    expect(session.focusTopic, '善良的边界该如何取舍？');
+  });
+
   test('H3前3次换新卡，第4次起在前3张中循环', () async {
     final now = DateTime(2026, 8, 5);
     final first = await database.challengeForToday(now: now);

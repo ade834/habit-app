@@ -58,6 +58,105 @@ TimerProgress timerProgress({
 
 final challengeCards = _buildChallengeCards();
 
+final thinkingTopicCorpus = _buildThinkingTopicCorpus();
+
+List<String> dailyThinkingTopics(DateTime date) {
+  final daySeed = DateTime(
+    date.year,
+    date.month,
+    date.day,
+  ).difference(DateTime(2024)).inDays.abs();
+  final first = daySeed % thinkingTopicCorpus.length;
+  return [
+    thinkingTopicCorpus[first],
+    thinkingTopicCorpus[(first + 127) % thinkingTopicCorpus.length],
+    thinkingTopicCorpus[(first + 251) % thinkingTopicCorpus.length],
+  ];
+}
+
+List<String> _buildThinkingTopicCorpus() {
+  const subjects = [
+    '成长的代价',
+    '失败的意义',
+    '自律与自由',
+    '努力的边界',
+    '慢下来的勇气',
+    '改变的时机',
+    '天赋与坚持',
+    '焦虑的价值',
+    '成熟的标志',
+    '选择的遗憾',
+    '独处的力量',
+    '孩子的好奇心',
+    '成绩与成长',
+    '父母的期待',
+    '挫折教育',
+    '孩子的边界',
+    '陪伴的质量',
+    '表扬的分寸',
+    '独立的起点',
+    '规则与爱',
+    '父母的榜样',
+    '教育的公平',
+    '善良的边界',
+    '自私的根源',
+    '偏见的形成',
+    '同理心的距离',
+    '诚实的代价',
+    '恐惧的选择',
+    '权力的诱惑',
+    '群体的判断',
+    '嫉妒的提醒',
+    '信任的起点',
+    '宽容的限度',
+    '亲密的边界',
+    '爱与依赖',
+    '伴侣的分工',
+    '争吵的价值',
+    '关系中的自我',
+    '浪漫与责任',
+    '承诺的重量',
+    '安全感的来源',
+    '分开的体面',
+    '差异的尊重',
+    '亲情的边界',
+    '孝顺的尺度',
+    '家人的期待',
+    '两代人的距离',
+    '家庭里的公平',
+    '亲人间的道歉',
+    '陪伴与牺牲',
+    '家的安全感',
+    '爱的表达',
+    '离家的意义',
+    '成功的定义',
+    '金钱与幸福',
+    '公平与效率',
+    '原则与人情',
+    '稳定与冒险',
+    '个人与集体',
+    '知足与进取',
+    '规则与灵活',
+    '面子与真实',
+    '责任与自由',
+    '舆论的力量',
+    '网络中的自我',
+    '陌生人的善意',
+    '城市的孤独',
+    '工作的意义',
+    '信息的真假',
+    '多数人的选择',
+    '世代间的理解',
+    '科技与亲密',
+    '公共空间的边界',
+  ];
+  const questionFrames = ['该如何取舍？', '为何变难？', '怎样更公平？', '最需要什么？', '会改变什么？'];
+  return [
+    for (final subject in subjects)
+      for (final frame in questionFrames) '$subject$frame',
+  ];
+}
+
 List<String> _buildChallengeCards() {
   const actionsByCategory = [
     [

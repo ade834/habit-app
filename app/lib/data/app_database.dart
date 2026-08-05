@@ -55,6 +55,7 @@ class TimerSessions extends Table {
       integer().withDefault(const Constant(0))();
   TextColumn get status => text().withDefault(const Constant('running'))();
   DateTimeColumn get endedAt => dateTime().nullable()();
+  TextColumn get focusTopic => text().nullable()();
 }
 
 class ChallengeDraws extends Table {
@@ -83,7 +84,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -99,6 +100,9 @@ class AppDatabase extends _$AppDatabase {
         await customStatement(
           'UPDATE challenge_draws SET swap_count = 1 WHERE swap_used = 1',
         );
+      }
+      if (from >= 2 && from < 4) {
+        await migrator.addColumn(timerSessions, timerSessions.focusTopic);
       }
     },
   );
@@ -217,6 +221,7 @@ class AppDatabase extends _$AppDatabase {
   Future<TimerSession> startTimer({
     required String habitId,
     required int targetSeconds,
+    String? focusTopic,
     DateTime? now,
   }) async {
     final startedAt = now ?? DateTime.now();
@@ -236,6 +241,7 @@ class AppDatabase extends _$AppDatabase {
         habitId: habitId,
         targetSeconds: targetSeconds,
         startedAt: startedAt,
+        focusTopic: Value(focusTopic),
       ),
     );
     return (select(

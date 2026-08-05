@@ -172,10 +172,15 @@ class FocusToolPage extends StatefulWidget {
 
 class _FocusToolPageState extends State<FocusToolPage> {
   Timer? _ticker;
+  final _customTopicController = TextEditingController();
+  late final List<String> _recommendedTopics;
+  String? _selectedTopic;
+  bool _useCustomTopic = false;
 
   @override
   void initState() {
     super.initState();
+    _recommendedTopics = dailyThinkingTopics(DateTime.now());
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -184,6 +189,7 @@ class _FocusToolPageState extends State<FocusToolPage> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _customTopicController.dispose();
     super.dispose();
   }
 
@@ -192,10 +198,59 @@ class _FocusToolPageState extends State<FocusToolPage> {
     title: '30分钟深度思考',
     introduction: '放下手机，给自己30分钟不被打断的时间。想清楚一件真正重要的事。',
     stream: widget.database.watchActiveTimer('H2'),
-    emptyAction: FilledButton(
-      onPressed: () =>
-          widget.database.startTimer(habitId: 'H2', targetSeconds: 30 * 60),
-      child: const Text('开始30分钟'),
+    emptyAction: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '今天我为你推荐了三个值得想想的问题：',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        RadioGroup<String>(
+          groupValue: _useCustomTopic ? null : _selectedTopic,
+          onChanged: (value) => setState(() {
+            _useCustomTopic = false;
+            _selectedTopic = value;
+          }),
+          child: Column(
+            children: [
+              for (final topic in _recommendedTopics)
+                Card(
+                  child: RadioListTile<String>(
+                    value: topic,
+                    title: Text(topic),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _customTopicController,
+          decoration: const InputDecoration(
+            labelText: '我有自己重要、值得想想的事',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (value) => setState(() {
+            _useCustomTopic = value.trim().isNotEmpty;
+          }),
+        ),
+        if (_chosenTopic != null) ...[
+          const SizedBox(height: 16),
+          Text('今天我为你推荐的思考是“${_chosenTopic!}”。当然，你也可以有自己重要、值得想想的事。现在让我们开始吧。'),
+        ],
+        const SizedBox(height: 16),
+        FilledButton(
+          onPressed: _chosenTopic == null
+              ? null
+              : () => widget.database.startTimer(
+                  habitId: 'H2',
+                  targetSeconds: 30 * 60,
+                  focusTopic: _chosenTopic,
+                ),
+          child: const Text('选好了，开始30分钟'),
+        ),
+      ],
     ),
     builder: (session) {
       final progress = timerProgress(
@@ -216,6 +271,10 @@ class _FocusToolPageState extends State<FocusToolPage> {
       }
       return Column(
         children: [
+          if (session.focusTopic != null) ...[
+            Text('今天思考：${session.focusTopic}'),
+            const SizedBox(height: 12),
+          ],
           const Text('专注中，先别看手机。'),
           const SizedBox(height: 20),
           Text(
@@ -259,6 +318,14 @@ class _FocusToolPageState extends State<FocusToolPage> {
       );
     },
   );
+
+  String? get _chosenTopic {
+    if (_useCustomTopic) {
+      final custom = _customTopicController.text.trim();
+      return custom.isEmpty ? null : custom;
+    }
+    return _selectedTopic;
+  }
 }
 
 class ChallengeToolPage extends StatefulWidget {

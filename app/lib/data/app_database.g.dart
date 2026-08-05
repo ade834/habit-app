@@ -1416,6 +1416,17 @@ class $TimerSessionsTable extends TimerSessions
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _focusTopicMeta = const VerificationMeta(
+    'focusTopic',
+  );
+  @override
+  late final GeneratedColumn<String> focusTopic = GeneratedColumn<String>(
+    'focus_topic',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1426,6 +1437,7 @@ class $TimerSessionsTable extends TimerSessions
     accumulatedPauseSeconds,
     status,
     endedAt,
+    focusTopic,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1496,6 +1508,12 @@ class $TimerSessionsTable extends TimerSessions
         endedAt.isAcceptableOrUnknown(data['ended_at']!, _endedAtMeta),
       );
     }
+    if (data.containsKey('focus_topic')) {
+      context.handle(
+        _focusTopicMeta,
+        focusTopic.isAcceptableOrUnknown(data['focus_topic']!, _focusTopicMeta),
+      );
+    }
     return context;
   }
 
@@ -1537,6 +1555,10 @@ class $TimerSessionsTable extends TimerSessions
         DriftSqlType.dateTime,
         data['${effectivePrefix}ended_at'],
       ),
+      focusTopic: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}focus_topic'],
+      ),
     );
   }
 
@@ -1555,6 +1577,7 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
   final int accumulatedPauseSeconds;
   final String status;
   final DateTime? endedAt;
+  final String? focusTopic;
   const TimerSession({
     required this.id,
     required this.habitId,
@@ -1564,6 +1587,7 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
     required this.accumulatedPauseSeconds,
     required this.status,
     this.endedAt,
+    this.focusTopic,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1579,6 +1603,9 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
     map['status'] = Variable<String>(status);
     if (!nullToAbsent || endedAt != null) {
       map['ended_at'] = Variable<DateTime>(endedAt);
+    }
+    if (!nullToAbsent || focusTopic != null) {
+      map['focus_topic'] = Variable<String>(focusTopic);
     }
     return map;
   }
@@ -1597,6 +1624,9 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
       endedAt: endedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(endedAt),
+      focusTopic: focusTopic == null && nullToAbsent
+          ? const Value.absent()
+          : Value(focusTopic),
     );
   }
 
@@ -1616,6 +1646,7 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
       ),
       status: serializer.fromJson<String>(json['status']),
       endedAt: serializer.fromJson<DateTime?>(json['endedAt']),
+      focusTopic: serializer.fromJson<String?>(json['focusTopic']),
     );
   }
   @override
@@ -1632,6 +1663,7 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
       ),
       'status': serializer.toJson<String>(status),
       'endedAt': serializer.toJson<DateTime?>(endedAt),
+      'focusTopic': serializer.toJson<String?>(focusTopic),
     };
   }
 
@@ -1644,6 +1676,7 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
     int? accumulatedPauseSeconds,
     String? status,
     Value<DateTime?> endedAt = const Value.absent(),
+    Value<String?> focusTopic = const Value.absent(),
   }) => TimerSession(
     id: id ?? this.id,
     habitId: habitId ?? this.habitId,
@@ -1654,6 +1687,7 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
         accumulatedPauseSeconds ?? this.accumulatedPauseSeconds,
     status: status ?? this.status,
     endedAt: endedAt.present ? endedAt.value : this.endedAt,
+    focusTopic: focusTopic.present ? focusTopic.value : this.focusTopic,
   );
   TimerSession copyWithCompanion(TimerSessionsCompanion data) {
     return TimerSession(
@@ -1669,6 +1703,9 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
           : this.accumulatedPauseSeconds,
       status: data.status.present ? data.status.value : this.status,
       endedAt: data.endedAt.present ? data.endedAt.value : this.endedAt,
+      focusTopic: data.focusTopic.present
+          ? data.focusTopic.value
+          : this.focusTopic,
     );
   }
 
@@ -1682,7 +1719,8 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
           ..write('pausedAt: $pausedAt, ')
           ..write('accumulatedPauseSeconds: $accumulatedPauseSeconds, ')
           ..write('status: $status, ')
-          ..write('endedAt: $endedAt')
+          ..write('endedAt: $endedAt, ')
+          ..write('focusTopic: $focusTopic')
           ..write(')'))
         .toString();
   }
@@ -1697,6 +1735,7 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
     accumulatedPauseSeconds,
     status,
     endedAt,
+    focusTopic,
   );
   @override
   bool operator ==(Object other) =>
@@ -1709,7 +1748,8 @@ class TimerSession extends DataClass implements Insertable<TimerSession> {
           other.pausedAt == this.pausedAt &&
           other.accumulatedPauseSeconds == this.accumulatedPauseSeconds &&
           other.status == this.status &&
-          other.endedAt == this.endedAt);
+          other.endedAt == this.endedAt &&
+          other.focusTopic == this.focusTopic);
 }
 
 class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
@@ -1721,6 +1761,7 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
   final Value<int> accumulatedPauseSeconds;
   final Value<String> status;
   final Value<DateTime?> endedAt;
+  final Value<String?> focusTopic;
   const TimerSessionsCompanion({
     this.id = const Value.absent(),
     this.habitId = const Value.absent(),
@@ -1730,6 +1771,7 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
     this.accumulatedPauseSeconds = const Value.absent(),
     this.status = const Value.absent(),
     this.endedAt = const Value.absent(),
+    this.focusTopic = const Value.absent(),
   });
   TimerSessionsCompanion.insert({
     this.id = const Value.absent(),
@@ -1740,6 +1782,7 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
     this.accumulatedPauseSeconds = const Value.absent(),
     this.status = const Value.absent(),
     this.endedAt = const Value.absent(),
+    this.focusTopic = const Value.absent(),
   }) : habitId = Value(habitId),
        targetSeconds = Value(targetSeconds),
        startedAt = Value(startedAt);
@@ -1752,6 +1795,7 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
     Expression<int>? accumulatedPauseSeconds,
     Expression<String>? status,
     Expression<DateTime>? endedAt,
+    Expression<String>? focusTopic,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1763,6 +1807,7 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
         'accumulated_pause_seconds': accumulatedPauseSeconds,
       if (status != null) 'status': status,
       if (endedAt != null) 'ended_at': endedAt,
+      if (focusTopic != null) 'focus_topic': focusTopic,
     });
   }
 
@@ -1775,6 +1820,7 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
     Value<int>? accumulatedPauseSeconds,
     Value<String>? status,
     Value<DateTime?>? endedAt,
+    Value<String?>? focusTopic,
   }) {
     return TimerSessionsCompanion(
       id: id ?? this.id,
@@ -1786,6 +1832,7 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
           accumulatedPauseSeconds ?? this.accumulatedPauseSeconds,
       status: status ?? this.status,
       endedAt: endedAt ?? this.endedAt,
+      focusTopic: focusTopic ?? this.focusTopic,
     );
   }
 
@@ -1818,6 +1865,9 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
     if (endedAt.present) {
       map['ended_at'] = Variable<DateTime>(endedAt.value);
     }
+    if (focusTopic.present) {
+      map['focus_topic'] = Variable<String>(focusTopic.value);
+    }
     return map;
   }
 
@@ -1831,7 +1881,8 @@ class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
           ..write('pausedAt: $pausedAt, ')
           ..write('accumulatedPauseSeconds: $accumulatedPauseSeconds, ')
           ..write('status: $status, ')
-          ..write('endedAt: $endedAt')
+          ..write('endedAt: $endedAt, ')
+          ..write('focusTopic: $focusTopic')
           ..write(')'))
         .toString();
   }
@@ -3180,6 +3231,7 @@ typedef $$TimerSessionsTableCreateCompanionBuilder =
       Value<int> accumulatedPauseSeconds,
       Value<String> status,
       Value<DateTime?> endedAt,
+      Value<String?> focusTopic,
     });
 typedef $$TimerSessionsTableUpdateCompanionBuilder =
     TimerSessionsCompanion Function({
@@ -3191,6 +3243,7 @@ typedef $$TimerSessionsTableUpdateCompanionBuilder =
       Value<int> accumulatedPauseSeconds,
       Value<String> status,
       Value<DateTime?> endedAt,
+      Value<String?> focusTopic,
     });
 
 class $$TimerSessionsTableFilterComposer
@@ -3239,6 +3292,11 @@ class $$TimerSessionsTableFilterComposer
 
   ColumnFilters<DateTime> get endedAt => $composableBuilder(
     column: $table.endedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get focusTopic => $composableBuilder(
+    column: $table.focusTopic,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3291,6 +3349,11 @@ class $$TimerSessionsTableOrderingComposer
     column: $table.endedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get focusTopic => $composableBuilder(
+    column: $table.focusTopic,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TimerSessionsTableAnnotationComposer
@@ -3329,6 +3392,11 @@ class $$TimerSessionsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get endedAt =>
       $composableBuilder(column: $table.endedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get focusTopic => $composableBuilder(
+    column: $table.focusTopic,
+    builder: (column) => column,
+  );
 }
 
 class $$TimerSessionsTableTableManager
@@ -3370,6 +3438,7 @@ class $$TimerSessionsTableTableManager
                 Value<int> accumulatedPauseSeconds = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<DateTime?> endedAt = const Value.absent(),
+                Value<String?> focusTopic = const Value.absent(),
               }) => TimerSessionsCompanion(
                 id: id,
                 habitId: habitId,
@@ -3379,6 +3448,7 @@ class $$TimerSessionsTableTableManager
                 accumulatedPauseSeconds: accumulatedPauseSeconds,
                 status: status,
                 endedAt: endedAt,
+                focusTopic: focusTopic,
               ),
           createCompanionCallback:
               ({
@@ -3390,6 +3460,7 @@ class $$TimerSessionsTableTableManager
                 Value<int> accumulatedPauseSeconds = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<DateTime?> endedAt = const Value.absent(),
+                Value<String?> focusTopic = const Value.absent(),
               }) => TimerSessionsCompanion.insert(
                 id: id,
                 habitId: habitId,
@@ -3399,6 +3470,7 @@ class $$TimerSessionsTableTableManager
                 accumulatedPauseSeconds: accumulatedPauseSeconds,
                 status: status,
                 endedAt: endedAt,
+                focusTopic: focusTopic,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

@@ -39,4 +39,21 @@ void main() {
     expect(challengeCards, hasLength(500));
     expect(challengeCards.toSet(), hasLength(500));
   });
+
+  test('H2思考库包含365条不重复且不超过15字的议题', () {
+    expect(thinkingTopicCorpus, hasLength(365));
+    expect(thinkingTopicCorpus.toSet(), hasLength(365));
+    expect(
+      thinkingTopicCorpus.every((topic) => topic.runes.length <= 15),
+      isTrue,
+    );
+  });
+
+  test('H2每日稳定推荐3个不同议题', () {
+    final date = DateTime(2026, 8, 5);
+    final topics = dailyThinkingTopics(date);
+    expect(topics, hasLength(3));
+    expect(topics.toSet(), hasLength(3));
+    expect(dailyThinkingTopics(date), topics);
+  });
 }
