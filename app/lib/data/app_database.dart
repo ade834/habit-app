@@ -61,6 +61,7 @@ class ChallengeDraws extends Table {
   TextColumn get localDate => text()();
   IntColumn get cardIndex => integer()();
   BoolColumn get swapUsed => boolean().withDefault(const Constant(false))();
+  IntColumn get swapCount => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column<Object>> get primaryKey => {localDate};
@@ -82,7 +83,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -92,6 +93,12 @@ class AppDatabase extends _$AppDatabase {
         await migrator.createTable(reviewEntries);
         await migrator.createTable(timerSessions);
         await migrator.createTable(challengeDraws);
+      }
+      if (from >= 2 && from < 3) {
+        await migrator.addColumn(challengeDraws, challengeDraws.swapCount);
+        await customStatement(
+          'UPDATE challenge_draws SET swap_count = 1 WHERE swap_used = 1',
+        );
       }
     },
   );
@@ -366,13 +373,19 @@ class AppDatabase extends _$AppDatabase {
   Future<ChallengeDraw> swapChallenge({DateTime? now}) async {
     final current = now ?? DateTime.now();
     final draw = await challengeForToday(now: current);
-    if (draw.swapUsed) return draw;
+    final nextCount = draw.swapCount + 1;
+    final nextIndex = draw.swapCount < 3
+        ? (draw.cardIndex + 5) % challengeCards.length
+        : draw.swapCount % 3 == 0
+        ? (draw.cardIndex - 10) % challengeCards.length
+        : (draw.cardIndex + 5) % challengeCards.length;
     await (update(
       challengeDraws,
     )..where((row) => row.localDate.equals(draw.localDate))).write(
       ChallengeDrawsCompanion(
-        cardIndex: Value((draw.cardIndex + 5) % challengeCards.length),
-        swapUsed: const Value(true),
+        cardIndex: Value(nextIndex),
+        swapUsed: Value(nextCount >= 3),
+        swapCount: Value(nextCount),
       ),
     );
     return challengeForToday(now: current);

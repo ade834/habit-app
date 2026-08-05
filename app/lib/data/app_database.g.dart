@@ -1880,8 +1880,25 @@ class $ChallengeDrawsTable extends ChallengeDraws
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _swapCountMeta = const VerificationMeta(
+    'swapCount',
+  );
   @override
-  List<GeneratedColumn> get $columns => [localDate, cardIndex, swapUsed];
+  late final GeneratedColumn<int> swapCount = GeneratedColumn<int>(
+    'swap_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    localDate,
+    cardIndex,
+    swapUsed,
+    swapCount,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1916,6 +1933,12 @@ class $ChallengeDrawsTable extends ChallengeDraws
         swapUsed.isAcceptableOrUnknown(data['swap_used']!, _swapUsedMeta),
       );
     }
+    if (data.containsKey('swap_count')) {
+      context.handle(
+        _swapCountMeta,
+        swapCount.isAcceptableOrUnknown(data['swap_count']!, _swapCountMeta),
+      );
+    }
     return context;
   }
 
@@ -1937,6 +1960,10 @@ class $ChallengeDrawsTable extends ChallengeDraws
         DriftSqlType.bool,
         data['${effectivePrefix}swap_used'],
       )!,
+      swapCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}swap_count'],
+      )!,
     );
   }
 
@@ -1950,10 +1977,12 @@ class ChallengeDraw extends DataClass implements Insertable<ChallengeDraw> {
   final String localDate;
   final int cardIndex;
   final bool swapUsed;
+  final int swapCount;
   const ChallengeDraw({
     required this.localDate,
     required this.cardIndex,
     required this.swapUsed,
+    required this.swapCount,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1961,6 +1990,7 @@ class ChallengeDraw extends DataClass implements Insertable<ChallengeDraw> {
     map['local_date'] = Variable<String>(localDate);
     map['card_index'] = Variable<int>(cardIndex);
     map['swap_used'] = Variable<bool>(swapUsed);
+    map['swap_count'] = Variable<int>(swapCount);
     return map;
   }
 
@@ -1969,6 +1999,7 @@ class ChallengeDraw extends DataClass implements Insertable<ChallengeDraw> {
       localDate: Value(localDate),
       cardIndex: Value(cardIndex),
       swapUsed: Value(swapUsed),
+      swapCount: Value(swapCount),
     );
   }
 
@@ -1981,6 +2012,7 @@ class ChallengeDraw extends DataClass implements Insertable<ChallengeDraw> {
       localDate: serializer.fromJson<String>(json['localDate']),
       cardIndex: serializer.fromJson<int>(json['cardIndex']),
       swapUsed: serializer.fromJson<bool>(json['swapUsed']),
+      swapCount: serializer.fromJson<int>(json['swapCount']),
     );
   }
   @override
@@ -1990,20 +2022,27 @@ class ChallengeDraw extends DataClass implements Insertable<ChallengeDraw> {
       'localDate': serializer.toJson<String>(localDate),
       'cardIndex': serializer.toJson<int>(cardIndex),
       'swapUsed': serializer.toJson<bool>(swapUsed),
+      'swapCount': serializer.toJson<int>(swapCount),
     };
   }
 
-  ChallengeDraw copyWith({String? localDate, int? cardIndex, bool? swapUsed}) =>
-      ChallengeDraw(
-        localDate: localDate ?? this.localDate,
-        cardIndex: cardIndex ?? this.cardIndex,
-        swapUsed: swapUsed ?? this.swapUsed,
-      );
+  ChallengeDraw copyWith({
+    String? localDate,
+    int? cardIndex,
+    bool? swapUsed,
+    int? swapCount,
+  }) => ChallengeDraw(
+    localDate: localDate ?? this.localDate,
+    cardIndex: cardIndex ?? this.cardIndex,
+    swapUsed: swapUsed ?? this.swapUsed,
+    swapCount: swapCount ?? this.swapCount,
+  );
   ChallengeDraw copyWithCompanion(ChallengeDrawsCompanion data) {
     return ChallengeDraw(
       localDate: data.localDate.present ? data.localDate.value : this.localDate,
       cardIndex: data.cardIndex.present ? data.cardIndex.value : this.cardIndex,
       swapUsed: data.swapUsed.present ? data.swapUsed.value : this.swapUsed,
+      swapCount: data.swapCount.present ? data.swapCount.value : this.swapCount,
     );
   }
 
@@ -2012,37 +2051,42 @@ class ChallengeDraw extends DataClass implements Insertable<ChallengeDraw> {
     return (StringBuffer('ChallengeDraw(')
           ..write('localDate: $localDate, ')
           ..write('cardIndex: $cardIndex, ')
-          ..write('swapUsed: $swapUsed')
+          ..write('swapUsed: $swapUsed, ')
+          ..write('swapCount: $swapCount')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(localDate, cardIndex, swapUsed);
+  int get hashCode => Object.hash(localDate, cardIndex, swapUsed, swapCount);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is ChallengeDraw &&
           other.localDate == this.localDate &&
           other.cardIndex == this.cardIndex &&
-          other.swapUsed == this.swapUsed);
+          other.swapUsed == this.swapUsed &&
+          other.swapCount == this.swapCount);
 }
 
 class ChallengeDrawsCompanion extends UpdateCompanion<ChallengeDraw> {
   final Value<String> localDate;
   final Value<int> cardIndex;
   final Value<bool> swapUsed;
+  final Value<int> swapCount;
   final Value<int> rowid;
   const ChallengeDrawsCompanion({
     this.localDate = const Value.absent(),
     this.cardIndex = const Value.absent(),
     this.swapUsed = const Value.absent(),
+    this.swapCount = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChallengeDrawsCompanion.insert({
     required String localDate,
     required int cardIndex,
     this.swapUsed = const Value.absent(),
+    this.swapCount = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : localDate = Value(localDate),
        cardIndex = Value(cardIndex);
@@ -2050,12 +2094,14 @@ class ChallengeDrawsCompanion extends UpdateCompanion<ChallengeDraw> {
     Expression<String>? localDate,
     Expression<int>? cardIndex,
     Expression<bool>? swapUsed,
+    Expression<int>? swapCount,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (localDate != null) 'local_date': localDate,
       if (cardIndex != null) 'card_index': cardIndex,
       if (swapUsed != null) 'swap_used': swapUsed,
+      if (swapCount != null) 'swap_count': swapCount,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2064,12 +2110,14 @@ class ChallengeDrawsCompanion extends UpdateCompanion<ChallengeDraw> {
     Value<String>? localDate,
     Value<int>? cardIndex,
     Value<bool>? swapUsed,
+    Value<int>? swapCount,
     Value<int>? rowid,
   }) {
     return ChallengeDrawsCompanion(
       localDate: localDate ?? this.localDate,
       cardIndex: cardIndex ?? this.cardIndex,
       swapUsed: swapUsed ?? this.swapUsed,
+      swapCount: swapCount ?? this.swapCount,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2086,6 +2134,9 @@ class ChallengeDrawsCompanion extends UpdateCompanion<ChallengeDraw> {
     if (swapUsed.present) {
       map['swap_used'] = Variable<bool>(swapUsed.value);
     }
+    if (swapCount.present) {
+      map['swap_count'] = Variable<int>(swapCount.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2098,6 +2149,7 @@ class ChallengeDrawsCompanion extends UpdateCompanion<ChallengeDraw> {
           ..write('localDate: $localDate, ')
           ..write('cardIndex: $cardIndex, ')
           ..write('swapUsed: $swapUsed, ')
+          ..write('swapCount: $swapCount, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3378,6 +3430,7 @@ typedef $$ChallengeDrawsTableCreateCompanionBuilder =
       required String localDate,
       required int cardIndex,
       Value<bool> swapUsed,
+      Value<int> swapCount,
       Value<int> rowid,
     });
 typedef $$ChallengeDrawsTableUpdateCompanionBuilder =
@@ -3385,6 +3438,7 @@ typedef $$ChallengeDrawsTableUpdateCompanionBuilder =
       Value<String> localDate,
       Value<int> cardIndex,
       Value<bool> swapUsed,
+      Value<int> swapCount,
       Value<int> rowid,
     });
 
@@ -3409,6 +3463,11 @@ class $$ChallengeDrawsTableFilterComposer
 
   ColumnFilters<bool> get swapUsed => $composableBuilder(
     column: $table.swapUsed,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get swapCount => $composableBuilder(
+    column: $table.swapCount,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3436,6 +3495,11 @@ class $$ChallengeDrawsTableOrderingComposer
     column: $table.swapUsed,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get swapCount => $composableBuilder(
+    column: $table.swapCount,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ChallengeDrawsTableAnnotationComposer
@@ -3455,6 +3519,9 @@ class $$ChallengeDrawsTableAnnotationComposer
 
   GeneratedColumn<bool> get swapUsed =>
       $composableBuilder(column: $table.swapUsed, builder: (column) => column);
+
+  GeneratedColumn<int> get swapCount =>
+      $composableBuilder(column: $table.swapCount, builder: (column) => column);
 }
 
 class $$ChallengeDrawsTableTableManager
@@ -3493,11 +3560,13 @@ class $$ChallengeDrawsTableTableManager
                 Value<String> localDate = const Value.absent(),
                 Value<int> cardIndex = const Value.absent(),
                 Value<bool> swapUsed = const Value.absent(),
+                Value<int> swapCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChallengeDrawsCompanion(
                 localDate: localDate,
                 cardIndex: cardIndex,
                 swapUsed: swapUsed,
+                swapCount: swapCount,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3505,11 +3574,13 @@ class $$ChallengeDrawsTableTableManager
                 required String localDate,
                 required int cardIndex,
                 Value<bool> swapUsed = const Value.absent(),
+                Value<int> swapCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChallengeDrawsCompanion.insert(
                 localDate: localDate,
                 cardIndex: cardIndex,
                 swapUsed: swapUsed,
+                swapCount: swapCount,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

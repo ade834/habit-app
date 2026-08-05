@@ -281,10 +281,18 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
   Future<void> _swap() async {
     final swapped = await widget.database.swapChallenge();
     if (!mounted) return;
-    setState(() => _draw = Future.value(swapped));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('已换成新挑战，今天不能再换了。')));
+    setState(() {
+      _draw = Future.value(swapped);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          swapped.swapCount <= 3
+              ? '已获取第 ${swapped.swapCount} 张新挑战。'
+              : '已切换到前三张挑战之一。',
+        ),
+      ),
+    );
   }
 
   @override
@@ -319,9 +327,13 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
-              onPressed: draw.swapUsed ? null : _swap,
+              onPressed: _swap,
               icon: const Icon(Icons.swap_horiz),
-              label: Text(draw.swapUsed ? '今天已换过一次' : '换一次'),
+              label: Text(
+                draw.swapCount < 3
+                    ? '换一张（还可获取 ${3 - draw.swapCount} 张新挑战）'
+                    : '在前三张挑战中切换',
+              ),
             ),
             const SizedBox(height: 12),
             FilledButton(

@@ -121,14 +121,26 @@ void main() {
     expect(await database.pointBalance(), 1);
   });
 
-  test('H3每天只能换卡一次', () async {
+  test('H3前3次换新卡，第4次起在前3张中循环', () async {
     final now = DateTime(2026, 8, 5);
     final first = await database.challengeForToday(now: now);
-    final swapped = await database.swapChallenge(now: now);
-    final repeated = await database.swapChallenge(now: now);
-    expect(swapped.swapUsed, isTrue);
-    expect(swapped.cardIndex, isNot(first.cardIndex));
-    expect(repeated.cardIndex, swapped.cardIndex);
+    final firstSwap = await database.swapChallenge(now: now);
+    final secondSwap = await database.swapChallenge(now: now);
+    final thirdSwap = await database.swapChallenge(now: now);
+    final fourthSwap = await database.swapChallenge(now: now);
+    final fifthSwap = await database.swapChallenge(now: now);
+    final sixthSwap = await database.swapChallenge(now: now);
+
+    expect({
+      firstSwap.cardIndex,
+      secondSwap.cardIndex,
+      thirdSwap.cardIndex,
+    }, hasLength(3));
+    expect(firstSwap.cardIndex, isNot(first.cardIndex));
+    expect(fourthSwap.cardIndex, firstSwap.cardIndex);
+    expect(fifthSwap.cardIndex, secondSwap.cardIndex);
+    expect(sixthSwap.cardIndex, thirdSwap.cardIndex);
+    expect(sixthSwap.swapCount, 6);
   });
 
   test('H4倒计未结束不能完成，结束后自动完成', () async {
