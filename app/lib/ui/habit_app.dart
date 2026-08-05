@@ -3,11 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/app_database.dart';
 import '../domain/habit.dart';
+import 'habit_tools_page.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
   ref.onDispose(database.close);
   return database;
+});
+
+final startupRecoveryProvider = FutureProvider<void>((ref) async {
+  await ref.watch(databaseProvider).recoverInterruptedDisconnectSession();
 });
 
 final selectedHabitsProvider = StreamProvider<List<HabitSelection>>(
@@ -53,14 +58,24 @@ class _StartupPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ref
-        .watch(selectedHabitsProvider)
+        .watch(startupRecoveryProvider)
         .when(
           loading: () =>
               const Scaffold(body: Center(child: CircularProgressIndicator())),
           error: (error, _) =>
-              Scaffold(body: Center(child: Text('读取本地数据失败：$error'))),
-          data: (selected) =>
-              selected.isEmpty ? const _OnboardingPage() : const _MainShell(),
+              Scaffold(body: Center(child: Text('恢复本地数据失败：$error'))),
+          data: (_) => ref
+              .watch(selectedHabitsProvider)
+              .when(
+                loading: () => const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                ),
+                error: (error, _) =>
+                    Scaffold(body: Center(child: Text('读取本地数据失败：$error'))),
+                data: (selected) => selected.isEmpty
+                    ? const _OnboardingPage()
+                    : const _MainShell(),
+              ),
         );
   }
 }
@@ -280,14 +295,16 @@ class _TodayHabitCard extends ConsumerWidget {
             ? const Icon(Icons.check_circle, color: Colors.green)
             : FilledButton(
                 onPressed: () async {
-                  await ref
-                      .read(databaseProvider)
-                      .recordCompletion(
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => habitToolPage(
                         habitId: habit.habitId,
-                        occurredAt: DateTime.now(),
-                      );
+                        database: ref.read(databaseProvider),
+                      ),
+                    ),
+                  );
                 },
-                child: const Text('完成'),
+                child: const Text('开始'),
               ),
       ),
     );
@@ -336,12 +353,38 @@ class _HabitProgressTile extends ConsumerWidget {
             error: (error, _) => ListTile(title: Text('读取进度失败：$error')),
             data: (count) {
               final progress = (count / 3).clamp(0.0, 1.0);
-              return ListTile(
-                title: Text(definition.name),
-                subtitle: Text('累计完成 $count 次 · ${count >= 3 ? '发芽' : '种子'}'),
-                trailing: SizedBox(
-                  width: 96,
-                  child: LinearProgressIndicator(value: progress),
+              return InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => habitToolPage(
+                      habitId: habitId,
+                      database: ref.read(databaseProvider),
+                    ),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              definition.name,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text('累计完成 $count 次 · ${count >= 3 ? '发芽' : '种子'}'),
+                      const SizedBox(height: 10),
+                      LinearProgressIndicator(value: progress),
+                    ],
+                  ),
                 ),
               );
             },

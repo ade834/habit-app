@@ -4,12 +4,14 @@
 
 ## 当前结论
 
+- 当前分支：`feature/habit-tools`；当前功能提交：`39174de`。
+- `main` 已包含通过评审的核心正反馈循环；习惯工具分支暂不合并，等待大C复核。
 - 项目已从 Windows 迁移到 Mac，并以 `origin/main` 为唯一同步基准。
 - Flutter 3.41.9、Dart 3.11.5、Xcode 16.4、CocoaPods 1.16.2 已验证。
-- `flutter analyze` 通过；4 项自动测试通过。
+- `flutter analyze` 通过；18 项自动测试通过。
 - iOS 18.6 模拟器构建并运行通过。
 - iPad Pro 13-inch (M4) 真机已配对，Release 包签名、安装和启动通过。
-- 阶段1体验评审已通过；iPad 真机四步验收已通过，进入阶段2核心正反馈循环。
+- 阶段1和核心正反馈循环已通过评审；四个习惯工具已完成用户试用，当前等待大C复核。
 
 ## 已验收流程
 
@@ -25,6 +27,22 @@
 - `screenshots/03_today.png`：主页面今天页
 - `screenshots/04_ipad_onboarding_selected.png`：iPad 真机首次选择页（已选择两个习惯并填写原因）
 - `screenshots/05_ipad_today_checked.png`：iPad 真机今天页（习惯卡、完成状态与积分）
+- `screenshots/06_h1_review_tool.png`：H1 三段式复盘、有效字数与补录入口
+- `screenshots/07_h2_focus_tool.png`：H2 30分钟深度思考计时器
+- `screenshots/08_h3_challenge_tool.png`：H3 每日挑战卡、换一次与完成确认
+- `screenshots/09_h4_disconnect_tool.png`：H4 15/30/60分钟断网仪式选择
+- `screenshots/10_habit_tools_today.png`：四个工具版本的正式默认入口今天页
+- `screenshots/11_h4_auto_countdown.png`：H4 无暂停、自动完成与离页重置说明
+
+## 四个习惯工具验证
+
+2026-08-05，在 iPad Pro 13-inch (M4) iOS 18.6 模拟器定向构建验证：
+
+- H1 去除标点和空格后满100字才可提交；可选今天及前3天，补录只保存不积分。
+- H2 内置365条不超过15字的中立开放思考议题，每天稳定推荐3条，用户可选其一或自定义议题；选中议题随计时会话持久化。计时使用持久化时间戳派生专注时长；满30分钟且累计暂停不超过5分钟才完成。
+- H3 由 AI 生成 500 条成长挑战，覆盖沟通、边界、行动、探索、诚实、专注、学习、关系、生活与整理；前3次换卡每次从语料库取一张新挑战，第4次起只在这3张中循环，状态关闭重开后保留。
+- H4 可选15/30/60分钟，无暂停；以时间戳计算倒计时，归零后自动完成并发放积分；离开页面或 App 失去前台即作废重置，连续3次后失败并从第3次失败时刻起冷却10小时，不因跨过零点提前解锁。
+- 有效完成统一走 HabitLog + PointTransaction 单事务，沿用当日防重复规则。
 
 ## iPad 真机验收记录
 
