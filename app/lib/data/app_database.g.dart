@@ -949,6 +949,1161 @@ class PointTransactionsCompanion extends UpdateCompanion<PointTransaction> {
   }
 }
 
+class $ReviewEntriesTable extends ReviewEntries
+    with TableInfo<$ReviewEntriesTable, ReviewEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ReviewEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _localDateMeta = const VerificationMeta(
+    'localDate',
+  );
+  @override
+  late final GeneratedColumn<String> localDate = GeneratedColumn<String>(
+    'local_date',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _decisionMeta = const VerificationMeta(
+    'decision',
+  );
+  @override
+  late final GeneratedColumn<String> decision = GeneratedColumn<String>(
+    'decision',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _resultMeta = const VerificationMeta('result');
+  @override
+  late final GeneratedColumn<String> result = GeneratedColumn<String>(
+    'result',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _improvementMeta = const VerificationMeta(
+    'improvement',
+  );
+  @override
+  late final GeneratedColumn<String> improvement = GeneratedColumn<String>(
+    'improvement',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    localDate,
+    decision,
+    result,
+    improvement,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'review_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ReviewEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('local_date')) {
+      context.handle(
+        _localDateMeta,
+        localDate.isAcceptableOrUnknown(data['local_date']!, _localDateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localDateMeta);
+    }
+    if (data.containsKey('decision')) {
+      context.handle(
+        _decisionMeta,
+        decision.isAcceptableOrUnknown(data['decision']!, _decisionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_decisionMeta);
+    }
+    if (data.containsKey('result')) {
+      context.handle(
+        _resultMeta,
+        result.isAcceptableOrUnknown(data['result']!, _resultMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_resultMeta);
+    }
+    if (data.containsKey('improvement')) {
+      context.handle(
+        _improvementMeta,
+        improvement.isAcceptableOrUnknown(
+          data['improvement']!,
+          _improvementMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_improvementMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {localDate};
+  @override
+  ReviewEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ReviewEntry(
+      localDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_date'],
+      )!,
+      decision: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}decision'],
+      )!,
+      result: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}result'],
+      )!,
+      improvement: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}improvement'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ReviewEntriesTable createAlias(String alias) {
+    return $ReviewEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class ReviewEntry extends DataClass implements Insertable<ReviewEntry> {
+  final String localDate;
+  final String decision;
+  final String result;
+  final String improvement;
+  final DateTime updatedAt;
+  const ReviewEntry({
+    required this.localDate,
+    required this.decision,
+    required this.result,
+    required this.improvement,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['local_date'] = Variable<String>(localDate);
+    map['decision'] = Variable<String>(decision);
+    map['result'] = Variable<String>(result);
+    map['improvement'] = Variable<String>(improvement);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  ReviewEntriesCompanion toCompanion(bool nullToAbsent) {
+    return ReviewEntriesCompanion(
+      localDate: Value(localDate),
+      decision: Value(decision),
+      result: Value(result),
+      improvement: Value(improvement),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory ReviewEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ReviewEntry(
+      localDate: serializer.fromJson<String>(json['localDate']),
+      decision: serializer.fromJson<String>(json['decision']),
+      result: serializer.fromJson<String>(json['result']),
+      improvement: serializer.fromJson<String>(json['improvement']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'localDate': serializer.toJson<String>(localDate),
+      'decision': serializer.toJson<String>(decision),
+      'result': serializer.toJson<String>(result),
+      'improvement': serializer.toJson<String>(improvement),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  ReviewEntry copyWith({
+    String? localDate,
+    String? decision,
+    String? result,
+    String? improvement,
+    DateTime? updatedAt,
+  }) => ReviewEntry(
+    localDate: localDate ?? this.localDate,
+    decision: decision ?? this.decision,
+    result: result ?? this.result,
+    improvement: improvement ?? this.improvement,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  ReviewEntry copyWithCompanion(ReviewEntriesCompanion data) {
+    return ReviewEntry(
+      localDate: data.localDate.present ? data.localDate.value : this.localDate,
+      decision: data.decision.present ? data.decision.value : this.decision,
+      result: data.result.present ? data.result.value : this.result,
+      improvement: data.improvement.present
+          ? data.improvement.value
+          : this.improvement,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ReviewEntry(')
+          ..write('localDate: $localDate, ')
+          ..write('decision: $decision, ')
+          ..write('result: $result, ')
+          ..write('improvement: $improvement, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(localDate, decision, result, improvement, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ReviewEntry &&
+          other.localDate == this.localDate &&
+          other.decision == this.decision &&
+          other.result == this.result &&
+          other.improvement == this.improvement &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ReviewEntriesCompanion extends UpdateCompanion<ReviewEntry> {
+  final Value<String> localDate;
+  final Value<String> decision;
+  final Value<String> result;
+  final Value<String> improvement;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const ReviewEntriesCompanion({
+    this.localDate = const Value.absent(),
+    this.decision = const Value.absent(),
+    this.result = const Value.absent(),
+    this.improvement = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ReviewEntriesCompanion.insert({
+    required String localDate,
+    required String decision,
+    required String result,
+    required String improvement,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : localDate = Value(localDate),
+       decision = Value(decision),
+       result = Value(result),
+       improvement = Value(improvement),
+       updatedAt = Value(updatedAt);
+  static Insertable<ReviewEntry> custom({
+    Expression<String>? localDate,
+    Expression<String>? decision,
+    Expression<String>? result,
+    Expression<String>? improvement,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (localDate != null) 'local_date': localDate,
+      if (decision != null) 'decision': decision,
+      if (result != null) 'result': result,
+      if (improvement != null) 'improvement': improvement,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ReviewEntriesCompanion copyWith({
+    Value<String>? localDate,
+    Value<String>? decision,
+    Value<String>? result,
+    Value<String>? improvement,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return ReviewEntriesCompanion(
+      localDate: localDate ?? this.localDate,
+      decision: decision ?? this.decision,
+      result: result ?? this.result,
+      improvement: improvement ?? this.improvement,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (localDate.present) {
+      map['local_date'] = Variable<String>(localDate.value);
+    }
+    if (decision.present) {
+      map['decision'] = Variable<String>(decision.value);
+    }
+    if (result.present) {
+      map['result'] = Variable<String>(result.value);
+    }
+    if (improvement.present) {
+      map['improvement'] = Variable<String>(improvement.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ReviewEntriesCompanion(')
+          ..write('localDate: $localDate, ')
+          ..write('decision: $decision, ')
+          ..write('result: $result, ')
+          ..write('improvement: $improvement, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TimerSessionsTable extends TimerSessions
+    with TableInfo<$TimerSessionsTable, TimerSession> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TimerSessionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _habitIdMeta = const VerificationMeta(
+    'habitId',
+  );
+  @override
+  late final GeneratedColumn<String> habitId = GeneratedColumn<String>(
+    'habit_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _targetSecondsMeta = const VerificationMeta(
+    'targetSeconds',
+  );
+  @override
+  late final GeneratedColumn<int> targetSeconds = GeneratedColumn<int>(
+    'target_seconds',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _startedAtMeta = const VerificationMeta(
+    'startedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> startedAt = GeneratedColumn<DateTime>(
+    'started_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pausedAtMeta = const VerificationMeta(
+    'pausedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> pausedAt = GeneratedColumn<DateTime>(
+    'paused_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _accumulatedPauseSecondsMeta =
+      const VerificationMeta('accumulatedPauseSeconds');
+  @override
+  late final GeneratedColumn<int> accumulatedPauseSeconds =
+      GeneratedColumn<int>(
+        'accumulated_pause_seconds',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+        defaultValue: const Constant(0),
+      );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('running'),
+  );
+  static const VerificationMeta _endedAtMeta = const VerificationMeta(
+    'endedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> endedAt = GeneratedColumn<DateTime>(
+    'ended_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    habitId,
+    targetSeconds,
+    startedAt,
+    pausedAt,
+    accumulatedPauseSeconds,
+    status,
+    endedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'timer_sessions';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TimerSession> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('habit_id')) {
+      context.handle(
+        _habitIdMeta,
+        habitId.isAcceptableOrUnknown(data['habit_id']!, _habitIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_habitIdMeta);
+    }
+    if (data.containsKey('target_seconds')) {
+      context.handle(
+        _targetSecondsMeta,
+        targetSeconds.isAcceptableOrUnknown(
+          data['target_seconds']!,
+          _targetSecondsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_targetSecondsMeta);
+    }
+    if (data.containsKey('started_at')) {
+      context.handle(
+        _startedAtMeta,
+        startedAt.isAcceptableOrUnknown(data['started_at']!, _startedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_startedAtMeta);
+    }
+    if (data.containsKey('paused_at')) {
+      context.handle(
+        _pausedAtMeta,
+        pausedAt.isAcceptableOrUnknown(data['paused_at']!, _pausedAtMeta),
+      );
+    }
+    if (data.containsKey('accumulated_pause_seconds')) {
+      context.handle(
+        _accumulatedPauseSecondsMeta,
+        accumulatedPauseSeconds.isAcceptableOrUnknown(
+          data['accumulated_pause_seconds']!,
+          _accumulatedPauseSecondsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('ended_at')) {
+      context.handle(
+        _endedAtMeta,
+        endedAt.isAcceptableOrUnknown(data['ended_at']!, _endedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TimerSession map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TimerSession(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      habitId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}habit_id'],
+      )!,
+      targetSeconds: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_seconds'],
+      )!,
+      startedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}started_at'],
+      )!,
+      pausedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}paused_at'],
+      ),
+      accumulatedPauseSeconds: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}accumulated_pause_seconds'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      endedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}ended_at'],
+      ),
+    );
+  }
+
+  @override
+  $TimerSessionsTable createAlias(String alias) {
+    return $TimerSessionsTable(attachedDatabase, alias);
+  }
+}
+
+class TimerSession extends DataClass implements Insertable<TimerSession> {
+  final int id;
+  final String habitId;
+  final int targetSeconds;
+  final DateTime startedAt;
+  final DateTime? pausedAt;
+  final int accumulatedPauseSeconds;
+  final String status;
+  final DateTime? endedAt;
+  const TimerSession({
+    required this.id,
+    required this.habitId,
+    required this.targetSeconds,
+    required this.startedAt,
+    this.pausedAt,
+    required this.accumulatedPauseSeconds,
+    required this.status,
+    this.endedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['habit_id'] = Variable<String>(habitId);
+    map['target_seconds'] = Variable<int>(targetSeconds);
+    map['started_at'] = Variable<DateTime>(startedAt);
+    if (!nullToAbsent || pausedAt != null) {
+      map['paused_at'] = Variable<DateTime>(pausedAt);
+    }
+    map['accumulated_pause_seconds'] = Variable<int>(accumulatedPauseSeconds);
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || endedAt != null) {
+      map['ended_at'] = Variable<DateTime>(endedAt);
+    }
+    return map;
+  }
+
+  TimerSessionsCompanion toCompanion(bool nullToAbsent) {
+    return TimerSessionsCompanion(
+      id: Value(id),
+      habitId: Value(habitId),
+      targetSeconds: Value(targetSeconds),
+      startedAt: Value(startedAt),
+      pausedAt: pausedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pausedAt),
+      accumulatedPauseSeconds: Value(accumulatedPauseSeconds),
+      status: Value(status),
+      endedAt: endedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(endedAt),
+    );
+  }
+
+  factory TimerSession.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TimerSession(
+      id: serializer.fromJson<int>(json['id']),
+      habitId: serializer.fromJson<String>(json['habitId']),
+      targetSeconds: serializer.fromJson<int>(json['targetSeconds']),
+      startedAt: serializer.fromJson<DateTime>(json['startedAt']),
+      pausedAt: serializer.fromJson<DateTime?>(json['pausedAt']),
+      accumulatedPauseSeconds: serializer.fromJson<int>(
+        json['accumulatedPauseSeconds'],
+      ),
+      status: serializer.fromJson<String>(json['status']),
+      endedAt: serializer.fromJson<DateTime?>(json['endedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'habitId': serializer.toJson<String>(habitId),
+      'targetSeconds': serializer.toJson<int>(targetSeconds),
+      'startedAt': serializer.toJson<DateTime>(startedAt),
+      'pausedAt': serializer.toJson<DateTime?>(pausedAt),
+      'accumulatedPauseSeconds': serializer.toJson<int>(
+        accumulatedPauseSeconds,
+      ),
+      'status': serializer.toJson<String>(status),
+      'endedAt': serializer.toJson<DateTime?>(endedAt),
+    };
+  }
+
+  TimerSession copyWith({
+    int? id,
+    String? habitId,
+    int? targetSeconds,
+    DateTime? startedAt,
+    Value<DateTime?> pausedAt = const Value.absent(),
+    int? accumulatedPauseSeconds,
+    String? status,
+    Value<DateTime?> endedAt = const Value.absent(),
+  }) => TimerSession(
+    id: id ?? this.id,
+    habitId: habitId ?? this.habitId,
+    targetSeconds: targetSeconds ?? this.targetSeconds,
+    startedAt: startedAt ?? this.startedAt,
+    pausedAt: pausedAt.present ? pausedAt.value : this.pausedAt,
+    accumulatedPauseSeconds:
+        accumulatedPauseSeconds ?? this.accumulatedPauseSeconds,
+    status: status ?? this.status,
+    endedAt: endedAt.present ? endedAt.value : this.endedAt,
+  );
+  TimerSession copyWithCompanion(TimerSessionsCompanion data) {
+    return TimerSession(
+      id: data.id.present ? data.id.value : this.id,
+      habitId: data.habitId.present ? data.habitId.value : this.habitId,
+      targetSeconds: data.targetSeconds.present
+          ? data.targetSeconds.value
+          : this.targetSeconds,
+      startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+      pausedAt: data.pausedAt.present ? data.pausedAt.value : this.pausedAt,
+      accumulatedPauseSeconds: data.accumulatedPauseSeconds.present
+          ? data.accumulatedPauseSeconds.value
+          : this.accumulatedPauseSeconds,
+      status: data.status.present ? data.status.value : this.status,
+      endedAt: data.endedAt.present ? data.endedAt.value : this.endedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimerSession(')
+          ..write('id: $id, ')
+          ..write('habitId: $habitId, ')
+          ..write('targetSeconds: $targetSeconds, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('pausedAt: $pausedAt, ')
+          ..write('accumulatedPauseSeconds: $accumulatedPauseSeconds, ')
+          ..write('status: $status, ')
+          ..write('endedAt: $endedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    habitId,
+    targetSeconds,
+    startedAt,
+    pausedAt,
+    accumulatedPauseSeconds,
+    status,
+    endedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TimerSession &&
+          other.id == this.id &&
+          other.habitId == this.habitId &&
+          other.targetSeconds == this.targetSeconds &&
+          other.startedAt == this.startedAt &&
+          other.pausedAt == this.pausedAt &&
+          other.accumulatedPauseSeconds == this.accumulatedPauseSeconds &&
+          other.status == this.status &&
+          other.endedAt == this.endedAt);
+}
+
+class TimerSessionsCompanion extends UpdateCompanion<TimerSession> {
+  final Value<int> id;
+  final Value<String> habitId;
+  final Value<int> targetSeconds;
+  final Value<DateTime> startedAt;
+  final Value<DateTime?> pausedAt;
+  final Value<int> accumulatedPauseSeconds;
+  final Value<String> status;
+  final Value<DateTime?> endedAt;
+  const TimerSessionsCompanion({
+    this.id = const Value.absent(),
+    this.habitId = const Value.absent(),
+    this.targetSeconds = const Value.absent(),
+    this.startedAt = const Value.absent(),
+    this.pausedAt = const Value.absent(),
+    this.accumulatedPauseSeconds = const Value.absent(),
+    this.status = const Value.absent(),
+    this.endedAt = const Value.absent(),
+  });
+  TimerSessionsCompanion.insert({
+    this.id = const Value.absent(),
+    required String habitId,
+    required int targetSeconds,
+    required DateTime startedAt,
+    this.pausedAt = const Value.absent(),
+    this.accumulatedPauseSeconds = const Value.absent(),
+    this.status = const Value.absent(),
+    this.endedAt = const Value.absent(),
+  }) : habitId = Value(habitId),
+       targetSeconds = Value(targetSeconds),
+       startedAt = Value(startedAt);
+  static Insertable<TimerSession> custom({
+    Expression<int>? id,
+    Expression<String>? habitId,
+    Expression<int>? targetSeconds,
+    Expression<DateTime>? startedAt,
+    Expression<DateTime>? pausedAt,
+    Expression<int>? accumulatedPauseSeconds,
+    Expression<String>? status,
+    Expression<DateTime>? endedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (habitId != null) 'habit_id': habitId,
+      if (targetSeconds != null) 'target_seconds': targetSeconds,
+      if (startedAt != null) 'started_at': startedAt,
+      if (pausedAt != null) 'paused_at': pausedAt,
+      if (accumulatedPauseSeconds != null)
+        'accumulated_pause_seconds': accumulatedPauseSeconds,
+      if (status != null) 'status': status,
+      if (endedAt != null) 'ended_at': endedAt,
+    });
+  }
+
+  TimerSessionsCompanion copyWith({
+    Value<int>? id,
+    Value<String>? habitId,
+    Value<int>? targetSeconds,
+    Value<DateTime>? startedAt,
+    Value<DateTime?>? pausedAt,
+    Value<int>? accumulatedPauseSeconds,
+    Value<String>? status,
+    Value<DateTime?>? endedAt,
+  }) {
+    return TimerSessionsCompanion(
+      id: id ?? this.id,
+      habitId: habitId ?? this.habitId,
+      targetSeconds: targetSeconds ?? this.targetSeconds,
+      startedAt: startedAt ?? this.startedAt,
+      pausedAt: pausedAt ?? this.pausedAt,
+      accumulatedPauseSeconds:
+          accumulatedPauseSeconds ?? this.accumulatedPauseSeconds,
+      status: status ?? this.status,
+      endedAt: endedAt ?? this.endedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (habitId.present) {
+      map['habit_id'] = Variable<String>(habitId.value);
+    }
+    if (targetSeconds.present) {
+      map['target_seconds'] = Variable<int>(targetSeconds.value);
+    }
+    if (startedAt.present) {
+      map['started_at'] = Variable<DateTime>(startedAt.value);
+    }
+    if (pausedAt.present) {
+      map['paused_at'] = Variable<DateTime>(pausedAt.value);
+    }
+    if (accumulatedPauseSeconds.present) {
+      map['accumulated_pause_seconds'] = Variable<int>(
+        accumulatedPauseSeconds.value,
+      );
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (endedAt.present) {
+      map['ended_at'] = Variable<DateTime>(endedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimerSessionsCompanion(')
+          ..write('id: $id, ')
+          ..write('habitId: $habitId, ')
+          ..write('targetSeconds: $targetSeconds, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('pausedAt: $pausedAt, ')
+          ..write('accumulatedPauseSeconds: $accumulatedPauseSeconds, ')
+          ..write('status: $status, ')
+          ..write('endedAt: $endedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ChallengeDrawsTable extends ChallengeDraws
+    with TableInfo<$ChallengeDrawsTable, ChallengeDraw> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ChallengeDrawsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _localDateMeta = const VerificationMeta(
+    'localDate',
+  );
+  @override
+  late final GeneratedColumn<String> localDate = GeneratedColumn<String>(
+    'local_date',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cardIndexMeta = const VerificationMeta(
+    'cardIndex',
+  );
+  @override
+  late final GeneratedColumn<int> cardIndex = GeneratedColumn<int>(
+    'card_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _swapUsedMeta = const VerificationMeta(
+    'swapUsed',
+  );
+  @override
+  late final GeneratedColumn<bool> swapUsed = GeneratedColumn<bool>(
+    'swap_used',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("swap_used" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [localDate, cardIndex, swapUsed];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'challenge_draws';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ChallengeDraw> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('local_date')) {
+      context.handle(
+        _localDateMeta,
+        localDate.isAcceptableOrUnknown(data['local_date']!, _localDateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localDateMeta);
+    }
+    if (data.containsKey('card_index')) {
+      context.handle(
+        _cardIndexMeta,
+        cardIndex.isAcceptableOrUnknown(data['card_index']!, _cardIndexMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cardIndexMeta);
+    }
+    if (data.containsKey('swap_used')) {
+      context.handle(
+        _swapUsedMeta,
+        swapUsed.isAcceptableOrUnknown(data['swap_used']!, _swapUsedMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {localDate};
+  @override
+  ChallengeDraw map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ChallengeDraw(
+      localDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_date'],
+      )!,
+      cardIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}card_index'],
+      )!,
+      swapUsed: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}swap_used'],
+      )!,
+    );
+  }
+
+  @override
+  $ChallengeDrawsTable createAlias(String alias) {
+    return $ChallengeDrawsTable(attachedDatabase, alias);
+  }
+}
+
+class ChallengeDraw extends DataClass implements Insertable<ChallengeDraw> {
+  final String localDate;
+  final int cardIndex;
+  final bool swapUsed;
+  const ChallengeDraw({
+    required this.localDate,
+    required this.cardIndex,
+    required this.swapUsed,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['local_date'] = Variable<String>(localDate);
+    map['card_index'] = Variable<int>(cardIndex);
+    map['swap_used'] = Variable<bool>(swapUsed);
+    return map;
+  }
+
+  ChallengeDrawsCompanion toCompanion(bool nullToAbsent) {
+    return ChallengeDrawsCompanion(
+      localDate: Value(localDate),
+      cardIndex: Value(cardIndex),
+      swapUsed: Value(swapUsed),
+    );
+  }
+
+  factory ChallengeDraw.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ChallengeDraw(
+      localDate: serializer.fromJson<String>(json['localDate']),
+      cardIndex: serializer.fromJson<int>(json['cardIndex']),
+      swapUsed: serializer.fromJson<bool>(json['swapUsed']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'localDate': serializer.toJson<String>(localDate),
+      'cardIndex': serializer.toJson<int>(cardIndex),
+      'swapUsed': serializer.toJson<bool>(swapUsed),
+    };
+  }
+
+  ChallengeDraw copyWith({String? localDate, int? cardIndex, bool? swapUsed}) =>
+      ChallengeDraw(
+        localDate: localDate ?? this.localDate,
+        cardIndex: cardIndex ?? this.cardIndex,
+        swapUsed: swapUsed ?? this.swapUsed,
+      );
+  ChallengeDraw copyWithCompanion(ChallengeDrawsCompanion data) {
+    return ChallengeDraw(
+      localDate: data.localDate.present ? data.localDate.value : this.localDate,
+      cardIndex: data.cardIndex.present ? data.cardIndex.value : this.cardIndex,
+      swapUsed: data.swapUsed.present ? data.swapUsed.value : this.swapUsed,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChallengeDraw(')
+          ..write('localDate: $localDate, ')
+          ..write('cardIndex: $cardIndex, ')
+          ..write('swapUsed: $swapUsed')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(localDate, cardIndex, swapUsed);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ChallengeDraw &&
+          other.localDate == this.localDate &&
+          other.cardIndex == this.cardIndex &&
+          other.swapUsed == this.swapUsed);
+}
+
+class ChallengeDrawsCompanion extends UpdateCompanion<ChallengeDraw> {
+  final Value<String> localDate;
+  final Value<int> cardIndex;
+  final Value<bool> swapUsed;
+  final Value<int> rowid;
+  const ChallengeDrawsCompanion({
+    this.localDate = const Value.absent(),
+    this.cardIndex = const Value.absent(),
+    this.swapUsed = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ChallengeDrawsCompanion.insert({
+    required String localDate,
+    required int cardIndex,
+    this.swapUsed = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : localDate = Value(localDate),
+       cardIndex = Value(cardIndex);
+  static Insertable<ChallengeDraw> custom({
+    Expression<String>? localDate,
+    Expression<int>? cardIndex,
+    Expression<bool>? swapUsed,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (localDate != null) 'local_date': localDate,
+      if (cardIndex != null) 'card_index': cardIndex,
+      if (swapUsed != null) 'swap_used': swapUsed,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ChallengeDrawsCompanion copyWith({
+    Value<String>? localDate,
+    Value<int>? cardIndex,
+    Value<bool>? swapUsed,
+    Value<int>? rowid,
+  }) {
+    return ChallengeDrawsCompanion(
+      localDate: localDate ?? this.localDate,
+      cardIndex: cardIndex ?? this.cardIndex,
+      swapUsed: swapUsed ?? this.swapUsed,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (localDate.present) {
+      map['local_date'] = Variable<String>(localDate.value);
+    }
+    if (cardIndex.present) {
+      map['card_index'] = Variable<int>(cardIndex.value);
+    }
+    if (swapUsed.present) {
+      map['swap_used'] = Variable<bool>(swapUsed.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChallengeDrawsCompanion(')
+          ..write('localDate: $localDate, ')
+          ..write('cardIndex: $cardIndex, ')
+          ..write('swapUsed: $swapUsed, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -958,6 +2113,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $HabitLogsTable habitLogs = $HabitLogsTable(this);
   late final $PointTransactionsTable pointTransactions =
       $PointTransactionsTable(this);
+  late final $ReviewEntriesTable reviewEntries = $ReviewEntriesTable(this);
+  late final $TimerSessionsTable timerSessions = $TimerSessionsTable(this);
+  late final $ChallengeDrawsTable challengeDraws = $ChallengeDrawsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -966,6 +2124,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     habitSelections,
     habitLogs,
     pointTransactions,
+    reviewEntries,
+    timerSessions,
+    challengeDraws,
   ];
 }
 
@@ -1755,6 +2916,627 @@ typedef $$PointTransactionsTableProcessedTableManager =
       PointTransaction,
       PrefetchHooks Function({bool habitLogId})
     >;
+typedef $$ReviewEntriesTableCreateCompanionBuilder =
+    ReviewEntriesCompanion Function({
+      required String localDate,
+      required String decision,
+      required String result,
+      required String improvement,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$ReviewEntriesTableUpdateCompanionBuilder =
+    ReviewEntriesCompanion Function({
+      Value<String> localDate,
+      Value<String> decision,
+      Value<String> result,
+      Value<String> improvement,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$ReviewEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $ReviewEntriesTable> {
+  $$ReviewEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get decision => $composableBuilder(
+    column: $table.decision,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get result => $composableBuilder(
+    column: $table.result,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get improvement => $composableBuilder(
+    column: $table.improvement,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ReviewEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $ReviewEntriesTable> {
+  $$ReviewEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get decision => $composableBuilder(
+    column: $table.decision,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get result => $composableBuilder(
+    column: $table.result,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get improvement => $composableBuilder(
+    column: $table.improvement,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ReviewEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ReviewEntriesTable> {
+  $$ReviewEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get localDate =>
+      $composableBuilder(column: $table.localDate, builder: (column) => column);
+
+  GeneratedColumn<String> get decision =>
+      $composableBuilder(column: $table.decision, builder: (column) => column);
+
+  GeneratedColumn<String> get result =>
+      $composableBuilder(column: $table.result, builder: (column) => column);
+
+  GeneratedColumn<String> get improvement => $composableBuilder(
+    column: $table.improvement,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$ReviewEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ReviewEntriesTable,
+          ReviewEntry,
+          $$ReviewEntriesTableFilterComposer,
+          $$ReviewEntriesTableOrderingComposer,
+          $$ReviewEntriesTableAnnotationComposer,
+          $$ReviewEntriesTableCreateCompanionBuilder,
+          $$ReviewEntriesTableUpdateCompanionBuilder,
+          (
+            ReviewEntry,
+            BaseReferences<_$AppDatabase, $ReviewEntriesTable, ReviewEntry>,
+          ),
+          ReviewEntry,
+          PrefetchHooks Function()
+        > {
+  $$ReviewEntriesTableTableManager(_$AppDatabase db, $ReviewEntriesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ReviewEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ReviewEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ReviewEntriesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> localDate = const Value.absent(),
+                Value<String> decision = const Value.absent(),
+                Value<String> result = const Value.absent(),
+                Value<String> improvement = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ReviewEntriesCompanion(
+                localDate: localDate,
+                decision: decision,
+                result: result,
+                improvement: improvement,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String localDate,
+                required String decision,
+                required String result,
+                required String improvement,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ReviewEntriesCompanion.insert(
+                localDate: localDate,
+                decision: decision,
+                result: result,
+                improvement: improvement,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ReviewEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ReviewEntriesTable,
+      ReviewEntry,
+      $$ReviewEntriesTableFilterComposer,
+      $$ReviewEntriesTableOrderingComposer,
+      $$ReviewEntriesTableAnnotationComposer,
+      $$ReviewEntriesTableCreateCompanionBuilder,
+      $$ReviewEntriesTableUpdateCompanionBuilder,
+      (
+        ReviewEntry,
+        BaseReferences<_$AppDatabase, $ReviewEntriesTable, ReviewEntry>,
+      ),
+      ReviewEntry,
+      PrefetchHooks Function()
+    >;
+typedef $$TimerSessionsTableCreateCompanionBuilder =
+    TimerSessionsCompanion Function({
+      Value<int> id,
+      required String habitId,
+      required int targetSeconds,
+      required DateTime startedAt,
+      Value<DateTime?> pausedAt,
+      Value<int> accumulatedPauseSeconds,
+      Value<String> status,
+      Value<DateTime?> endedAt,
+    });
+typedef $$TimerSessionsTableUpdateCompanionBuilder =
+    TimerSessionsCompanion Function({
+      Value<int> id,
+      Value<String> habitId,
+      Value<int> targetSeconds,
+      Value<DateTime> startedAt,
+      Value<DateTime?> pausedAt,
+      Value<int> accumulatedPauseSeconds,
+      Value<String> status,
+      Value<DateTime?> endedAt,
+    });
+
+class $$TimerSessionsTableFilterComposer
+    extends Composer<_$AppDatabase, $TimerSessionsTable> {
+  $$TimerSessionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get habitId => $composableBuilder(
+    column: $table.habitId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get targetSeconds => $composableBuilder(
+    column: $table.targetSeconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get startedAt => $composableBuilder(
+    column: $table.startedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get pausedAt => $composableBuilder(
+    column: $table.pausedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get accumulatedPauseSeconds => $composableBuilder(
+    column: $table.accumulatedPauseSeconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get endedAt => $composableBuilder(
+    column: $table.endedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TimerSessionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $TimerSessionsTable> {
+  $$TimerSessionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get habitId => $composableBuilder(
+    column: $table.habitId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get targetSeconds => $composableBuilder(
+    column: $table.targetSeconds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get startedAt => $composableBuilder(
+    column: $table.startedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get pausedAt => $composableBuilder(
+    column: $table.pausedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get accumulatedPauseSeconds => $composableBuilder(
+    column: $table.accumulatedPauseSeconds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get endedAt => $composableBuilder(
+    column: $table.endedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TimerSessionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TimerSessionsTable> {
+  $$TimerSessionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get habitId =>
+      $composableBuilder(column: $table.habitId, builder: (column) => column);
+
+  GeneratedColumn<int> get targetSeconds => $composableBuilder(
+    column: $table.targetSeconds,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get startedAt =>
+      $composableBuilder(column: $table.startedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get pausedAt =>
+      $composableBuilder(column: $table.pausedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get accumulatedPauseSeconds => $composableBuilder(
+    column: $table.accumulatedPauseSeconds,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get endedAt =>
+      $composableBuilder(column: $table.endedAt, builder: (column) => column);
+}
+
+class $$TimerSessionsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TimerSessionsTable,
+          TimerSession,
+          $$TimerSessionsTableFilterComposer,
+          $$TimerSessionsTableOrderingComposer,
+          $$TimerSessionsTableAnnotationComposer,
+          $$TimerSessionsTableCreateCompanionBuilder,
+          $$TimerSessionsTableUpdateCompanionBuilder,
+          (
+            TimerSession,
+            BaseReferences<_$AppDatabase, $TimerSessionsTable, TimerSession>,
+          ),
+          TimerSession,
+          PrefetchHooks Function()
+        > {
+  $$TimerSessionsTableTableManager(_$AppDatabase db, $TimerSessionsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TimerSessionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TimerSessionsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TimerSessionsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> habitId = const Value.absent(),
+                Value<int> targetSeconds = const Value.absent(),
+                Value<DateTime> startedAt = const Value.absent(),
+                Value<DateTime?> pausedAt = const Value.absent(),
+                Value<int> accumulatedPauseSeconds = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<DateTime?> endedAt = const Value.absent(),
+              }) => TimerSessionsCompanion(
+                id: id,
+                habitId: habitId,
+                targetSeconds: targetSeconds,
+                startedAt: startedAt,
+                pausedAt: pausedAt,
+                accumulatedPauseSeconds: accumulatedPauseSeconds,
+                status: status,
+                endedAt: endedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String habitId,
+                required int targetSeconds,
+                required DateTime startedAt,
+                Value<DateTime?> pausedAt = const Value.absent(),
+                Value<int> accumulatedPauseSeconds = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<DateTime?> endedAt = const Value.absent(),
+              }) => TimerSessionsCompanion.insert(
+                id: id,
+                habitId: habitId,
+                targetSeconds: targetSeconds,
+                startedAt: startedAt,
+                pausedAt: pausedAt,
+                accumulatedPauseSeconds: accumulatedPauseSeconds,
+                status: status,
+                endedAt: endedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TimerSessionsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TimerSessionsTable,
+      TimerSession,
+      $$TimerSessionsTableFilterComposer,
+      $$TimerSessionsTableOrderingComposer,
+      $$TimerSessionsTableAnnotationComposer,
+      $$TimerSessionsTableCreateCompanionBuilder,
+      $$TimerSessionsTableUpdateCompanionBuilder,
+      (
+        TimerSession,
+        BaseReferences<_$AppDatabase, $TimerSessionsTable, TimerSession>,
+      ),
+      TimerSession,
+      PrefetchHooks Function()
+    >;
+typedef $$ChallengeDrawsTableCreateCompanionBuilder =
+    ChallengeDrawsCompanion Function({
+      required String localDate,
+      required int cardIndex,
+      Value<bool> swapUsed,
+      Value<int> rowid,
+    });
+typedef $$ChallengeDrawsTableUpdateCompanionBuilder =
+    ChallengeDrawsCompanion Function({
+      Value<String> localDate,
+      Value<int> cardIndex,
+      Value<bool> swapUsed,
+      Value<int> rowid,
+    });
+
+class $$ChallengeDrawsTableFilterComposer
+    extends Composer<_$AppDatabase, $ChallengeDrawsTable> {
+  $$ChallengeDrawsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get cardIndex => $composableBuilder(
+    column: $table.cardIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get swapUsed => $composableBuilder(
+    column: $table.swapUsed,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ChallengeDrawsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ChallengeDrawsTable> {
+  $$ChallengeDrawsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get cardIndex => $composableBuilder(
+    column: $table.cardIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get swapUsed => $composableBuilder(
+    column: $table.swapUsed,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ChallengeDrawsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ChallengeDrawsTable> {
+  $$ChallengeDrawsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get localDate =>
+      $composableBuilder(column: $table.localDate, builder: (column) => column);
+
+  GeneratedColumn<int> get cardIndex =>
+      $composableBuilder(column: $table.cardIndex, builder: (column) => column);
+
+  GeneratedColumn<bool> get swapUsed =>
+      $composableBuilder(column: $table.swapUsed, builder: (column) => column);
+}
+
+class $$ChallengeDrawsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ChallengeDrawsTable,
+          ChallengeDraw,
+          $$ChallengeDrawsTableFilterComposer,
+          $$ChallengeDrawsTableOrderingComposer,
+          $$ChallengeDrawsTableAnnotationComposer,
+          $$ChallengeDrawsTableCreateCompanionBuilder,
+          $$ChallengeDrawsTableUpdateCompanionBuilder,
+          (
+            ChallengeDraw,
+            BaseReferences<_$AppDatabase, $ChallengeDrawsTable, ChallengeDraw>,
+          ),
+          ChallengeDraw,
+          PrefetchHooks Function()
+        > {
+  $$ChallengeDrawsTableTableManager(
+    _$AppDatabase db,
+    $ChallengeDrawsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ChallengeDrawsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ChallengeDrawsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ChallengeDrawsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> localDate = const Value.absent(),
+                Value<int> cardIndex = const Value.absent(),
+                Value<bool> swapUsed = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChallengeDrawsCompanion(
+                localDate: localDate,
+                cardIndex: cardIndex,
+                swapUsed: swapUsed,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String localDate,
+                required int cardIndex,
+                Value<bool> swapUsed = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChallengeDrawsCompanion.insert(
+                localDate: localDate,
+                cardIndex: cardIndex,
+                swapUsed: swapUsed,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ChallengeDrawsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ChallengeDrawsTable,
+      ChallengeDraw,
+      $$ChallengeDrawsTableFilterComposer,
+      $$ChallengeDrawsTableOrderingComposer,
+      $$ChallengeDrawsTableAnnotationComposer,
+      $$ChallengeDrawsTableCreateCompanionBuilder,
+      $$ChallengeDrawsTableUpdateCompanionBuilder,
+      (
+        ChallengeDraw,
+        BaseReferences<_$AppDatabase, $ChallengeDrawsTable, ChallengeDraw>,
+      ),
+      ChallengeDraw,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1765,4 +3547,10 @@ class $AppDatabaseManager {
       $$HabitLogsTableTableManager(_db, _db.habitLogs);
   $$PointTransactionsTableTableManager get pointTransactions =>
       $$PointTransactionsTableTableManager(_db, _db.pointTransactions);
+  $$ReviewEntriesTableTableManager get reviewEntries =>
+      $$ReviewEntriesTableTableManager(_db, _db.reviewEntries);
+  $$TimerSessionsTableTableManager get timerSessions =>
+      $$TimerSessionsTableTableManager(_db, _db.timerSessions);
+  $$ChallengeDrawsTableTableManager get challengeDraws =>
+      $$ChallengeDrawsTableTableManager(_db, _db.challengeDraws);
 }

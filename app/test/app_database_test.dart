@@ -70,4 +70,88 @@ void main() {
     expect(await database.watchSelectedHabits().first, isEmpty);
     expect(await database.pointBalance(), 0);
   });
+
+  test('H1今日100字发积分，补录前3天不发积分', () async {
+    final now = DateTime(2026, 8, 5, 12);
+    expect(
+      await database.saveReview(
+        date: now,
+        decision: List.filled(100, '我').join(),
+        result: '',
+        improvement: '',
+        now: now,
+      ),
+      isTrue,
+    );
+    expect(
+      await database.saveReview(
+        date: DateTime(2026, 8, 2),
+        decision: List.filled(100, '我').join(),
+        result: '',
+        improvement: '',
+        now: now,
+      ),
+      isFalse,
+    );
+    expect(await database.pointBalance(), 1);
+  });
+
+  test('H2达到30分钟且暂停不超过5分钟才完成', () async {
+    final start = DateTime(2026, 8, 5, 10);
+    final session = await database.startTimer(
+      habitId: 'H2',
+      targetSeconds: 30 * 60,
+      now: start,
+    );
+    await database.pauseTimer(
+      session.id,
+      start.add(const Duration(minutes: 10)),
+    );
+    await database.resumeTimer(
+      session.id,
+      start.add(const Duration(minutes: 15)),
+    );
+    expect(
+      await database.finishFocusTimer(
+        session.id,
+        start.add(const Duration(minutes: 35)),
+      ),
+      isTrue,
+    );
+    expect(await database.pointBalance(), 1);
+  });
+
+  test('H3每天只能换卡一次', () async {
+    final now = DateTime(2026, 8, 5);
+    final first = await database.challengeForToday(now: now);
+    final swapped = await database.swapChallenge(now: now);
+    final repeated = await database.swapChallenge(now: now);
+    expect(swapped.swapUsed, isTrue);
+    expect(swapped.cardIndex, isNot(first.cardIndex));
+    expect(repeated.cardIndex, swapped.cardIndex);
+  });
+
+  test('H4倒计未结束不能确认，结束后完成', () async {
+    final start = DateTime(2026, 8, 5, 22);
+    final session = await database.startTimer(
+      habitId: 'H4',
+      targetSeconds: 15 * 60,
+      now: start,
+    );
+    expect(
+      await database.confirmDisconnectTimer(
+        session.id,
+        start.add(const Duration(minutes: 14)),
+      ),
+      isFalse,
+    );
+    expect(
+      await database.confirmDisconnectTimer(
+        session.id,
+        start.add(const Duration(minutes: 15)),
+      ),
+      isTrue,
+    );
+    expect(await database.pointBalance(), 1);
+  });
 }

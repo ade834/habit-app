@@ -25,6 +25,21 @@
 - `screenshots/03_today.png`：主页面今天页
 - `screenshots/04_ipad_onboarding_selected.png`：iPad 真机首次选择页（已选择两个习惯并填写原因）
 - `screenshots/05_ipad_today_checked.png`：iPad 真机今天页（习惯卡、完成状态与积分）
+- `screenshots/06_h1_review_tool.png`：H1 三段式复盘、有效字数与补录入口
+- `screenshots/07_h2_focus_tool.png`：H2 30分钟深度思考计时器
+- `screenshots/08_h3_challenge_tool.png`：H3 每日挑战卡、换一次与完成确认
+- `screenshots/09_h4_disconnect_tool.png`：H4 15/30/60分钟断网仪式选择
+- `screenshots/10_habit_tools_today.png`：四个工具版本的正式默认入口今天页
+
+## 四个习惯工具验证
+
+2026-08-05，在 iPad Pro 13-inch (M4) iOS 18.6 模拟器定向构建验证：
+
+- H1 去除标点和空格后满100字才可提交；可选今天及前3天，补录只保存不积分。
+- H2 使用持久化时间戳派生专注时长；满30分钟且累计暂停不超过5分钟才完成。
+- H3 每个自然日保存一张挑战卡，当日只允许换卡一次。
+- H4 可选15/30/60分钟，以时间戳计算倒计时，结束后才可确认完成。
+- 有效完成统一走 HabitLog + PointTransaction 单事务，沿用当日防重复规则。
 
 ## iPad 真机验收记录
 

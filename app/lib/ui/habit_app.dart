@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/app_database.dart';
 import '../domain/habit.dart';
+import 'habit_tools_page.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -280,14 +281,16 @@ class _TodayHabitCard extends ConsumerWidget {
             ? const Icon(Icons.check_circle, color: Colors.green)
             : FilledButton(
                 onPressed: () async {
-                  await ref
-                      .read(databaseProvider)
-                      .recordCompletion(
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => habitToolPage(
                         habitId: habit.habitId,
-                        occurredAt: DateTime.now(),
-                      );
+                        database: ref.read(databaseProvider),
+                      ),
+                    ),
+                  );
                 },
-                child: const Text('完成'),
+                child: const Text('开始'),
               ),
       ),
     );
