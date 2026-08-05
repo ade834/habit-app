@@ -56,4 +56,16 @@ void main() {
     expect(topics.toSet(), hasLength(3));
     expect(dailyThinkingTopics(date), topics);
   });
+
+  test('H4三次离开使用不同且递进的提醒', () {
+    final first = disconnectAttemptMessage(1);
+    final second = disconnectAttemptMessage(2);
+    final failed = disconnectAttemptMessage(3, lockedUntilLabel: '明天08:00');
+
+    expect({first, second, failed}, hasLength(3));
+    expect(first, contains('还有2次机会'));
+    expect(second, contains('最后1次机会'));
+    expect(failed, contains('任务失败'));
+    expect(failed, contains('明天08:00后'));
+  });
 }
