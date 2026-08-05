@@ -380,25 +380,62 @@ class _GrowthTile extends ConsumerWidget {
   const _GrowthTile({required this.habitId});
   final String habitId;
 
+  static const _sproutTarget = 3;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final definition = firstHabits.firstWhere((item) => item.id == habitId);
     return Card(
-      child: ListTile(
-        leading: Icon(
-          Icons.local_florist,
-          color: Theme.of(context).colorScheme.primary,
-          size: 36,
-        ),
-        title: Text(definition.name),
-        subtitle: ref
-            .watch(completionCountProvider(habitId))
-            .when(
-              loading: () => const Text('正在读取成长状态…'),
-              error: (error, _) => Text('读取失败：$error'),
-              data: (count) =>
-                  Text(count >= 3 ? '发芽 · 还在一点点长大' : '种子 · 等待第一次坚持'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.local_florist,
+              color: Theme.of(context).colorScheme.primary,
+              size: 36,
             ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: ref
+                  .watch(completionCountProvider(habitId))
+                  .when(
+                    loading: () => const LinearProgressIndicator(),
+                    error: (error, _) => Text('读取失败：$error'),
+                    data: (count) {
+                      final hasSprouted = count >= _sproutTarget;
+                      final remaining = _sproutTarget - count;
+                      final progress = (count / _sproutTarget).clamp(0.0, 1.0);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            definition.name,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            hasSprouted
+                                ? '已发芽 · 累计完成 $count 次'
+                                : '种子 · $count/$_sproutTarget',
+                          ),
+                          const SizedBox(height: 10),
+                          LinearProgressIndicator(value: progress),
+                          const SizedBox(height: 6),
+                          Text(
+                            hasSprouted
+                                ? '你的坚持已经让它发芽了。'
+                                : '再完成 $remaining 次即可发芽',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
