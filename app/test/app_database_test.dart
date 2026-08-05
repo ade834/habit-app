@@ -57,4 +57,17 @@ void main() {
     await reopened.close();
     await directory.delete(recursive: true);
   });
+
+  test('清除本地数据会删除习惯、打卡和积分', () async {
+    await database.saveOnboarding(habitIds: {'H1'}, commitmentNote: '测试');
+    await database.recordCompletion(
+      habitId: 'H1',
+      occurredAt: DateTime(2026, 8, 5),
+    );
+
+    await database.clearAllData();
+
+    expect(await database.watchSelectedHabits().first, isEmpty);
+    expect(await database.pointBalance(), 0);
+  });
 }

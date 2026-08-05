@@ -44,6 +44,14 @@ class AppDatabase extends _$AppDatabase {
   Stream<List<HabitSelection>> watchSelectedHabits() =>
       select(habitSelections).watch();
 
+  Future<void> clearAllData() async {
+    await transaction(() async {
+      await delete(pointTransactions).go();
+      await delete(habitLogs).go();
+      await delete(habitSelections).go();
+    });
+  }
+
   Future<void> saveOnboarding({
     required Set<String> habitIds,
     required String commitmentNote,

@@ -166,17 +166,12 @@ class _MainShellState extends State<_MainShell> {
       title: '复盘',
       text: '记录决定、结果和下一次改进。',
     ),
-    _PlaceholderPage(
-      icon: Icons.settings_outlined,
-      title: '设置',
-      text: '提醒、隐私和数据设置。',
-    ),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_index],
+      body: _index == 4 ? const _SettingsPage() : _pages[_index],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
@@ -197,6 +192,53 @@ class _MainShellState extends State<_MainShell> {
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             label: '设置',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsPage extends ConsumerWidget {
+  const _SettingsPage();
+
+  Future<void> _clearData(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清除本地数据？'),
+        content: const Text('这会删除已选习惯、打卡记录和积分，并回到首次选择页。此操作无法撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('清除并重新开始'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      await ref.read(databaseProvider).clearAllData();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text('设置', style: Theme.of(context).textTheme.headlineLarge),
+          const SizedBox(height: 32),
+          const Text('提醒、隐私和数据设置。'),
+          const SizedBox(height: 32),
+          OutlinedButton.icon(
+            onPressed: () => _clearData(context, ref),
+            icon: const Icon(Icons.restart_alt),
+            label: const Text('清除本地数据并重新开始'),
           ),
         ],
       ),
