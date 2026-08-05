@@ -170,4 +170,25 @@ void main() {
     expect(await database.watchActiveTimer('H4').first, isNull);
     expect(await database.pointBalance(), 0);
   });
+
+  test('H4连续重置3次后冷却10小时', () async {
+    final now = DateTime.now();
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final start = now.add(Duration(minutes: attempt));
+      final session = await database.startTimer(
+        habitId: 'H4',
+        targetSeconds: 15 * 60,
+        now: start,
+      );
+      await database.endTimerEarly(
+        session.id,
+        start.add(const Duration(minutes: 1)),
+      );
+    }
+
+    final state = await database.watchDisconnectAttemptState().first;
+    expect(state.consecutiveFailures, 3);
+    expect(state.isLocked, isTrue);
+    expect(state.lockedUntil!.difference(now).inHours, greaterThanOrEqualTo(9));
+  });
 }

@@ -26,6 +26,19 @@ class TimerProgress {
       focusSeconds >= targetSeconds && pauseSeconds <= 300;
 }
 
+class DisconnectAttemptState {
+  const DisconnectAttemptState({
+    required this.consecutiveFailures,
+    this.lockedUntil,
+  });
+
+  final int consecutiveFailures;
+  final DateTime? lockedUntil;
+
+  bool get isLocked =>
+      lockedUntil != null && DateTime.now().isBefore(lockedUntil!);
+}
+
 TimerProgress timerProgress({
   required DateTime startedAt,
   required DateTime now,

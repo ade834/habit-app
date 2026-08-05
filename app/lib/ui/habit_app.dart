@@ -339,7 +339,8 @@ class _HabitProgressTile extends ConsumerWidget {
             error: (error, _) => ListTile(title: Text('读取进度失败：$error')),
             data: (count) {
               final progress = (count / 3).clamp(0.0, 1.0);
-              return ListTile(
+              return InkWell(
+                borderRadius: BorderRadius.circular(12),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => habitToolPage(
@@ -348,19 +349,26 @@ class _HabitProgressTile extends ConsumerWidget {
                     ),
                   ),
                 ),
-                title: Text(definition.name),
-                subtitle: Text(
-                  '累计完成 $count 次 · ${count >= 3 ? '发芽' : '种子'}\n点击打开习惯工具',
-                ),
-                isThreeLine: true,
-                trailing: SizedBox(
-                  width: 96,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              definition.name,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text('累计完成 $count 次 · ${count >= 3 ? '发芽' : '种子'}'),
+                      const SizedBox(height: 10),
                       LinearProgressIndicator(value: progress),
-                      const SizedBox(height: 6),
-                      const Text('打开工具'),
                     ],
                   ),
                 ),

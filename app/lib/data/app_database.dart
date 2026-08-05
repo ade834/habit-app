@@ -248,6 +248,34 @@ class AppDatabase extends _$AppDatabase {
     return query.watchSingleOrNull();
   }
 
+  Stream<DisconnectAttemptState> watchDisconnectAttemptState() {
+    final query = select(timerSessions)
+      ..where((row) => row.habitId.equals('H4'))
+      ..orderBy([(row) => OrderingTerm.desc(row.id)]);
+    return query.watch().map((rows) {
+      var failures = 0;
+      DateTime? latestFailureAt;
+      for (final row in rows) {
+        if (row.status == 'completed') break;
+        if (row.status != 'failed') continue;
+        latestFailureAt ??= row.endedAt ?? row.startedAt;
+        failures++;
+        if (failures == 3) break;
+      }
+      if (failures < 3 || latestFailureAt == null) {
+        return DisconnectAttemptState(consecutiveFailures: failures);
+      }
+      final lockedUntil = latestFailureAt.add(const Duration(hours: 10));
+      if (!DateTime.now().isBefore(lockedUntil)) {
+        return const DisconnectAttemptState(consecutiveFailures: 0);
+      }
+      return DisconnectAttemptState(
+        consecutiveFailures: 3,
+        lockedUntil: lockedUntil,
+      );
+    });
+  }
+
   Future<void> pauseTimer(int id, DateTime now) =>
       (update(timerSessions)..where((row) => row.id.equals(id))).write(
         TimerSessionsCompanion(

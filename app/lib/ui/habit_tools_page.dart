@@ -278,6 +278,15 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
     _draw = widget.database.challengeForToday();
   }
 
+  Future<void> _swap() async {
+    final swapped = await widget.database.swapChallenge();
+    if (!mounted) return;
+    setState(() => _draw = Future.value(swapped));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已换成新挑战，今天不能再换了。')));
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('做一件不舒服的事')),
@@ -292,6 +301,11 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
           padding: const EdgeInsets.all(24),
           children: [
             const Text('舒适区外一小步，才是真正的成长区。'),
+            const SizedBox(height: 8),
+            Text(
+              '500个成长挑战之一 · 编号 ${draw.cardIndex + 1}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 24),
             Card(
               child: Padding(
@@ -305,10 +319,7 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
-              onPressed: draw.swapUsed
-                  ? null
-                  : () =>
-                        setState(() => _draw = widget.database.swapChallenge()),
+              onPressed: draw.swapUsed ? null : _swap,
               icon: const Icon(Icons.swap_horiz),
               label: Text(draw.swapUsed ? '今天已换过一次' : '换一次'),
             ),
@@ -340,15 +351,26 @@ class DisconnectToolPage extends StatefulWidget {
 
 class _DisconnectToolPageState extends State<DisconnectToolPage>
     with WidgetsBindingObserver {
+  static const _maximumFailures = 3;
+
   int _minutes = 30;
   Timer? _ticker;
+  StreamSubscription<DisconnectAttemptState>? _attemptSubscription;
   int? _activeSessionId;
   bool _completing = false;
+  DisconnectAttemptState _attemptState = const DisconnectAttemptState(
+    consecutiveFailures: 0,
+  );
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _attemptSubscription = widget.database.watchDisconnectAttemptState().listen(
+      (state) {
+        if (mounted) setState(() => _attemptState = state);
+      },
+    );
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -358,6 +380,7 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
+    _attemptSubscription?.cancel();
     final sessionId = _activeSessionId;
     if (sessionId != null && !_completing) {
       widget.database.endTimerEarly(sessionId, DateTime.now());
@@ -401,6 +424,21 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
     stream: widget.database.watchActiveTimer('H4'),
     emptyAction: Column(
       children: [
+        if (_attemptState.consecutiveFailures > 0)
+          Card(
+            color: _attemptState.isLocked
+                ? Theme.of(context).colorScheme.surfaceContainerHighest
+                : Theme.of(context).colorScheme.secondaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                _attemptState.isLocked
+                    ? '这次任务已失败。你连续3次离开倒计时，现在不能再开始。先放下自责，但也请认真对待自己的承诺。${_formatDateTime(_attemptState.lockedUntil!)}后可再尝试。'
+                    : '你刚才离开了倒计时，所以本次已重置。可以重新开始，但请不要轻易中途离开；连续3次将失败并锁定10小时，你还剩 ${_maximumFailures - _attemptState.consecutiveFailures} 次机会。',
+              ),
+            ),
+          ),
+        if (_attemptState.consecutiveFailures > 0) const SizedBox(height: 16),
         SegmentedButton<int>(
           segments: const [
             ButtonSegment(value: 15, label: Text('15分钟')),
@@ -408,15 +446,19 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
             ButtonSegment(value: 60, label: Text('60分钟')),
           ],
           selected: {_minutes},
-          onSelectionChanged: (value) => setState(() => _minutes = value.first),
+          onSelectionChanged: _attemptState.isLocked
+              ? null
+              : (value) => setState(() => _minutes = value.first),
         ),
         const SizedBox(height: 16),
         FilledButton(
-          onPressed: () => widget.database.startTimer(
-            habitId: 'H4',
-            targetSeconds: _minutes * 60,
-          ),
-          child: const Text('开始断网仪式'),
+          onPressed: _attemptState.isLocked
+              ? null
+              : () => widget.database.startTimer(
+                  habitId: 'H4',
+                  targetSeconds: _minutes * 60,
+                ),
+          child: Text(_attemptState.isLocked ? '10小时冷却中' : '开始断网仪式'),
         ),
         const SizedBox(height: 16),
         const Text('开始后无暂停，归零会自动完成并获得1积分。'),
@@ -488,3 +530,8 @@ String _formatSeconds(int seconds) {
   final remainder = seconds % 60;
   return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
 }
+
+String _formatDateTime(DateTime value) =>
+    '${value.month}月${value.day}日 '
+    '${value.hour.toString().padLeft(2, '0')}:'
+    '${value.minute.toString().padLeft(2, '0')}';
