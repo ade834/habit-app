@@ -517,6 +517,8 @@ class _PlaceholderPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
+            const Center(child: Chip(label: Text('即将开放'))),
+            const SizedBox(height: 12),
             Center(child: Text(text, textAlign: TextAlign.center)),
             const Spacer(),
           ],
