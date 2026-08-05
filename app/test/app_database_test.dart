@@ -193,6 +193,34 @@ void main() {
     expect(await database.pointBalance(), 0);
   });
 
+  test('App启动时将遗留的H4 running会话判为失败且不能补发积分', () async {
+    final start = DateTime(2026, 8, 5, 22);
+    final session = await database.startTimer(
+      habitId: 'H4',
+      targetSeconds: 15 * 60,
+      now: start,
+    );
+
+    expect(
+      await database.recoverInterruptedDisconnectSession(
+        now: start.add(const Duration(minutes: 20)),
+      ),
+      1,
+    );
+
+    expect(await database.watchActiveTimer('H4').first, isNull);
+    expect(
+      await database.completeDisconnectTimer(
+        session.id,
+        start.add(const Duration(minutes: 20)),
+      ),
+      isFalse,
+    );
+    final state = await database.watchDisconnectAttemptState().first;
+    expect(state.consecutiveFailures, 1);
+    expect(await database.pointBalance(), 0);
+  });
+
   test('H4连续重置3次后冷却10小时', () async {
     final now = DateTime.now();
     for (var attempt = 0; attempt < 3; attempt++) {

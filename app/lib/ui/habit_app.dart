@@ -11,6 +11,10 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return database;
 });
 
+final startupRecoveryProvider = FutureProvider<void>((ref) async {
+  await ref.watch(databaseProvider).recoverInterruptedDisconnectSession();
+});
+
 final selectedHabitsProvider = StreamProvider<List<HabitSelection>>(
   (ref) => ref.watch(databaseProvider).watchSelectedHabits(),
 );
@@ -54,14 +58,24 @@ class _StartupPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ref
-        .watch(selectedHabitsProvider)
+        .watch(startupRecoveryProvider)
         .when(
           loading: () =>
               const Scaffold(body: Center(child: CircularProgressIndicator())),
           error: (error, _) =>
-              Scaffold(body: Center(child: Text('读取本地数据失败：$error'))),
-          data: (selected) =>
-              selected.isEmpty ? const _OnboardingPage() : const _MainShell(),
+              Scaffold(body: Center(child: Text('恢复本地数据失败：$error'))),
+          data: (_) => ref
+              .watch(selectedHabitsProvider)
+              .when(
+                loading: () => const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                ),
+                error: (error, _) =>
+                    Scaffold(body: Center(child: Text('读取本地数据失败：$error'))),
+                data: (selected) => selected.isEmpty
+                    ? const _OnboardingPage()
+                    : const _MainShell(),
+              ),
         );
   }
 }

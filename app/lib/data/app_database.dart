@@ -261,6 +261,19 @@ class AppDatabase extends _$AppDatabase {
     return query.watchSingleOrNull();
   }
 
+  Future<int> recoverInterruptedDisconnectSession({DateTime? now}) {
+    final failedAt = now ?? DateTime.now();
+    return (update(timerSessions)..where(
+          (row) => row.habitId.equals('H4') & row.status.equals('running'),
+        ))
+        .write(
+          TimerSessionsCompanion(
+            status: const Value('failed'),
+            endedAt: Value(failedAt),
+          ),
+        );
+  }
+
   Stream<DisconnectAttemptState> watchDisconnectAttemptState() {
     final query = select(timerSessions)
       ..where((row) => row.habitId.equals('H4'))
@@ -342,6 +355,7 @@ class AppDatabase extends _$AppDatabase {
       final session = await (select(
         timerSessions,
       )..where((row) => row.id.equals(id))).getSingle();
+      if (session.habitId != 'H4' || session.status != 'running') return false;
       final completed =
           now.difference(session.startedAt).inSeconds >= session.targetSeconds;
       if (!completed) return false;
