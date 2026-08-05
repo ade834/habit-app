@@ -296,7 +296,7 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  Future<bool> confirmDisconnectTimer(int id, DateTime now) {
+  Future<bool> completeDisconnectTimer(int id, DateTime now) {
     return transaction(() async {
       final session = await (select(
         timerSessions,
@@ -343,7 +343,7 @@ class AppDatabase extends _$AppDatabase {
       challengeDraws,
     )..where((row) => row.localDate.equals(draw.localDate))).write(
       ChallengeDrawsCompanion(
-        cardIndex: Value((draw.cardIndex + 1) % challengeCards.length),
+        cardIndex: Value((draw.cardIndex + 5) % challengeCards.length),
         swapUsed: const Value(true),
       ),
     );

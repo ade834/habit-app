@@ -340,11 +340,29 @@ class _HabitProgressTile extends ConsumerWidget {
             data: (count) {
               final progress = (count / 3).clamp(0.0, 1.0);
               return ListTile(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => habitToolPage(
+                      habitId: habitId,
+                      database: ref.read(databaseProvider),
+                    ),
+                  ),
+                ),
                 title: Text(definition.name),
-                subtitle: Text('累计完成 $count 次 · ${count >= 3 ? '发芽' : '种子'}'),
+                subtitle: Text(
+                  '累计完成 $count 次 · ${count >= 3 ? '发芽' : '种子'}\n点击打开习惯工具',
+                ),
+                isThreeLine: true,
                 trailing: SizedBox(
                   width: 96,
-                  child: LinearProgressIndicator(value: progress),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      LinearProgressIndicator(value: progress),
+                      const SizedBox(height: 6),
+                      const Text('打开工具'),
+                    ],
+                  ),
                 ),
               );
             },

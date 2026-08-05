@@ -131,7 +131,7 @@ void main() {
     expect(repeated.cardIndex, swapped.cardIndex);
   });
 
-  test('H4倒计未结束不能确认，结束后完成', () async {
+  test('H4倒计未结束不能完成，结束后自动完成', () async {
     final start = DateTime(2026, 8, 5, 22);
     final session = await database.startTimer(
       habitId: 'H4',
@@ -139,19 +139,35 @@ void main() {
       now: start,
     );
     expect(
-      await database.confirmDisconnectTimer(
+      await database.completeDisconnectTimer(
         session.id,
         start.add(const Duration(minutes: 14)),
       ),
       isFalse,
     );
     expect(
-      await database.confirmDisconnectTimer(
+      await database.completeDisconnectTimer(
         session.id,
         start.add(const Duration(minutes: 15)),
       ),
       isTrue,
     );
     expect(await database.pointBalance(), 1);
+  });
+
+  test('H4离开页面时结束未完成会话', () async {
+    final start = DateTime(2026, 8, 5, 22);
+    final session = await database.startTimer(
+      habitId: 'H4',
+      targetSeconds: 15 * 60,
+      now: start,
+    );
+    await database.endTimerEarly(
+      session.id,
+      start.add(const Duration(minutes: 1)),
+    );
+
+    expect(await database.watchActiveTimer('H4').first, isNull);
+    expect(await database.pointBalance(), 0);
   });
 }

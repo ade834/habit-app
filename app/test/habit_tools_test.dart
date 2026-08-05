@@ -34,4 +34,9 @@ void main() {
     );
     expect(progress.meetsFocusTarget(30 * 60), isFalse);
   });
+
+  test('H3挑战库包含500条不重复的安全成长小事', () {
+    expect(challengeCards, hasLength(500));
+    expect(challengeCards.toSet(), hasLength(500));
+  });
 }

@@ -338,13 +338,17 @@ class DisconnectToolPage extends StatefulWidget {
   State<DisconnectToolPage> createState() => _DisconnectToolPageState();
 }
 
-class _DisconnectToolPageState extends State<DisconnectToolPage> {
+class _DisconnectToolPageState extends State<DisconnectToolPage>
+    with WidgetsBindingObserver {
   int _minutes = 30;
   Timer? _ticker;
+  int? _activeSessionId;
+  bool _completing = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -352,8 +356,42 @@ class _DisconnectToolPageState extends State<DisconnectToolPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
+    final sessionId = _activeSessionId;
+    if (sessionId != null && !_completing) {
+      widget.database.endTimerEarly(sessionId, DateTime.now());
+    }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      final sessionId = _activeSessionId;
+      if (sessionId != null && !_completing) {
+        _activeSessionId = null;
+        widget.database.endTimerEarly(sessionId, DateTime.now());
+        if (mounted) Navigator.maybePop(context);
+      }
+    }
+  }
+
+  Future<void> _complete(TimerSession session) async {
+    if (_completing) return;
+    _completing = true;
+    final completed = await widget.database.completeDisconnectTimer(
+      session.id,
+      DateTime.now(),
+    );
+    _activeSessionId = null;
+    if (completed && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('今晚，你比手机先睡着的样子，很好看。')));
+      Navigator.pop(context);
+    }
+    _completing = false;
   }
 
   @override
@@ -380,13 +418,21 @@ class _DisconnectToolPageState extends State<DisconnectToolPage> {
           ),
           child: const Text('开始断网仪式'),
         ),
+        const SizedBox(height: 16),
+        const Text('开始后无暂停，归零会自动完成并获得1积分。'),
+        const SizedBox(height: 8),
+        const Text('离开页面或切出 App，本次倒计时将重置。'),
       ],
     ),
     builder: (session) {
+      _activeSessionId = session.id;
       final remaining =
           (session.targetSeconds -
                   DateTime.now().difference(session.startedAt).inSeconds)
               .clamp(0, 1 << 31);
+      if (remaining == 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _complete(session));
+      }
       return Column(
         children: [
           Text('接下来${session.targetSeconds ~/ 60}分钟，试着不碰手机。倒计时开始。'),
@@ -396,16 +442,9 @@ class _DisconnectToolPageState extends State<DisconnectToolPage> {
             style: Theme.of(context).textTheme.displayMedium,
           ),
           const SizedBox(height: 20),
-          FilledButton(
-            onPressed: remaining == 0
-                ? () async {
-                    final completed = await widget.database
-                        .confirmDisconnectTimer(session.id, DateTime.now());
-                    if (completed && context.mounted) Navigator.pop(context);
-                  }
-                : null,
-            child: Text(remaining == 0 ? '确认完成' : '倒计时结束后确认'),
-          ),
+          const Text('保持在本页面，归零后将自动完成并获得1积分。'),
+          const SizedBox(height: 12),
+          const Text('离开页面或切出 App，本次倒计时将重置。'),
         ],
       );
     },
