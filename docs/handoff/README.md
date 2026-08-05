@@ -9,7 +9,7 @@
 - `flutter analyze` 通过；4 项自动测试通过。
 - iOS 18.6 模拟器构建并运行通过。
 - iPad Pro 13-inch (M4) 真机已配对，Release 包签名、安装和启动通过。
-- 阶段1等待大 C 做产品与体验评审，之后进入阶段2核心正反馈循环。
+- 阶段1体验评审已通过；iPad 真机四步验收已通过，进入阶段2核心正反馈循环。
 
 ## 已验收流程
 
@@ -23,6 +23,19 @@
 - `screenshots/01_onboarding.png`：首次选择页
 - `screenshots/02_settings_reset_confirm.png`：设置页清除数据确认弹窗
 - `screenshots/03_today.png`：主页面今天页
+- `screenshots/04_ipad_onboarding_selected.png`：iPad 真机首次选择页（已选择两个习惯并填写原因）
+- `screenshots/05_ipad_today_checked.png`：iPad 真机今天页（习惯卡、完成状态与积分）
+
+## iPad 真机验收记录
+
+2026-08-05，用户在 iPad Pro 13-inch (M4) 上完成验收：
+
+1. 选择两个习惯、填写“我想养成这些习惯，是因为……”并点击“开始养成”。
+2. 今天页显示两张习惯卡，并提供“完成”按钮。
+3. 完成打卡后积分发生变化。
+4. 强制退出并重新打开 App，习惯和打卡记录仍然保留。
+
+结论：iPad 验收通过，可进入阶段2。
 
 ## 读取顺序
 

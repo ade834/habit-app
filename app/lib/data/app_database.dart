@@ -127,4 +127,28 @@ class AppDatabase extends _$AppDatabase {
     )..addColumns([total])).getSingle();
     return row.read(total) ?? 0;
   }
+
+  Stream<Set<String>> watchTodayCompletedHabitIds({DateTime? now}) {
+    final date = _localDate(now ?? DateTime.now());
+    return (select(habitLogs)..where((log) => log.localDate.equals(date)))
+        .watch()
+        .map((rows) => rows.map((row) => row.habitId).toSet());
+  }
+
+  Stream<int> watchCompletionCount(String habitId) {
+    return (select(habitLogs)..where((log) => log.habitId.equals(habitId)))
+        .watch()
+        .map((rows) => rows.length);
+  }
+
+  Stream<int> watchPointBalance() {
+    return select(
+      pointTransactions,
+    ).watch().map((rows) => rows.fold<int>(0, (sum, row) => sum + row.amount));
+  }
+
+  String _localDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
 }
