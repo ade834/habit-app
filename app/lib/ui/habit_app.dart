@@ -7,6 +7,7 @@ import '../domain/daily_records.dart';
 import '../domain/habit.dart';
 import '../domain/habit_growth.dart';
 import '../domain/habit_tools.dart';
+import '../domain/monthly_reflection.dart';
 import 'habit_tools_page.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -798,6 +799,8 @@ class _ReviewPageState extends ConsumerState<_ReviewPage> {
               const Text('只读回看每天的习惯完成和记录。'),
               const SizedBox(height: 20),
               _MonthCalendar(summaries: summaries, onTap: _showDetails),
+              const SizedBox(height: 20),
+              selectedHabitsProviderCard(context, ref, summaries, _month),
               const SizedBox(height: 16),
               const Row(
                 children: [
@@ -816,6 +819,25 @@ class _ReviewPageState extends ConsumerState<_ReviewPage> {
       ),
     );
   }
+
+  Widget selectedHabitsProviderCard(
+    BuildContext context,
+    WidgetRef ref,
+    List<DailyRecordSummary> summaries,
+    DateTime month,
+  ) => ref
+      .watch(selectedHabitsProvider)
+      .when(
+        loading: () => const LinearProgressIndicator(),
+        error: (error, _) => Text('读取月度总结失败：$error'),
+        data: (habits) => _MonthlyReflectionCard(
+          reflection: buildMonthlyReflection(
+            summaries: summaries,
+            selectedHabitIds: habits.map((habit) => habit.habitId).toSet(),
+            month: month,
+          ),
+        ),
+      );
 
   void _showDetails(DailyRecordSummary summary) {
     showModalBottomSheet<void>(
@@ -1000,6 +1022,146 @@ class _RecordSection extends StatelessWidget {
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 4),
         child,
+      ],
+    ),
+  );
+}
+
+class _MonthlyReflectionCard extends StatelessWidget {
+  const _MonthlyReflectionCard({required this.reflection});
+
+  final MonthlyReflection reflection;
+
+  @override
+  Widget build(BuildContext context) {
+    final names = {for (final habit in firstHabits) habit.id: habit.name};
+    String namesFor(Iterable<String> ids) =>
+        ids.map((id) => names[id] ?? id).join('、');
+    final best = namesFor(reflection.bestHabitIds);
+    final hard = namesFor(reflection.hardHabitIds);
+    final areas = reflection.progressAreas.join('、');
+    return Card(
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('本月小结', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            Text(
+              '完成 ${reflection.totalCompletions} 次 · 获得 ${reflection.totalPoints} 积分',
+            ),
+            const SizedBox(height: 16),
+            _MonthlyHabitBarChart(counts: reflection.completionCounts),
+            const SizedBox(height: 14),
+            _ReflectionLine(
+              icon: Icons.favorite_outline,
+              title: '最容易坚持',
+              text: best.isEmpty ? '先从一个习惯开始' : best,
+            ),
+            _ReflectionLine(
+              icon: Icons.refresh,
+              title: '最容易放弃',
+              text: hard.isEmpty ? '还没有足够记录' : hard,
+            ),
+            _ReflectionLine(
+              icon: Icons.trending_up,
+              title: '它正在帮助你',
+              text: areas.isEmpty ? '慢慢找到自己的节奏' : areas,
+            ),
+            const Divider(height: 22),
+            Text(reflection.encouragement),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MonthlyHabitBarChart extends StatelessWidget {
+  const _MonthlyHabitBarChart({required this.counts});
+
+  final Map<String, int> counts;
+
+  @override
+  Widget build(BuildContext context) {
+    final names = {for (final habit in firstHabits) habit.id: habit.name};
+    final maxCount = counts.values.isEmpty
+        ? 1
+        : counts.values.reduce((a, b) => a > b ? a : b).clamp(1, 1 << 31);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('习惯完成次数', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 140,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final entry in counts.entries)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text('${entry.value}'),
+                        const SizedBox(height: 4),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          height: 88 * entry.value / maxCount + 4,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(8),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          entry.key,
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        Text(
+                          names[entry.key] ?? entry.key,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReflectionLine extends StatelessWidget {
+  const _ReflectionLine({
+    required this.icon,
+    required this.title,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20),
+        const SizedBox(width: 10),
+        Expanded(child: Text('$title：$text')),
       ],
     ),
   );
