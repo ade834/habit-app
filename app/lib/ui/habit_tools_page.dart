@@ -467,13 +467,12 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) {
-      final sessionId = _activeSessionId;
-      if (sessionId != null && !_completing) {
-        _activeSessionId = null;
-        widget.database.endTimerEarly(sessionId, DateTime.now());
-        if (mounted) Navigator.maybePop(context);
-      }
+    // Notification/Control Center, screen lock, and backgrounding must not
+    // interrupt the timestamp-based H4 session. On resume, rebuilding causes
+    // the remaining time to be recalculated from startedAt; if it reached
+    // zero while away, the existing post-frame completion path handles it.
+    if (state == AppLifecycleState.resumed && mounted) {
+      setState(() {});
     }
   }
 
@@ -543,7 +542,7 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
         const SizedBox(height: 16),
         const Text('开始后无暂停，归零会自动完成并获得1积分。'),
         const SizedBox(height: 8),
-        const Text('离开页面或切出 App，本次倒计时将重置。'),
+        const Text('离开本页面会重置；下拉通知中心、锁屏或切到后台不会中断。'),
       ],
     ),
     builder: (session) {
@@ -566,7 +565,7 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
           const SizedBox(height: 20),
           const Text('保持在本页面，归零后将自动完成并获得1积分。'),
           const SizedBox(height: 12),
-          const Text('离开页面或切出 App，本次倒计时将重置。'),
+          const Text('离开本页面会重置；下拉通知中心、锁屏或切到后台不会中断。'),
         ],
       );
     },
