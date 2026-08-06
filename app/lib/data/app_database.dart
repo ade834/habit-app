@@ -5,6 +5,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 
 import '../domain/habit_growth.dart';
 import '../domain/habit_tools.dart';
+import '../domain/daily_records.dart';
 
 part 'app_database.g.dart';
 
@@ -551,6 +552,136 @@ class AppDatabase extends _$AppDatabase {
       }
       return inserted;
     });
+  }
+
+  Future<List<DailyRecordSummary>> monthlyRecordSummaries(
+    DateTime month,
+  ) async {
+    final first = DateTime(month.year, month.month);
+    final last = DateTime(month.year, month.month + 1);
+    final firstDate = _localDate(first);
+    final lastDate = _localDate(last);
+    final logs =
+        await (select(habitLogs)..where(
+              (row) =>
+                  row.localDate.isBiggerOrEqualValue(firstDate) &
+                  row.localDate.isSmallerThanValue(lastDate),
+            ))
+            .get();
+    final reviews =
+        await (select(reviewEntries)..where(
+              (row) =>
+                  row.localDate.isBiggerOrEqualValue(firstDate) &
+                  row.localDate.isSmallerThanValue(lastDate),
+            ))
+            .get();
+    final challenges =
+        await (select(challengeDraws)..where(
+              (row) =>
+                  row.localDate.isBiggerOrEqualValue(firstDate) &
+                  row.localDate.isSmallerThanValue(lastDate),
+            ))
+            .get();
+    final sessions =
+        await (select(timerSessions)..where(
+              (row) =>
+                  row.startedAt.isBiggerOrEqualValue(first) &
+                  row.startedAt.isSmallerThanValue(last),
+            ))
+            .get();
+    final transactions = await select(pointTransactions).get();
+    final pointsByLogId = <int, int>{
+      for (final transaction in transactions)
+        transaction.habitLogId: transaction.amount,
+    };
+    final logsByDate = <String, List<HabitLog>>{};
+    for (final log in logs) {
+      logsByDate.putIfAbsent(log.localDate, () => []).add(log);
+    }
+    final reviewsByDate = {
+      for (final review in reviews) review.localDate: review,
+    };
+    final challengesByDate = {
+      for (final challenge in challenges) challenge.localDate: challenge,
+    };
+    final sessionsByDate = <String, List<TimerSession>>{};
+    for (final session in sessions) {
+      sessionsByDate
+          .putIfAbsent(_localDate(session.startedAt), () => [])
+          .add(session);
+    }
+
+    final result = <DailyRecordSummary>[];
+    for (
+      var date = first;
+      date.isBefore(last);
+      date = date.add(const Duration(days: 1))
+    ) {
+      final dateKey = _localDate(date);
+      final dayLogs = logsByDate[dateKey] ?? const <HabitLog>[];
+      final daySessions = sessionsByDate[dateKey] ?? const <TimerSession>[];
+      final focusSessions = daySessions.where(
+        (session) => session.habitId == 'H2',
+      );
+      final disconnectSessions = daySessions.where(
+        (session) => session.habitId == 'H4',
+      );
+      final focus = focusSessions.isEmpty
+          ? null
+          : _focusRecord(focusSessions.last);
+      final disconnect = disconnectSessions.isEmpty
+          ? null
+          : _disconnectRecord(disconnectSessions.last);
+      final review = reviewsByDate[dateKey];
+      result.add(
+        DailyRecordSummary(
+          date: date,
+          completedHabitIds: dayLogs.map((log) => log.habitId).toSet(),
+          points: dayLogs.fold<int>(
+            0,
+            (sum, log) => sum + (pointsByLogId[log.id] ?? 0),
+          ),
+          review: review == null
+              ? null
+              : ReviewRecord(
+                  decision: review.decision,
+                  result: review.result,
+                  improvement: review.improvement,
+                ),
+          focus: focus,
+          challengeCardIndex: challengesByDate[dateKey]?.cardIndex,
+          disconnect: disconnect,
+        ),
+      );
+    }
+    return result;
+  }
+
+  FocusRecord _focusRecord(TimerSession session) {
+    final endedAt = session.endedAt ?? session.startedAt;
+    final progress = timerProgress(
+      startedAt: session.startedAt,
+      now: endedAt,
+      accumulatedPauseSeconds: session.accumulatedPauseSeconds,
+      pausedAt: session.pausedAt,
+    );
+    return FocusRecord(
+      focusMinutes: (progress.focusSeconds / 60).floor(),
+      status: session.status,
+      topic: session.focusTopic,
+    );
+  }
+
+  DisconnectRecord _disconnectRecord(TimerSession session) {
+    final endedAt = session.endedAt ?? session.startedAt;
+    final elapsed = endedAt
+        .difference(session.startedAt)
+        .inSeconds
+        .clamp(0, 1 << 31);
+    return DisconnectRecord(
+      minutes: (elapsed / 60).floor(),
+      status: session.status,
+    );
   }
 
   Stream<int> watchPointBalance() {

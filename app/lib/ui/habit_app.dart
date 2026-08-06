@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/app_database.dart';
+import '../domain/daily_records.dart';
 import '../domain/habit.dart';
 import '../domain/habit_growth.dart';
+import '../domain/habit_tools.dart';
 import 'habit_tools_page.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -177,25 +179,29 @@ class _MainShell extends StatefulWidget {
 
 class _MainShellState extends State<_MainShell> {
   int _index = 0;
+  int _reviewVersion = 0;
 
   static const _pages = [
     _TodayPage(),
     _HabitsPage(),
     _GrowthPage(),
-    _PlaceholderPage(
-      icon: Icons.edit_note_outlined,
-      title: '复盘',
-      text: '记录决定、结果和下一次改进。',
-    ),
+    _ReviewPage(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _index == 4 ? const _SettingsPage() : _pages[_index],
+      body: _index == 4
+          ? const _SettingsPage()
+          : _index == 3
+          ? _ReviewPage(key: ValueKey(_reviewVersion))
+          : _pages[_index],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) => setState(() {
+          if (value == 3) _reviewVersion++;
+          _index = value;
+        }),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: '今天'),
           NavigationDestination(
@@ -721,42 +727,280 @@ class _DebugToolsCard extends ConsumerWidget {
   }
 }
 
-class _PlaceholderPage extends StatelessWidget {
-  const _PlaceholderPage({
-    required this.icon,
-    required this.title,
-    required this.text,
-  });
+class _ReviewPage extends ConsumerStatefulWidget {
+  const _ReviewPage({super.key});
 
-  final IconData icon;
-  final String title;
-  final String text;
+  @override
+  ConsumerState<_ReviewPage> createState() => _ReviewPageState();
+}
+
+class _ReviewPageState extends ConsumerState<_ReviewPage> {
+  late DateTime _month;
+  late Future<List<DailyRecordSummary>> _summaries;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _month = DateTime(now.year, now.month);
+    _load();
+  }
+
+  void _load() {
+    _summaries = ref.read(databaseProvider).monthlyRecordSummaries(_month);
+  }
+
+  void _moveMonth(int delta) {
+    setState(() {
+      _month = DateTime(_month.year, _month.month + delta);
+      _load();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.headlineLarge),
-            const Spacer(),
-            Center(
-              child: Icon(
-                icon,
-                size: 88,
-                color: Theme.of(context).colorScheme.primary,
+      child: FutureBuilder<List<DailyRecordSummary>>(
+        future: _summaries,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('读取复盘记录失败：${snapshot.error}'));
+          }
+          final summaries = snapshot.data ?? const <DailyRecordSummary>[];
+          return ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '复盘',
+                      style: Theme.of(context).textTheme.headlineLarge,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '上个月',
+                    onPressed: () => _moveMonth(-1),
+                    icon: const Icon(Icons.chevron_left),
+                  ),
+                  Text('${_month.year}年${_month.month}月'),
+                  IconButton(
+                    tooltip: '下个月',
+                    onPressed: () => _moveMonth(1),
+                    icon: const Icon(Icons.chevron_right),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 20),
-            const Center(child: Chip(label: Text('即将开放'))),
-            const SizedBox(height: 12),
-            Center(child: Text(text, textAlign: TextAlign.center)),
-            const Spacer(),
+              const SizedBox(height: 8),
+              const Text('只读回看每天的习惯完成和记录。'),
+              const SizedBox(height: 20),
+              _MonthCalendar(summaries: summaries, onTap: _showDetails),
+              const SizedBox(height: 16),
+              const Row(
+                children: [
+                  Icon(Icons.circle, size: 10, color: Color(0xFFE5E2D9)),
+                  SizedBox(width: 6),
+                  Text('未完成'),
+                  SizedBox(width: 16),
+                  Icon(Icons.circle, size: 10, color: Color(0xFF557A5B)),
+                  SizedBox(width: 6),
+                  Text('有完成记录'),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showDetails(DailyRecordSummary summary) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _DailyRecordSheet(summary: summary),
+    );
+  }
+}
+
+class _MonthCalendar extends StatelessWidget {
+  const _MonthCalendar({required this.summaries, required this.onTap});
+
+  final List<DailyRecordSummary> summaries;
+  final ValueChanged<DailyRecordSummary> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final leading = summaries.first.date.weekday - 1;
+    final cells = <Widget>[
+      for (var index = 0; index < leading; index++) const SizedBox.shrink(),
+      for (final summary in summaries)
+        _CalendarDay(summary: summary, onTap: () => onTap(summary)),
+    ];
+    return Column(
+      children: [
+        const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            Text('一'),
+            Text('二'),
+            Text('三'),
+            Text('四'),
+            Text('五'),
+            Text('六'),
+            Text('日'),
+          ],
+        ),
+        const SizedBox(height: 8),
+        GridView.count(
+          crossAxisCount: 7,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 6,
+          crossAxisSpacing: 6,
+          children: cells,
+        ),
+      ],
+    );
+  }
+}
+
+class _CalendarDay extends StatelessWidget {
+  const _CalendarDay({required this.summary, required this.onTap});
+
+  final DailyRecordSummary summary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = summary.completedHabitIds.length;
+    final color = count == 0
+        ? const Color(0xFFE5E2D9)
+        : Color.lerp(
+            const Color(0xFFD8E7D6),
+            const Color(0xFF557A5B),
+            (count / 3).clamp(0.0, 1.0),
+          );
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('${summary.date.day}'),
+            if (summary.hasAnyRecord)
+              Text(
+                count > 0 ? '$count项' : '·',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
           ],
         ),
       ),
     );
   }
+}
+
+class _DailyRecordSheet extends StatelessWidget {
+  const _DailyRecordSheet({required this.summary});
+
+  final DailyRecordSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final habitNames = {for (final habit in firstHabits) habit.id: habit.name};
+    final completed = summary.completedHabitIds
+        .map((id) => habitNames[id] ?? id)
+        .join('、');
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Text(
+                '${summary.date.year}年${summary.date.month}月${summary.date.day}日',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _RecordSection(
+              title: '完成习惯',
+              child: Text(completed.isEmpty ? '当天没有有效完成' : completed),
+            ),
+            _RecordSection(title: '获得积分', child: Text('${summary.points} 分')),
+            if (summary.review != null)
+              _RecordSection(
+                title: 'H1 复盘内容',
+                child: Text(
+                  '决定：${summary.review!.decision}\n'
+                  '结果：${summary.review!.result}\n'
+                  '下次：${summary.review!.improvement}',
+                ),
+              ),
+            if (summary.focus != null)
+              _RecordSection(
+                title: 'H2 深度思考',
+                child: Text(
+                  '${summary.focus!.focusMinutes} 分钟 · ${_timerStatus(summary.focus!.status)}'
+                  '${summary.focus!.topic == null ? '' : '\n议题：${summary.focus!.topic}'}',
+                ),
+              ),
+            if (summary.challengeCardIndex != null)
+              _RecordSection(
+                title: 'H3 挑战卡',
+                child: Text(_challengeText(summary.challengeCardIndex!)),
+              ),
+            if (summary.disconnect != null)
+              _RecordSection(
+                title: 'H4 睡前断网',
+                child: Text(
+                  '${summary.disconnect!.minutes} 分钟 · ${_timerStatus(summary.disconnect!.status)}',
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _timerStatus(String status) => switch (status) {
+    'completed' => '完成',
+    'failed' => '未完成/失败',
+    _ => status,
+  };
+
+  String _challengeText(int index) {
+    if (index < 0 || index >= challengeCards.length) return '挑战卡记录不可用';
+    return challengeCards[index];
+  }
+}
+
+class _RecordSection extends StatelessWidget {
+  const _RecordSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 4),
+        child,
+      ],
+    ),
+  );
 }

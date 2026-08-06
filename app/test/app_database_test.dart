@@ -297,4 +297,46 @@ void main() {
     expect(snapshot.habits['H1']!.historicalCompletions, 5);
     expect(snapshot.chapterTwoUnlocked, isTrue);
   });
+
+  test('月历汇总从日志、复盘、计时和挑战记录派生', () async {
+    final day = DateTime(2026, 8, 5, 10);
+    await database.saveReview(
+      date: day,
+      decision: List.filled(100, '我').join(),
+      result: '结果',
+      improvement: '下次',
+      now: day,
+    );
+    final focus = await database.startTimer(
+      habitId: 'H2',
+      targetSeconds: 30 * 60,
+      focusTopic: '测试议题',
+      now: day,
+    );
+    await database.finishFocusTimer(
+      focus.id,
+      day.add(const Duration(minutes: 30)),
+    );
+    await database.challengeForToday(now: day);
+    final disconnect = await database.startTimer(
+      habitId: 'H4',
+      targetSeconds: 15 * 60,
+      now: day.add(const Duration(hours: 10)),
+    );
+    await database.endTimerEarly(
+      disconnect.id,
+      day.add(const Duration(hours: 10, minutes: 1)),
+    );
+
+    final summaries = await database.monthlyRecordSummaries(DateTime(2026, 8));
+    final summary = summaries.firstWhere((item) => item.date.day == 5);
+    expect(summary.completedHabitIds, containsAll(['H1', 'H2']));
+    expect(summary.points, 2);
+    expect(summary.review?.decision, contains('我'));
+    expect(summary.focus?.status, 'completed');
+    expect(summary.focus?.focusMinutes, 30);
+    expect(summary.focus?.topic, '测试议题');
+    expect(summary.challengeCardIndex, isNotNull);
+    expect(summary.disconnect?.status, 'failed');
+  });
 }
