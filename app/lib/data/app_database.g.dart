@@ -2207,6 +2207,939 @@ class ChallengeDrawsCompanion extends UpdateCompanion<ChallengeDraw> {
   }
 }
 
+class $HabitActivityEntriesTable extends HabitActivityEntries
+    with TableInfo<$HabitActivityEntriesTable, HabitActivityEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $HabitActivityEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _habitIdMeta = const VerificationMeta(
+    'habitId',
+  );
+  @override
+  late final GeneratedColumn<String> habitId = GeneratedColumn<String>(
+    'habit_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _periodKeyMeta = const VerificationMeta(
+    'periodKey',
+  );
+  @override
+  late final GeneratedColumn<String> periodKey = GeneratedColumn<String>(
+    'period_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _primaryTextMeta = const VerificationMeta(
+    'primaryText',
+  );
+  @override
+  late final GeneratedColumn<String> primaryText = GeneratedColumn<String>(
+    'primary_text',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _secondaryTextMeta = const VerificationMeta(
+    'secondaryText',
+  );
+  @override
+  late final GeneratedColumn<String> secondaryText = GeneratedColumn<String>(
+    'secondary_text',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _firstValueMeta = const VerificationMeta(
+    'firstValue',
+  );
+  @override
+  late final GeneratedColumn<double> firstValue = GeneratedColumn<double>(
+    'first_value',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _secondValueMeta = const VerificationMeta(
+    'secondValue',
+  );
+  @override
+  late final GeneratedColumn<double> secondValue = GeneratedColumn<double>(
+    'second_value',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> completedAt = GeneratedColumn<DateTime>(
+    'completed_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    habitId,
+    periodKey,
+    primaryText,
+    secondaryText,
+    firstValue,
+    secondValue,
+    completedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'habit_activity_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<HabitActivityEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('habit_id')) {
+      context.handle(
+        _habitIdMeta,
+        habitId.isAcceptableOrUnknown(data['habit_id']!, _habitIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_habitIdMeta);
+    }
+    if (data.containsKey('period_key')) {
+      context.handle(
+        _periodKeyMeta,
+        periodKey.isAcceptableOrUnknown(data['period_key']!, _periodKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_periodKeyMeta);
+    }
+    if (data.containsKey('primary_text')) {
+      context.handle(
+        _primaryTextMeta,
+        primaryText.isAcceptableOrUnknown(
+          data['primary_text']!,
+          _primaryTextMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_primaryTextMeta);
+    }
+    if (data.containsKey('secondary_text')) {
+      context.handle(
+        _secondaryTextMeta,
+        secondaryText.isAcceptableOrUnknown(
+          data['secondary_text']!,
+          _secondaryTextMeta,
+        ),
+      );
+    }
+    if (data.containsKey('first_value')) {
+      context.handle(
+        _firstValueMeta,
+        firstValue.isAcceptableOrUnknown(data['first_value']!, _firstValueMeta),
+      );
+    }
+    if (data.containsKey('second_value')) {
+      context.handle(
+        _secondValueMeta,
+        secondValue.isAcceptableOrUnknown(
+          data['second_value']!,
+          _secondValueMeta,
+        ),
+      );
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_completedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {habitId, periodKey},
+  ];
+  @override
+  HabitActivityEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return HabitActivityEntry(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      habitId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}habit_id'],
+      )!,
+      periodKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}period_key'],
+      )!,
+      primaryText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}primary_text'],
+      )!,
+      secondaryText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}secondary_text'],
+      )!,
+      firstValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}first_value'],
+      ),
+      secondValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}second_value'],
+      ),
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}completed_at'],
+      )!,
+    );
+  }
+
+  @override
+  $HabitActivityEntriesTable createAlias(String alias) {
+    return $HabitActivityEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class HabitActivityEntry extends DataClass
+    implements Insertable<HabitActivityEntry> {
+  final int id;
+  final String habitId;
+  final String periodKey;
+  final String primaryText;
+  final String secondaryText;
+  final double? firstValue;
+  final double? secondValue;
+  final DateTime completedAt;
+  const HabitActivityEntry({
+    required this.id,
+    required this.habitId,
+    required this.periodKey,
+    required this.primaryText,
+    required this.secondaryText,
+    this.firstValue,
+    this.secondValue,
+    required this.completedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['habit_id'] = Variable<String>(habitId);
+    map['period_key'] = Variable<String>(periodKey);
+    map['primary_text'] = Variable<String>(primaryText);
+    map['secondary_text'] = Variable<String>(secondaryText);
+    if (!nullToAbsent || firstValue != null) {
+      map['first_value'] = Variable<double>(firstValue);
+    }
+    if (!nullToAbsent || secondValue != null) {
+      map['second_value'] = Variable<double>(secondValue);
+    }
+    map['completed_at'] = Variable<DateTime>(completedAt);
+    return map;
+  }
+
+  HabitActivityEntriesCompanion toCompanion(bool nullToAbsent) {
+    return HabitActivityEntriesCompanion(
+      id: Value(id),
+      habitId: Value(habitId),
+      periodKey: Value(periodKey),
+      primaryText: Value(primaryText),
+      secondaryText: Value(secondaryText),
+      firstValue: firstValue == null && nullToAbsent
+          ? const Value.absent()
+          : Value(firstValue),
+      secondValue: secondValue == null && nullToAbsent
+          ? const Value.absent()
+          : Value(secondValue),
+      completedAt: Value(completedAt),
+    );
+  }
+
+  factory HabitActivityEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return HabitActivityEntry(
+      id: serializer.fromJson<int>(json['id']),
+      habitId: serializer.fromJson<String>(json['habitId']),
+      periodKey: serializer.fromJson<String>(json['periodKey']),
+      primaryText: serializer.fromJson<String>(json['primaryText']),
+      secondaryText: serializer.fromJson<String>(json['secondaryText']),
+      firstValue: serializer.fromJson<double?>(json['firstValue']),
+      secondValue: serializer.fromJson<double?>(json['secondValue']),
+      completedAt: serializer.fromJson<DateTime>(json['completedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'habitId': serializer.toJson<String>(habitId),
+      'periodKey': serializer.toJson<String>(periodKey),
+      'primaryText': serializer.toJson<String>(primaryText),
+      'secondaryText': serializer.toJson<String>(secondaryText),
+      'firstValue': serializer.toJson<double?>(firstValue),
+      'secondValue': serializer.toJson<double?>(secondValue),
+      'completedAt': serializer.toJson<DateTime>(completedAt),
+    };
+  }
+
+  HabitActivityEntry copyWith({
+    int? id,
+    String? habitId,
+    String? periodKey,
+    String? primaryText,
+    String? secondaryText,
+    Value<double?> firstValue = const Value.absent(),
+    Value<double?> secondValue = const Value.absent(),
+    DateTime? completedAt,
+  }) => HabitActivityEntry(
+    id: id ?? this.id,
+    habitId: habitId ?? this.habitId,
+    periodKey: periodKey ?? this.periodKey,
+    primaryText: primaryText ?? this.primaryText,
+    secondaryText: secondaryText ?? this.secondaryText,
+    firstValue: firstValue.present ? firstValue.value : this.firstValue,
+    secondValue: secondValue.present ? secondValue.value : this.secondValue,
+    completedAt: completedAt ?? this.completedAt,
+  );
+  HabitActivityEntry copyWithCompanion(HabitActivityEntriesCompanion data) {
+    return HabitActivityEntry(
+      id: data.id.present ? data.id.value : this.id,
+      habitId: data.habitId.present ? data.habitId.value : this.habitId,
+      periodKey: data.periodKey.present ? data.periodKey.value : this.periodKey,
+      primaryText: data.primaryText.present
+          ? data.primaryText.value
+          : this.primaryText,
+      secondaryText: data.secondaryText.present
+          ? data.secondaryText.value
+          : this.secondaryText,
+      firstValue: data.firstValue.present
+          ? data.firstValue.value
+          : this.firstValue,
+      secondValue: data.secondValue.present
+          ? data.secondValue.value
+          : this.secondValue,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HabitActivityEntry(')
+          ..write('id: $id, ')
+          ..write('habitId: $habitId, ')
+          ..write('periodKey: $periodKey, ')
+          ..write('primaryText: $primaryText, ')
+          ..write('secondaryText: $secondaryText, ')
+          ..write('firstValue: $firstValue, ')
+          ..write('secondValue: $secondValue, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    habitId,
+    periodKey,
+    primaryText,
+    secondaryText,
+    firstValue,
+    secondValue,
+    completedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is HabitActivityEntry &&
+          other.id == this.id &&
+          other.habitId == this.habitId &&
+          other.periodKey == this.periodKey &&
+          other.primaryText == this.primaryText &&
+          other.secondaryText == this.secondaryText &&
+          other.firstValue == this.firstValue &&
+          other.secondValue == this.secondValue &&
+          other.completedAt == this.completedAt);
+}
+
+class HabitActivityEntriesCompanion
+    extends UpdateCompanion<HabitActivityEntry> {
+  final Value<int> id;
+  final Value<String> habitId;
+  final Value<String> periodKey;
+  final Value<String> primaryText;
+  final Value<String> secondaryText;
+  final Value<double?> firstValue;
+  final Value<double?> secondValue;
+  final Value<DateTime> completedAt;
+  const HabitActivityEntriesCompanion({
+    this.id = const Value.absent(),
+    this.habitId = const Value.absent(),
+    this.periodKey = const Value.absent(),
+    this.primaryText = const Value.absent(),
+    this.secondaryText = const Value.absent(),
+    this.firstValue = const Value.absent(),
+    this.secondValue = const Value.absent(),
+    this.completedAt = const Value.absent(),
+  });
+  HabitActivityEntriesCompanion.insert({
+    this.id = const Value.absent(),
+    required String habitId,
+    required String periodKey,
+    required String primaryText,
+    this.secondaryText = const Value.absent(),
+    this.firstValue = const Value.absent(),
+    this.secondValue = const Value.absent(),
+    required DateTime completedAt,
+  }) : habitId = Value(habitId),
+       periodKey = Value(periodKey),
+       primaryText = Value(primaryText),
+       completedAt = Value(completedAt);
+  static Insertable<HabitActivityEntry> custom({
+    Expression<int>? id,
+    Expression<String>? habitId,
+    Expression<String>? periodKey,
+    Expression<String>? primaryText,
+    Expression<String>? secondaryText,
+    Expression<double>? firstValue,
+    Expression<double>? secondValue,
+    Expression<DateTime>? completedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (habitId != null) 'habit_id': habitId,
+      if (periodKey != null) 'period_key': periodKey,
+      if (primaryText != null) 'primary_text': primaryText,
+      if (secondaryText != null) 'secondary_text': secondaryText,
+      if (firstValue != null) 'first_value': firstValue,
+      if (secondValue != null) 'second_value': secondValue,
+      if (completedAt != null) 'completed_at': completedAt,
+    });
+  }
+
+  HabitActivityEntriesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? habitId,
+    Value<String>? periodKey,
+    Value<String>? primaryText,
+    Value<String>? secondaryText,
+    Value<double?>? firstValue,
+    Value<double?>? secondValue,
+    Value<DateTime>? completedAt,
+  }) {
+    return HabitActivityEntriesCompanion(
+      id: id ?? this.id,
+      habitId: habitId ?? this.habitId,
+      periodKey: periodKey ?? this.periodKey,
+      primaryText: primaryText ?? this.primaryText,
+      secondaryText: secondaryText ?? this.secondaryText,
+      firstValue: firstValue ?? this.firstValue,
+      secondValue: secondValue ?? this.secondValue,
+      completedAt: completedAt ?? this.completedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (habitId.present) {
+      map['habit_id'] = Variable<String>(habitId.value);
+    }
+    if (periodKey.present) {
+      map['period_key'] = Variable<String>(periodKey.value);
+    }
+    if (primaryText.present) {
+      map['primary_text'] = Variable<String>(primaryText.value);
+    }
+    if (secondaryText.present) {
+      map['secondary_text'] = Variable<String>(secondaryText.value);
+    }
+    if (firstValue.present) {
+      map['first_value'] = Variable<double>(firstValue.value);
+    }
+    if (secondValue.present) {
+      map['second_value'] = Variable<double>(secondValue.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<DateTime>(completedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('HabitActivityEntriesCompanion(')
+          ..write('id: $id, ')
+          ..write('habitId: $habitId, ')
+          ..write('periodKey: $periodKey, ')
+          ..write('primaryText: $primaryText, ')
+          ..write('secondaryText: $secondaryText, ')
+          ..write('firstValue: $firstValue, ')
+          ..write('secondValue: $secondValue, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TravelPlansTable extends TravelPlans
+    with TableInfo<$TravelPlansTable, TravelPlan> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TravelPlansTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _yearMeta = const VerificationMeta('year');
+  @override
+  late final GeneratedColumn<int> year = GeneratedColumn<int>(
+    'year',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _destinationMeta = const VerificationMeta(
+    'destination',
+  );
+  @override
+  late final GeneratedColumn<String> destination = GeneratedColumn<String>(
+    'destination',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _daysMeta = const VerificationMeta('days');
+  @override
+  late final GeneratedColumn<int> days = GeneratedColumn<int>(
+    'days',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _focusMeta = const VerificationMeta('focus');
+  @override
+  late final GeneratedColumn<String> focus = GeneratedColumn<String>(
+    'focus',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _preparationMeta = const VerificationMeta(
+    'preparation',
+  );
+  @override
+  late final GeneratedColumn<String> preparation = GeneratedColumn<String>(
+    'preparation',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _plannedAtMeta = const VerificationMeta(
+    'plannedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> plannedAt = GeneratedColumn<DateTime>(
+    'planned_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    year,
+    destination,
+    days,
+    focus,
+    preparation,
+    plannedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'travel_plans';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TravelPlan> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('year')) {
+      context.handle(
+        _yearMeta,
+        year.isAcceptableOrUnknown(data['year']!, _yearMeta),
+      );
+    }
+    if (data.containsKey('destination')) {
+      context.handle(
+        _destinationMeta,
+        destination.isAcceptableOrUnknown(
+          data['destination']!,
+          _destinationMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_destinationMeta);
+    }
+    if (data.containsKey('days')) {
+      context.handle(
+        _daysMeta,
+        days.isAcceptableOrUnknown(data['days']!, _daysMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_daysMeta);
+    }
+    if (data.containsKey('focus')) {
+      context.handle(
+        _focusMeta,
+        focus.isAcceptableOrUnknown(data['focus']!, _focusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_focusMeta);
+    }
+    if (data.containsKey('preparation')) {
+      context.handle(
+        _preparationMeta,
+        preparation.isAcceptableOrUnknown(
+          data['preparation']!,
+          _preparationMeta,
+        ),
+      );
+    }
+    if (data.containsKey('planned_at')) {
+      context.handle(
+        _plannedAtMeta,
+        plannedAt.isAcceptableOrUnknown(data['planned_at']!, _plannedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_plannedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {year};
+  @override
+  TravelPlan map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TravelPlan(
+      year: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}year'],
+      )!,
+      destination: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}destination'],
+      )!,
+      days: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}days'],
+      )!,
+      focus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}focus'],
+      )!,
+      preparation: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preparation'],
+      )!,
+      plannedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}planned_at'],
+      )!,
+    );
+  }
+
+  @override
+  $TravelPlansTable createAlias(String alias) {
+    return $TravelPlansTable(attachedDatabase, alias);
+  }
+}
+
+class TravelPlan extends DataClass implements Insertable<TravelPlan> {
+  final int year;
+  final String destination;
+  final int days;
+  final String focus;
+  final String preparation;
+  final DateTime plannedAt;
+  const TravelPlan({
+    required this.year,
+    required this.destination,
+    required this.days,
+    required this.focus,
+    required this.preparation,
+    required this.plannedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['year'] = Variable<int>(year);
+    map['destination'] = Variable<String>(destination);
+    map['days'] = Variable<int>(days);
+    map['focus'] = Variable<String>(focus);
+    map['preparation'] = Variable<String>(preparation);
+    map['planned_at'] = Variable<DateTime>(plannedAt);
+    return map;
+  }
+
+  TravelPlansCompanion toCompanion(bool nullToAbsent) {
+    return TravelPlansCompanion(
+      year: Value(year),
+      destination: Value(destination),
+      days: Value(days),
+      focus: Value(focus),
+      preparation: Value(preparation),
+      plannedAt: Value(plannedAt),
+    );
+  }
+
+  factory TravelPlan.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TravelPlan(
+      year: serializer.fromJson<int>(json['year']),
+      destination: serializer.fromJson<String>(json['destination']),
+      days: serializer.fromJson<int>(json['days']),
+      focus: serializer.fromJson<String>(json['focus']),
+      preparation: serializer.fromJson<String>(json['preparation']),
+      plannedAt: serializer.fromJson<DateTime>(json['plannedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'year': serializer.toJson<int>(year),
+      'destination': serializer.toJson<String>(destination),
+      'days': serializer.toJson<int>(days),
+      'focus': serializer.toJson<String>(focus),
+      'preparation': serializer.toJson<String>(preparation),
+      'plannedAt': serializer.toJson<DateTime>(plannedAt),
+    };
+  }
+
+  TravelPlan copyWith({
+    int? year,
+    String? destination,
+    int? days,
+    String? focus,
+    String? preparation,
+    DateTime? plannedAt,
+  }) => TravelPlan(
+    year: year ?? this.year,
+    destination: destination ?? this.destination,
+    days: days ?? this.days,
+    focus: focus ?? this.focus,
+    preparation: preparation ?? this.preparation,
+    plannedAt: plannedAt ?? this.plannedAt,
+  );
+  TravelPlan copyWithCompanion(TravelPlansCompanion data) {
+    return TravelPlan(
+      year: data.year.present ? data.year.value : this.year,
+      destination: data.destination.present
+          ? data.destination.value
+          : this.destination,
+      days: data.days.present ? data.days.value : this.days,
+      focus: data.focus.present ? data.focus.value : this.focus,
+      preparation: data.preparation.present
+          ? data.preparation.value
+          : this.preparation,
+      plannedAt: data.plannedAt.present ? data.plannedAt.value : this.plannedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TravelPlan(')
+          ..write('year: $year, ')
+          ..write('destination: $destination, ')
+          ..write('days: $days, ')
+          ..write('focus: $focus, ')
+          ..write('preparation: $preparation, ')
+          ..write('plannedAt: $plannedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(year, destination, days, focus, preparation, plannedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TravelPlan &&
+          other.year == this.year &&
+          other.destination == this.destination &&
+          other.days == this.days &&
+          other.focus == this.focus &&
+          other.preparation == this.preparation &&
+          other.plannedAt == this.plannedAt);
+}
+
+class TravelPlansCompanion extends UpdateCompanion<TravelPlan> {
+  final Value<int> year;
+  final Value<String> destination;
+  final Value<int> days;
+  final Value<String> focus;
+  final Value<String> preparation;
+  final Value<DateTime> plannedAt;
+  const TravelPlansCompanion({
+    this.year = const Value.absent(),
+    this.destination = const Value.absent(),
+    this.days = const Value.absent(),
+    this.focus = const Value.absent(),
+    this.preparation = const Value.absent(),
+    this.plannedAt = const Value.absent(),
+  });
+  TravelPlansCompanion.insert({
+    this.year = const Value.absent(),
+    required String destination,
+    required int days,
+    required String focus,
+    this.preparation = const Value.absent(),
+    required DateTime plannedAt,
+  }) : destination = Value(destination),
+       days = Value(days),
+       focus = Value(focus),
+       plannedAt = Value(plannedAt);
+  static Insertable<TravelPlan> custom({
+    Expression<int>? year,
+    Expression<String>? destination,
+    Expression<int>? days,
+    Expression<String>? focus,
+    Expression<String>? preparation,
+    Expression<DateTime>? plannedAt,
+  }) {
+    return RawValuesInsertable({
+      if (year != null) 'year': year,
+      if (destination != null) 'destination': destination,
+      if (days != null) 'days': days,
+      if (focus != null) 'focus': focus,
+      if (preparation != null) 'preparation': preparation,
+      if (plannedAt != null) 'planned_at': plannedAt,
+    });
+  }
+
+  TravelPlansCompanion copyWith({
+    Value<int>? year,
+    Value<String>? destination,
+    Value<int>? days,
+    Value<String>? focus,
+    Value<String>? preparation,
+    Value<DateTime>? plannedAt,
+  }) {
+    return TravelPlansCompanion(
+      year: year ?? this.year,
+      destination: destination ?? this.destination,
+      days: days ?? this.days,
+      focus: focus ?? this.focus,
+      preparation: preparation ?? this.preparation,
+      plannedAt: plannedAt ?? this.plannedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (year.present) {
+      map['year'] = Variable<int>(year.value);
+    }
+    if (destination.present) {
+      map['destination'] = Variable<String>(destination.value);
+    }
+    if (days.present) {
+      map['days'] = Variable<int>(days.value);
+    }
+    if (focus.present) {
+      map['focus'] = Variable<String>(focus.value);
+    }
+    if (preparation.present) {
+      map['preparation'] = Variable<String>(preparation.value);
+    }
+    if (plannedAt.present) {
+      map['planned_at'] = Variable<DateTime>(plannedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TravelPlansCompanion(')
+          ..write('year: $year, ')
+          ..write('destination: $destination, ')
+          ..write('days: $days, ')
+          ..write('focus: $focus, ')
+          ..write('preparation: $preparation, ')
+          ..write('plannedAt: $plannedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -2219,6 +3152,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ReviewEntriesTable reviewEntries = $ReviewEntriesTable(this);
   late final $TimerSessionsTable timerSessions = $TimerSessionsTable(this);
   late final $ChallengeDrawsTable challengeDraws = $ChallengeDrawsTable(this);
+  late final $HabitActivityEntriesTable habitActivityEntries =
+      $HabitActivityEntriesTable(this);
+  late final $TravelPlansTable travelPlans = $TravelPlansTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2230,6 +3166,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     reviewEntries,
     timerSessions,
     challengeDraws,
+    habitActivityEntries,
+    travelPlans,
   ];
 }
 
@@ -3680,6 +4618,500 @@ typedef $$ChallengeDrawsTableProcessedTableManager =
       ChallengeDraw,
       PrefetchHooks Function()
     >;
+typedef $$HabitActivityEntriesTableCreateCompanionBuilder =
+    HabitActivityEntriesCompanion Function({
+      Value<int> id,
+      required String habitId,
+      required String periodKey,
+      required String primaryText,
+      Value<String> secondaryText,
+      Value<double?> firstValue,
+      Value<double?> secondValue,
+      required DateTime completedAt,
+    });
+typedef $$HabitActivityEntriesTableUpdateCompanionBuilder =
+    HabitActivityEntriesCompanion Function({
+      Value<int> id,
+      Value<String> habitId,
+      Value<String> periodKey,
+      Value<String> primaryText,
+      Value<String> secondaryText,
+      Value<double?> firstValue,
+      Value<double?> secondValue,
+      Value<DateTime> completedAt,
+    });
+
+class $$HabitActivityEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $HabitActivityEntriesTable> {
+  $$HabitActivityEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get habitId => $composableBuilder(
+    column: $table.habitId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get periodKey => $composableBuilder(
+    column: $table.periodKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get primaryText => $composableBuilder(
+    column: $table.primaryText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get secondaryText => $composableBuilder(
+    column: $table.secondaryText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get firstValue => $composableBuilder(
+    column: $table.firstValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get secondValue => $composableBuilder(
+    column: $table.secondValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$HabitActivityEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $HabitActivityEntriesTable> {
+  $$HabitActivityEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get habitId => $composableBuilder(
+    column: $table.habitId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get periodKey => $composableBuilder(
+    column: $table.periodKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get primaryText => $composableBuilder(
+    column: $table.primaryText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get secondaryText => $composableBuilder(
+    column: $table.secondaryText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get firstValue => $composableBuilder(
+    column: $table.firstValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get secondValue => $composableBuilder(
+    column: $table.secondValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$HabitActivityEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $HabitActivityEntriesTable> {
+  $$HabitActivityEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get habitId =>
+      $composableBuilder(column: $table.habitId, builder: (column) => column);
+
+  GeneratedColumn<String> get periodKey =>
+      $composableBuilder(column: $table.periodKey, builder: (column) => column);
+
+  GeneratedColumn<String> get primaryText => $composableBuilder(
+    column: $table.primaryText,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get secondaryText => $composableBuilder(
+    column: $table.secondaryText,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get firstValue => $composableBuilder(
+    column: $table.firstValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get secondValue => $composableBuilder(
+    column: $table.secondValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$HabitActivityEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $HabitActivityEntriesTable,
+          HabitActivityEntry,
+          $$HabitActivityEntriesTableFilterComposer,
+          $$HabitActivityEntriesTableOrderingComposer,
+          $$HabitActivityEntriesTableAnnotationComposer,
+          $$HabitActivityEntriesTableCreateCompanionBuilder,
+          $$HabitActivityEntriesTableUpdateCompanionBuilder,
+          (
+            HabitActivityEntry,
+            BaseReferences<
+              _$AppDatabase,
+              $HabitActivityEntriesTable,
+              HabitActivityEntry
+            >,
+          ),
+          HabitActivityEntry,
+          PrefetchHooks Function()
+        > {
+  $$HabitActivityEntriesTableTableManager(
+    _$AppDatabase db,
+    $HabitActivityEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$HabitActivityEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$HabitActivityEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$HabitActivityEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> habitId = const Value.absent(),
+                Value<String> periodKey = const Value.absent(),
+                Value<String> primaryText = const Value.absent(),
+                Value<String> secondaryText = const Value.absent(),
+                Value<double?> firstValue = const Value.absent(),
+                Value<double?> secondValue = const Value.absent(),
+                Value<DateTime> completedAt = const Value.absent(),
+              }) => HabitActivityEntriesCompanion(
+                id: id,
+                habitId: habitId,
+                periodKey: periodKey,
+                primaryText: primaryText,
+                secondaryText: secondaryText,
+                firstValue: firstValue,
+                secondValue: secondValue,
+                completedAt: completedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String habitId,
+                required String periodKey,
+                required String primaryText,
+                Value<String> secondaryText = const Value.absent(),
+                Value<double?> firstValue = const Value.absent(),
+                Value<double?> secondValue = const Value.absent(),
+                required DateTime completedAt,
+              }) => HabitActivityEntriesCompanion.insert(
+                id: id,
+                habitId: habitId,
+                periodKey: periodKey,
+                primaryText: primaryText,
+                secondaryText: secondaryText,
+                firstValue: firstValue,
+                secondValue: secondValue,
+                completedAt: completedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$HabitActivityEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $HabitActivityEntriesTable,
+      HabitActivityEntry,
+      $$HabitActivityEntriesTableFilterComposer,
+      $$HabitActivityEntriesTableOrderingComposer,
+      $$HabitActivityEntriesTableAnnotationComposer,
+      $$HabitActivityEntriesTableCreateCompanionBuilder,
+      $$HabitActivityEntriesTableUpdateCompanionBuilder,
+      (
+        HabitActivityEntry,
+        BaseReferences<
+          _$AppDatabase,
+          $HabitActivityEntriesTable,
+          HabitActivityEntry
+        >,
+      ),
+      HabitActivityEntry,
+      PrefetchHooks Function()
+    >;
+typedef $$TravelPlansTableCreateCompanionBuilder =
+    TravelPlansCompanion Function({
+      Value<int> year,
+      required String destination,
+      required int days,
+      required String focus,
+      Value<String> preparation,
+      required DateTime plannedAt,
+    });
+typedef $$TravelPlansTableUpdateCompanionBuilder =
+    TravelPlansCompanion Function({
+      Value<int> year,
+      Value<String> destination,
+      Value<int> days,
+      Value<String> focus,
+      Value<String> preparation,
+      Value<DateTime> plannedAt,
+    });
+
+class $$TravelPlansTableFilterComposer
+    extends Composer<_$AppDatabase, $TravelPlansTable> {
+  $$TravelPlansTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get year => $composableBuilder(
+    column: $table.year,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get destination => $composableBuilder(
+    column: $table.destination,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get days => $composableBuilder(
+    column: $table.days,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get focus => $composableBuilder(
+    column: $table.focus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get preparation => $composableBuilder(
+    column: $table.preparation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get plannedAt => $composableBuilder(
+    column: $table.plannedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TravelPlansTableOrderingComposer
+    extends Composer<_$AppDatabase, $TravelPlansTable> {
+  $$TravelPlansTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get year => $composableBuilder(
+    column: $table.year,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get destination => $composableBuilder(
+    column: $table.destination,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get days => $composableBuilder(
+    column: $table.days,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get focus => $composableBuilder(
+    column: $table.focus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get preparation => $composableBuilder(
+    column: $table.preparation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get plannedAt => $composableBuilder(
+    column: $table.plannedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TravelPlansTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TravelPlansTable> {
+  $$TravelPlansTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get year =>
+      $composableBuilder(column: $table.year, builder: (column) => column);
+
+  GeneratedColumn<String> get destination => $composableBuilder(
+    column: $table.destination,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get days =>
+      $composableBuilder(column: $table.days, builder: (column) => column);
+
+  GeneratedColumn<String> get focus =>
+      $composableBuilder(column: $table.focus, builder: (column) => column);
+
+  GeneratedColumn<String> get preparation => $composableBuilder(
+    column: $table.preparation,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get plannedAt =>
+      $composableBuilder(column: $table.plannedAt, builder: (column) => column);
+}
+
+class $$TravelPlansTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TravelPlansTable,
+          TravelPlan,
+          $$TravelPlansTableFilterComposer,
+          $$TravelPlansTableOrderingComposer,
+          $$TravelPlansTableAnnotationComposer,
+          $$TravelPlansTableCreateCompanionBuilder,
+          $$TravelPlansTableUpdateCompanionBuilder,
+          (
+            TravelPlan,
+            BaseReferences<_$AppDatabase, $TravelPlansTable, TravelPlan>,
+          ),
+          TravelPlan,
+          PrefetchHooks Function()
+        > {
+  $$TravelPlansTableTableManager(_$AppDatabase db, $TravelPlansTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TravelPlansTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TravelPlansTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TravelPlansTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> year = const Value.absent(),
+                Value<String> destination = const Value.absent(),
+                Value<int> days = const Value.absent(),
+                Value<String> focus = const Value.absent(),
+                Value<String> preparation = const Value.absent(),
+                Value<DateTime> plannedAt = const Value.absent(),
+              }) => TravelPlansCompanion(
+                year: year,
+                destination: destination,
+                days: days,
+                focus: focus,
+                preparation: preparation,
+                plannedAt: plannedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> year = const Value.absent(),
+                required String destination,
+                required int days,
+                required String focus,
+                Value<String> preparation = const Value.absent(),
+                required DateTime plannedAt,
+              }) => TravelPlansCompanion.insert(
+                year: year,
+                destination: destination,
+                days: days,
+                focus: focus,
+                preparation: preparation,
+                plannedAt: plannedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TravelPlansTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TravelPlansTable,
+      TravelPlan,
+      $$TravelPlansTableFilterComposer,
+      $$TravelPlansTableOrderingComposer,
+      $$TravelPlansTableAnnotationComposer,
+      $$TravelPlansTableCreateCompanionBuilder,
+      $$TravelPlansTableUpdateCompanionBuilder,
+      (
+        TravelPlan,
+        BaseReferences<_$AppDatabase, $TravelPlansTable, TravelPlan>,
+      ),
+      TravelPlan,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3696,4 +5128,8 @@ class $AppDatabaseManager {
       $$TimerSessionsTableTableManager(_db, _db.timerSessions);
   $$ChallengeDrawsTableTableManager get challengeDraws =>
       $$ChallengeDrawsTableTableManager(_db, _db.challengeDraws);
+  $$HabitActivityEntriesTableTableManager get habitActivityEntries =>
+      $$HabitActivityEntriesTableTableManager(_db, _db.habitActivityEntries);
+  $$TravelPlansTableTableManager get travelPlans =>
+      $$TravelPlansTableTableManager(_db, _db.travelPlans);
 }

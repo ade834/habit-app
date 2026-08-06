@@ -72,6 +72,34 @@ class ChallengeDraws extends Table {
   Set<Column<Object>> get primaryKey => {localDate};
 }
 
+class HabitActivityEntries extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get habitId => text()();
+  TextColumn get periodKey => text()();
+  TextColumn get primaryText => text()();
+  TextColumn get secondaryText => text().withDefault(const Constant(''))();
+  RealColumn get firstValue => real().nullable()();
+  RealColumn get secondValue => real().nullable()();
+  DateTimeColumn get completedAt => dateTime()();
+
+  @override
+  List<Set<Column<Object>>> get uniqueKeys => [
+    {habitId, periodKey},
+  ];
+}
+
+class TravelPlans extends Table {
+  IntColumn get year => integer()();
+  TextColumn get destination => text()();
+  IntColumn get days => integer()();
+  TextColumn get focus => text()();
+  TextColumn get preparation => text().withDefault(const Constant(''))();
+  DateTimeColumn get plannedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {year};
+}
+
 @DriftDatabase(
   tables: [
     HabitSelections,
@@ -80,6 +108,8 @@ class ChallengeDraws extends Table {
     ReviewEntries,
     TimerSessions,
     ChallengeDraws,
+    HabitActivityEntries,
+    TravelPlans,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -88,7 +118,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -108,6 +138,12 @@ class AppDatabase extends _$AppDatabase {
       if (from >= 2 && from < 4) {
         await migrator.addColumn(timerSessions, timerSessions.focusTopic);
       }
+      if (from < 5) {
+        await migrator.createTable(habitActivityEntries);
+      }
+      if (from < 6) {
+        await migrator.createTable(travelPlans);
+      }
     },
   );
 
@@ -117,6 +153,8 @@ class AppDatabase extends _$AppDatabase {
   Future<void> clearAllData() async {
     await transaction(() async {
       await delete(challengeDraws).go();
+      await delete(habitActivityEntries).go();
+      await delete(travelPlans).go();
       await delete(timerSessions).go();
       await delete(reviewEntries).go();
       await delete(pointTransactions).go();
@@ -154,6 +192,128 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  Future<void> replaceSelectedHabits(
+    Set<String> habitIds, {
+    DateTime? now,
+  }) async {
+    if (habitIds.isEmpty || habitIds.length > 3) {
+      throw ArgumentError('请选择1到3个习惯');
+    }
+    final current = now ?? DateTime.now();
+    await transaction(() async {
+      final existing = await select(habitSelections).get();
+      final byId = {for (final row in existing) row.habitId: row};
+      await (delete(
+        habitSelections,
+      )..where((row) => row.habitId.isNotIn(habitIds))).go();
+      for (final id in habitIds) {
+        if (byId.containsKey(id)) continue;
+        await into(habitSelections).insert(
+          HabitSelectionsCompanion.insert(habitId: id, enabledAt: current),
+        );
+      }
+    });
+  }
+
+  Future<bool> saveLaterHabitActivity({
+    required String habitId,
+    required String primaryText,
+    String secondaryText = '',
+    double? firstValue,
+    double? secondValue,
+    DateTime? now,
+  }) {
+    if (!const {
+      'H5',
+      'H6',
+      'H7',
+      'H8',
+      'H9',
+      'H10',
+      'H11',
+      'H12',
+    }.contains(habitId)) {
+      throw ArgumentError.value(habitId, 'habitId');
+    }
+    if (primaryText.trim().isEmpty) throw ArgumentError('请填写必填内容');
+    final current = now ?? DateTime.now();
+    final periodKey = _activityPeriodKey(habitId, current);
+    return transaction(() async {
+      final existing =
+          await (select(habitActivityEntries)..where(
+                (row) =>
+                    row.habitId.equals(habitId) &
+                    row.periodKey.equals(periodKey),
+              ))
+              .getSingleOrNull();
+      if (existing != null) return false;
+      await into(habitActivityEntries).insert(
+        HabitActivityEntriesCompanion.insert(
+          habitId: habitId,
+          periodKey: periodKey,
+          primaryText: primaryText.trim(),
+          secondaryText: Value(secondaryText.trim()),
+          firstValue: Value(firstValue),
+          secondValue: Value(secondValue),
+          completedAt: current,
+        ),
+      );
+      return _recordCompletion(
+        habitId,
+        current,
+        points: _laterHabitPointMultiplier(habitId),
+      );
+    });
+  }
+
+  int _laterHabitPointMultiplier(String habitId) => switch (habitId) {
+    'H5' || 'H7' => 3,
+    'H10' => 4,
+    'H11' => 99,
+    _ => 1,
+  };
+
+  Future<TravelPlan?> travelPlanForYear({DateTime? now}) =>
+      (select(travelPlans)
+            ..where((row) => row.year.equals((now ?? DateTime.now()).year)))
+          .getSingleOrNull();
+
+  Future<void> saveTravelPlan({
+    required String destination,
+    required int days,
+    required String focus,
+    String preparation = '',
+    DateTime? now,
+  }) async {
+    if (destination.trim().isEmpty || focus.trim().isEmpty || days < 1) {
+      throw ArgumentError('请完整填写旅行计划');
+    }
+    final current = now ?? DateTime.now();
+    await into(travelPlans).insertOnConflictUpdate(
+      TravelPlansCompanion.insert(
+        year: Value(current.year),
+        destination: destination.trim(),
+        days: days,
+        focus: focus.trim(),
+        preparation: Value(preparation.trim()),
+        plannedAt: current,
+      ),
+    );
+  }
+
+  String _activityPeriodKey(String habitId, DateTime date) {
+    if (habitId == 'H10') {
+      return '${date.year}-${date.month.toString().padLeft(2, '0')}';
+    }
+    if (habitId == 'H11') return '${date.year}';
+    if (habitId == 'H5' || habitId == 'H7') {
+      final day = DateTime(date.year, date.month, date.day);
+      final monday = day.subtract(Duration(days: day.weekday - 1));
+      return 'week-${_localDate(monday)}';
+    }
+    return _localDate(date);
+  }
+
   Future<bool> recordCompletion({
     required String habitId,
     required DateTime occurredAt,
@@ -161,7 +321,11 @@ class AppDatabase extends _$AppDatabase {
     return transaction(() => _recordCompletion(habitId, occurredAt));
   }
 
-  Future<bool> _recordCompletion(String habitId, DateTime occurredAt) async {
+  Future<bool> _recordCompletion(
+    String habitId,
+    DateTime occurredAt, {
+    int points = 1,
+  }) async {
     final localDate = _localDate(occurredAt);
     final existing =
         await (select(habitLogs)..where(
@@ -183,7 +347,7 @@ class AppDatabase extends _$AppDatabase {
     await into(pointTransactions).insert(
       PointTransactionsCompanion.insert(
         habitLogId: logId,
-        amount: 1,
+        amount: points,
         createdAt: occurredAt,
       ),
     );
@@ -589,6 +753,13 @@ class AppDatabase extends _$AppDatabase {
                   row.startedAt.isSmallerThanValue(last),
             ))
             .get();
+    final activities =
+        await (select(habitActivityEntries)..where(
+              (row) =>
+                  row.completedAt.isBiggerOrEqualValue(first) &
+                  row.completedAt.isSmallerThanValue(last),
+            ))
+            .get();
     final transactions = await select(pointTransactions).get();
     final pointsByLogId = <int, int>{
       for (final transaction in transactions)
@@ -609,6 +780,12 @@ class AppDatabase extends _$AppDatabase {
       sessionsByDate
           .putIfAbsent(_localDate(session.startedAt), () => [])
           .add(session);
+    }
+    final activitiesByDate = <String, List<HabitActivityEntry>>{};
+    for (final activity in activities) {
+      activitiesByDate
+          .putIfAbsent(_localDate(activity.completedAt), () => [])
+          .add(activity);
     }
 
     final result = <DailyRecordSummary>[];
@@ -651,6 +828,17 @@ class AppDatabase extends _$AppDatabase {
           focus: focus,
           challengeCardIndex: challengesByDate[dateKey]?.cardIndex,
           disconnect: disconnect,
+          activities: [
+            for (final activity
+                in activitiesByDate[dateKey] ?? const <HabitActivityEntry>[])
+              HabitActivityRecord(
+                habitId: activity.habitId,
+                primaryText: activity.primaryText,
+                secondaryText: activity.secondaryText,
+                firstValue: activity.firstValue,
+                secondValue: activity.secondValue,
+              ),
+          ],
         ),
       );
     }

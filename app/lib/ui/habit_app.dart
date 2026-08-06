@@ -40,6 +40,29 @@ final growthSnapshotProvider = StreamProvider<GrowthSnapshot>(
   (ref) => ref.watch(databaseProvider).watchGrowthSnapshot(),
 );
 
+void _showCompletionBanner(BuildContext context, int points) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentMaterialBanner();
+  messenger.showMaterialBanner(
+    MaterialBanner(
+      leading: const Icon(Icons.stars_rounded, size: 40),
+      content: Text(
+        points > 0 ? '完成！获得 $points 积分' : '记录已保存',
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
+      actions: [
+        TextButton(
+          onPressed: messenger.hideCurrentMaterialBanner,
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
+  Future<void>.delayed(const Duration(seconds: 4), () {
+    messenger.hideCurrentMaterialBanner();
+  });
+}
+
 class HabitApp extends StatelessWidget {
   const HabitApp({super.key});
 
@@ -119,7 +142,7 @@ class _OnboardingPageState extends ConsumerState<_OnboardingPage> {
             const SizedBox(height: 8),
             const Text('选择1到3个习惯，让它在你手里一点点长大。'),
             const SizedBox(height: 24),
-            for (final habit in firstHabits)
+            for (final habit in allHabits)
               Card(
                 child: CheckboxListTile(
                   value: _selected.contains(habit.id),
@@ -319,14 +342,7 @@ class _TodayHabitCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final definition = firstHabits.firstWhere(
-      (item) => item.id == habit.habitId,
-      orElse: () => HabitDefinition(
-        id: habit.habitId,
-        name: habit.habitId,
-        description: '',
-      ),
-    );
+    final definition = habitById(habit.habitId);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
@@ -336,14 +352,17 @@ class _TodayHabitCard extends ConsumerWidget {
             ? const Icon(Icons.check_circle, color: Colors.green)
             : FilledButton(
                 onPressed: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
+                  final points = await Navigator.of(context).push<int>(
+                    MaterialPageRoute<int>(
                       builder: (_) => habitToolPage(
                         habitId: habit.habitId,
                         database: ref.read(databaseProvider),
                       ),
                     ),
                   );
+                  if (context.mounted && points != null) {
+                    _showCompletionBanner(context, points);
+                  }
                 },
                 child: const Text('开始'),
               ),
@@ -354,6 +373,58 @@ class _TodayHabitCard extends ConsumerWidget {
 
 class _HabitsPage extends ConsumerWidget {
   const _HabitsPage();
+
+  Future<void> _chooseHabits(
+    BuildContext context,
+    WidgetRef ref,
+    List<HabitSelection> current,
+  ) async {
+    final selected = current.map((row) => row.habitId).toSet();
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('选择正在养成的习惯'),
+          content: SizedBox(
+            width: 520,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                const Text('测试阶段展示全部12项，同时选择1到3项。更换不会删除历史记录。'),
+                const SizedBox(height: 12),
+                for (final habit in allHabits)
+                  CheckboxListTile(
+                    value: selected.contains(habit.id),
+                    title: Text(habit.name),
+                    subtitle: Text(habit.description),
+                    onChanged: (checked) => setDialogState(() {
+                      if (checked == true && selected.length < 3) {
+                        selected.add(habit.id);
+                      } else if (checked == false && selected.length > 1) {
+                        selected.remove(habit.id);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result != null) {
+      await ref.read(databaseProvider).replaceSelectedHabits(result);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -369,6 +440,12 @@ class _HabitsPage extends ConsumerWidget {
                 Text('习惯', style: Theme.of(context).textTheme.headlineLarge),
                 const SizedBox(height: 8),
                 const Text('你选择的习惯会显示在这里。'),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => _chooseHabits(context, ref, habits),
+                  icon: const Icon(Icons.tune),
+                  label: const Text('选择或更换习惯'),
+                ),
                 const SizedBox(height: 24),
                 for (final habit in habits)
                   _HabitProgressTile(habitId: habit.habitId),
@@ -385,7 +462,7 @@ class _HabitProgressTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final definition = firstHabits.firstWhere((item) => item.id == habitId);
+    final definition = habitById(habitId);
     return Card(
       child: ref
           .watch(growthSnapshotProvider)
@@ -397,14 +474,19 @@ class _HabitProgressTile extends ConsumerWidget {
               if (state == null) return const SizedBox.shrink();
               return InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => habitToolPage(
-                      habitId: habitId,
-                      database: ref.read(databaseProvider),
+                onTap: () async {
+                  final points = await Navigator.of(context).push<int>(
+                    MaterialPageRoute<int>(
+                      builder: (_) => habitToolPage(
+                        habitId: habitId,
+                        database: ref.read(databaseProvider),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  if (context.mounted && points != null) {
+                    _showCompletionBanner(context, points);
+                  }
+                },
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -480,7 +562,7 @@ class _GrowthTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final definition = firstHabits.firstWhere((item) => item.id == habitId);
+    final definition = habitById(habitId);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -700,11 +782,7 @@ class _DebugToolsCard extends ConsumerWidget {
                 for (final habit in habits)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      firstHabits
-                          .firstWhere((item) => item.id == habit.habitId)
-                          .name,
-                    ),
+                    title: Text(habitById(habit.habitId).name),
                     trailing: Wrap(
                       spacing: 8,
                       children: [
@@ -843,7 +921,11 @@ class _ReviewPageState extends ConsumerState<_ReviewPage> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _DailyRecordSheet(summary: summary),
+      useSafeArea: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.92,
+        child: _DailyRecordSheet(summary: summary),
+      ),
     );
   }
 }
@@ -924,6 +1006,16 @@ class _CalendarDay extends StatelessWidget {
                 count > 0 ? '$count项' : '·',
                 style: Theme.of(context).textTheme.labelSmall,
               ),
+            if (summary.activities.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: Text(
+                  summary.activities.first.shortTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
           ],
         ),
       ),
@@ -938,7 +1030,7 @@ class _DailyRecordSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final habitNames = {for (final habit in firstHabits) habit.id: habit.name};
+    final habitNames = {for (final habit in allHabits) habit.id: habit.name};
     final completed = summary.completedHabitIds
         .map((id) => habitNames[id] ?? id)
         .join('、');
@@ -989,6 +1081,11 @@ class _DailyRecordSheet extends StatelessWidget {
                   '${summary.disconnect!.minutes} 分钟 · ${_timerStatus(summary.disconnect!.status)}',
                 ),
               ),
+            for (final activity in summary.activities)
+              _RecordSection(
+                title: habitNames[activity.habitId] ?? activity.habitId,
+                child: Text(_activityDetails(activity)),
+              ),
           ],
         ),
       ),
@@ -1004,6 +1101,18 @@ class _DailyRecordSheet extends StatelessWidget {
   String _challengeText(int index) {
     if (index < 0 || index >= challengeCards.length) return '挑战卡记录不可用';
     return challengeCards[index];
+  }
+
+  String _activityDetails(HabitActivityRecord activity) {
+    final lines = <String>[activity.primaryText];
+    if (activity.secondaryText.isNotEmpty) lines.add(activity.secondaryText);
+    if (activity.habitId == 'H7') {
+      if (activity.firstValue != null) lines.add('资产投入：${activity.firstValue}');
+      if (activity.secondValue != null) {
+        lines.add('消费消耗：${activity.secondValue}');
+      }
+    }
+    return lines.join('\n');
   }
 }
 
@@ -1034,7 +1143,7 @@ class _MonthlyReflectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final names = {for (final habit in firstHabits) habit.id: habit.name};
+    final names = {for (final habit in allHabits) habit.id: habit.name};
     String namesFor(Iterable<String> ids) =>
         ids.map((id) => names[id] ?? id).join('、');
     final best = namesFor(reflection.bestHabitIds);
@@ -1086,7 +1195,7 @@ class _MonthlyHabitBarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final names = {for (final habit in firstHabits) habit.id: habit.name};
+    final names = {for (final habit in allHabits) habit.id: habit.name};
     final maxCount = counts.values.isEmpty
         ? 1
         : counts.values.reduce((a, b) => a > b ? a : b).clamp(1, 1 << 31);

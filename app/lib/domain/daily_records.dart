@@ -7,6 +7,7 @@ class DailyRecordSummary {
     this.focus,
     this.challengeCardIndex,
     this.disconnect,
+    this.activities = const [],
   });
 
   final DateTime date;
@@ -16,6 +17,7 @@ class DailyRecordSummary {
   final FocusRecord? focus;
   final int? challengeCardIndex;
   final DisconnectRecord? disconnect;
+  final List<HabitActivityRecord> activities;
 
   bool get hasAnyRecord =>
       completedHabitIds.isNotEmpty ||
@@ -23,7 +25,33 @@ class DailyRecordSummary {
       review != null ||
       focus != null ||
       challengeCardIndex != null ||
-      disconnect != null;
+      disconnect != null ||
+      activities.isNotEmpty;
+}
+
+class HabitActivityRecord {
+  const HabitActivityRecord({
+    required this.habitId,
+    required this.primaryText,
+    required this.secondaryText,
+    this.firstValue,
+    this.secondValue,
+  });
+
+  final String habitId;
+  final String primaryText;
+  final String secondaryText;
+  final double? firstValue;
+  final double? secondValue;
+
+  String get brief =>
+      secondaryText.isEmpty ? primaryText : '$primaryText · $secondaryText';
+
+  String get shortTitle {
+    final title = primaryText.trim();
+    if (title.length <= 6) return title;
+    return '${title.substring(0, 6)}…';
+  }
 }
 
 class ReviewRecord {

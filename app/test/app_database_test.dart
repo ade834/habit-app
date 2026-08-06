@@ -58,6 +58,23 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  test('测试阶段可把当前选择更换为H5到H12且保留历史记录', () async {
+    await database.saveOnboarding(habitIds: {'H1'}, commitmentNote: '测试');
+    await database.recordCompletion(
+      habitId: 'H1',
+      occurredAt: DateTime(2026, 8, 5),
+    );
+
+    await database.replaceSelectedHabits({'H5', 'H10', 'H12'});
+
+    final selected = await database.watchSelectedHabits().first;
+    expect(
+      selected.map((row) => row.habitId),
+      containsAll(['H5', 'H10', 'H12']),
+    );
+    expect(await database.watchCompletionCount('H1').first, 1);
+  });
+
   test('清除本地数据会删除习惯、打卡和积分', () async {
     await database.saveOnboarding(habitIds: {'H1'}, commitmentNote: '测试');
     await database.recordCompletion(
@@ -327,16 +344,145 @@ void main() {
       disconnect.id,
       day.add(const Duration(hours: 10, minutes: 1)),
     );
+    await database.saveLaterHabitActivity(
+      habitId: 'H5',
+      primaryText: '老朋友小林',
+      secondaryText: '聊了最近的工作变化',
+      now: day,
+    );
 
     final summaries = await database.monthlyRecordSummaries(DateTime(2026, 8));
     final summary = summaries.firstWhere((item) => item.date.day == 5);
-    expect(summary.completedHabitIds, containsAll(['H1', 'H2']));
-    expect(summary.points, 2);
+    expect(summary.completedHabitIds, containsAll(['H1', 'H2', 'H5']));
+    expect(summary.points, 5);
     expect(summary.review?.decision, contains('我'));
     expect(summary.focus?.status, 'completed');
     expect(summary.focus?.focusMinutes, 30);
     expect(summary.focus?.topic, '测试议题');
     expect(summary.challengeCardIndex, isNotNull);
     expect(summary.disconnect?.status, 'failed');
+    expect(summary.activities.single.primaryText, '老朋友小林');
+    expect(summary.activities.single.secondaryText, '聊了最近的工作变化');
+  });
+
+  test('H5每个自然周只奖励一次，下一周可再次完成', () async {
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H5',
+        primaryText: '老朋友甲',
+        now: DateTime(2026, 8, 3),
+      ),
+      isTrue,
+    );
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H5',
+        primaryText: '老朋友乙',
+        now: DateTime(2026, 8, 9),
+      ),
+      isFalse,
+    );
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H5',
+        primaryText: '老朋友丙',
+        now: DateTime(2026, 8, 10),
+      ),
+      isTrue,
+    );
+    expect(await database.pointBalance(), 6);
+  });
+
+  test('周期任务可以暂存到之后日期完成，并按实际完成日记录', () async {
+    final later = DateTime(2026, 8, 6); // 本周任务顺延到周四完成
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H5',
+        primaryText: '顺延联系的朋友',
+        now: later,
+      ),
+      isTrue,
+    );
+    final summaries = await database.monthlyRecordSummaries(DateTime(2026, 8));
+    final completedDay = summaries.firstWhere((item) => item.date.day == 6);
+    expect(completedDay.completedHabitIds, contains('H5'));
+    expect(completedDay.points, 3);
+  });
+
+  test('H10按月、H11按年防止重复奖励', () async {
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H10',
+        primaryText: '跨界书A',
+        now: DateTime(2026, 8, 1),
+      ),
+      isTrue,
+    );
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H10',
+        primaryText: '跨界书B',
+        now: DateTime(2026, 8, 31),
+      ),
+      isFalse,
+    );
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H11',
+        primaryText: '杭州',
+        now: DateTime(2026, 1, 1),
+      ),
+      isTrue,
+    );
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H11',
+        primaryText: '成都',
+        now: DateTime(2026, 12, 31),
+      ),
+      isFalse,
+    );
+    expect(await database.pointBalance(), 103);
+  });
+
+  test('H6到H9、H12均可保存结构化记录并写入积分', () async {
+    for (final habitId in ['H6', 'H7', 'H8', 'H9', 'H12']) {
+      expect(
+        await database.saveLaterHabitActivity(
+          habitId: habitId,
+          primaryText: '$habitId 的必填记录',
+          secondaryText: '补充内容',
+          firstValue: habitId == 'H7' ? 100 : null,
+          secondValue: habitId == 'H7' ? 50 : null,
+          now: DateTime(2026, 8, 5),
+        ),
+        isTrue,
+      );
+    }
+    expect(await database.pointBalance(), 7);
+  });
+
+  test('H11先保存旅行计划，再完成总结并获得99积分', () async {
+    await database.saveTravelPlan(
+      destination: '大理',
+      days: 4,
+      focus: '想清楚下一阶段方向',
+      preparation: '预算3000元',
+      now: DateTime(2026, 8, 5),
+    );
+    final plan = await database.travelPlanForYear(now: DateTime(2026, 9, 1));
+    expect(plan?.destination, '大理');
+    expect(plan?.days, 4);
+
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H11',
+        primaryText: plan!.destination,
+        secondaryText: '学会一个人面对不确定',
+        now: DateTime(2026, 9, 1),
+      ),
+      isTrue,
+    );
+    expect(await database.pointBalance(), 99);
   });
 }
