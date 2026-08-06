@@ -241,4 +241,60 @@ void main() {
     expect(state.isLocked, isTrue);
     expect(state.lockedUntil!.difference(now).inHours, greaterThanOrEqualTo(9));
   });
+
+  test('H4冷却到期后再次失败从第1次重新计算', () async {
+    final start = DateTime(2026, 8, 5, 8);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final attemptStart = start.add(Duration(minutes: attempt));
+      final session = await database.startTimer(
+        habitId: 'H4',
+        targetSeconds: 15 * 60,
+        now: attemptStart,
+      );
+      await database.endTimerEarly(
+        session.id,
+        attemptStart.add(const Duration(minutes: 1)),
+      );
+    }
+
+    final afterCooldown = start.add(const Duration(hours: 11));
+    final next = await database.startTimer(
+      habitId: 'H4',
+      targetSeconds: 15 * 60,
+      now: afterCooldown,
+    );
+    await database.endTimerEarly(
+      next.id,
+      afterCooldown.add(const Duration(minutes: 1)),
+    );
+
+    final state = await database
+        .watchDisconnectAttemptState(clock: () => afterCooldown)
+        .first;
+    expect(state.consecutiveFailures, 1);
+    expect(state.lockedUntil, isNull);
+  });
+
+  test('调试加点写入日志和积分并可解锁第二章', () async {
+    await database.saveOnboarding(
+      habitIds: {'H1', 'H2', 'H3'},
+      commitmentNote: '测试',
+      now: DateTime(2026, 8, 1),
+    );
+    await database.debugAddCompletionPoints(
+      habitId: 'H1',
+      amount: 5,
+      now: DateTime(2026, 8, 5),
+    );
+    await database.debugAddCompletionPoints(
+      habitId: 'H2',
+      amount: 1,
+      now: DateTime(2026, 8, 5),
+    );
+
+    expect(await database.pointBalance(), 6);
+    final snapshot = await database.growthSnapshot(now: DateTime(2026, 8, 5));
+    expect(snapshot.habits['H1']!.historicalCompletions, 5);
+    expect(snapshot.chapterTwoUnlocked, isTrue);
+  });
 }

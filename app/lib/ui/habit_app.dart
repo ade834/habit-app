@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/app_database.dart';
 import '../domain/habit.dart';
+import '../domain/habit_growth.dart';
 import 'habit_tools_page.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -29,6 +31,10 @@ final pointBalanceProvider = StreamProvider<int>(
 
 final completionCountProvider = StreamProvider.family<int, String>(
   (ref, habitId) => ref.watch(databaseProvider).watchCompletionCount(habitId),
+);
+
+final growthSnapshotProvider = StreamProvider<GrowthSnapshot>(
+  (ref) => ref.watch(databaseProvider).watchGrowthSnapshot(),
 );
 
 class HabitApp extends StatelessWidget {
@@ -222,6 +228,7 @@ class _TodayPage extends ConsumerWidget {
     final selected = ref.watch(selectedHabitsProvider);
     final completed = ref.watch(todayCompletedProvider);
     final points = ref.watch(pointBalanceProvider);
+    final growth = ref.watch(growthSnapshotProvider);
     return SafeArea(
       child: selected.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -256,6 +263,33 @@ class _TodayPage extends ConsumerWidget {
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 24),
+              growth.when(
+                loading: () => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
+                data: (snapshot) {
+                  if (snapshot.habits.isEmpty) return const SizedBox.shrink();
+                  final state = snapshot.habits.values.first;
+                  if (!state.shouldWarnDormancy) {
+                    return const SizedBox.shrink();
+                  }
+                  final message = state.inactivityDay >= 7
+                      ? '今天完成任一习惯，可避免养成物今晚进入休眠。'
+                      : '再过1天没有完成习惯，养成物将进入休眠。';
+                  return Card(
+                    color: Theme.of(context).colorScheme.tertiaryContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.notifications_active_outlined),
+                          const SizedBox(width: 12),
+                          Expanded(child: Text(message)),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
               for (final habit in habits)
                 _TodayHabitCard(
                   habit: habit,
@@ -347,12 +381,13 @@ class _HabitProgressTile extends ConsumerWidget {
     final definition = firstHabits.firstWhere((item) => item.id == habitId);
     return Card(
       child: ref
-          .watch(completionCountProvider(habitId))
+          .watch(growthSnapshotProvider)
           .when(
             loading: () => const ListTile(title: LinearProgressIndicator()),
             error: (error, _) => ListTile(title: Text('读取进度失败：$error')),
-            data: (count) {
-              final progress = (count / 3).clamp(0.0, 1.0);
+            data: (snapshot) {
+              final state = snapshot.habits[habitId];
+              if (state == null) return const SizedBox.shrink();
               return InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => Navigator.of(context).push(
@@ -380,9 +415,12 @@ class _HabitProgressTile extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text('累计完成 $count 次 · ${count >= 3 ? '发芽' : '种子'}'),
+                      Text(
+                        '当前 ${state.currentProgress} 点 · ${state.stage.label}'
+                        '（累计完成 ${state.historicalCompletions} 次）',
+                      ),
                       const SizedBox(height: 10),
-                      LinearProgressIndicator(value: progress),
+                      LinearProgressIndicator(value: state.stageProgress),
                     ],
                   ),
                 ),
@@ -412,6 +450,16 @@ class _GrowthPage extends ConsumerWidget {
                 const Text('每个习惯都会养出自己的生命。'),
                 const SizedBox(height: 24),
                 for (final habit in habits) _GrowthTile(habitId: habit.habitId),
+                const SizedBox(height: 12),
+                ref
+                    .watch(growthSnapshotProvider)
+                    .when(
+                      loading: () => const LinearProgressIndicator(),
+                      error: (error, _) => Text('读取第二章状态失败：$error'),
+                      data: (snapshot) => _ChapterTwoCard(
+                        unlocked: snapshot.chapterTwoUnlocked,
+                      ),
+                    ),
               ],
             ),
           ),
@@ -423,8 +471,6 @@ class _GrowthTile extends ConsumerWidget {
   const _GrowthTile({required this.habitId});
   final String habitId;
 
-  static const _sproutTarget = 3;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final definition = firstHabits.firstWhere((item) => item.id == habitId);
@@ -434,22 +480,32 @@ class _GrowthTile extends ConsumerWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.local_florist,
-              color: Theme.of(context).colorScheme.primary,
-              size: 36,
-            ),
+            ref
+                .watch(growthSnapshotProvider)
+                .maybeWhen(
+                  data: (snapshot) {
+                    final dormant =
+                        snapshot.habits[habitId]?.isDormant ?? false;
+                    return Icon(
+                      dormant ? Icons.eco_outlined : Icons.local_florist,
+                      color: dormant
+                          ? Theme.of(context).colorScheme.outline
+                          : Theme.of(context).colorScheme.primary,
+                      size: 36,
+                    );
+                  },
+                  orElse: () => const SizedBox(width: 36, height: 36),
+                ),
             const SizedBox(width: 16),
             Expanded(
               child: ref
-                  .watch(completionCountProvider(habitId))
+                  .watch(growthSnapshotProvider)
                   .when(
                     loading: () => const LinearProgressIndicator(),
                     error: (error, _) => Text('读取失败：$error'),
-                    data: (count) {
-                      final hasSprouted = count >= _sproutTarget;
-                      final remaining = _sproutTarget - count;
-                      final progress = (count / _sproutTarget).clamp(0.0, 1.0);
+                    data: (snapshot) {
+                      final state = snapshot.habits[habitId];
+                      if (state == null) return const SizedBox.shrink();
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -459,17 +515,37 @@ class _GrowthTile extends ConsumerWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            hasSprouted
-                                ? '已发芽 · 累计完成 $count 次'
-                                : '种子 · $count/$_sproutTarget',
+                            '${state.stage.label} · 当前 ${state.currentProgress} 点'
+                            ' · 累计完成 ${state.historicalCompletions} 次',
                           ),
+                          if (state.isDormant) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              state.recoveryDays > 0
+                                  ? '恢复中 ${state.recoveryDays}/3 · 衰减已暂停'
+                                  : '休眠中 · 每天按1、2点交替后退',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ] else if (state.shouldWarnDormancy) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              state.inactivityDay >= 7
+                                  ? '今晚24:00前完成任一习惯，可避免休眠。'
+                                  : '再过1天没有完成习惯，将进入休眠。',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                           const SizedBox(height: 10),
-                          LinearProgressIndicator(value: progress),
+                          LinearProgressIndicator(value: state.stageProgress),
                           const SizedBox(height: 6),
                           Text(
-                            hasSprouted
-                                ? '你的坚持已经让它发芽了。'
-                                : '再完成 $remaining 次即可发芽',
+                            state.nextStage == null
+                                ? '${state.stage.description} 已达当前最高阶段。'
+                                : '${state.stage.description} '
+                                      '距${state.nextStage!.label}还差${state.remainingToNext}点。',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
@@ -478,6 +554,51 @@ class _GrowthTile extends ConsumerWidget {
                   ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChapterTwoCard extends StatelessWidget {
+  const _ChapterTwoCard({required this.unlocked});
+
+  final bool unlocked;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: unlocked
+          ? Theme.of(context).colorScheme.secondaryContainer
+          : Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: ListTile(
+        leading: Icon(
+          unlocked ? Icons.workspace_premium : Icons.lock_outline,
+          size: 34,
+        ),
+        title: const Text('第二章'),
+        subtitle: Text(unlocked ? '你已解锁下一段旅程' : '累计完成6次习惯后解锁第二章'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: Icon(
+              unlocked ? Icons.workspace_premium : Icons.lock_outline,
+              size: 56,
+            ),
+            title: Text(unlocked ? '第二章徽章' : '第二章尚未解锁'),
+            content: Text(
+              unlocked
+                  ? '你已解锁下一段旅程，现在可以选择新的习惯。第二章习惯内容将在后续开放。'
+                  : '所有已选习惯累计完成6次后，就能获得第二章徽章。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -519,11 +640,80 @@ class _SettingsPage extends ConsumerWidget {
           Text('设置', style: Theme.of(context).textTheme.headlineLarge),
           const SizedBox(height: 32),
           const Text('提醒、隐私和数据设置。'),
+          if (kDebugMode) ...[
+            const SizedBox(height: 24),
+            const _DebugToolsCard(),
+          ],
           const SizedBox(height: 32),
           OutlinedButton.icon(
             onPressed: () => _clearData(context, ref),
             icon: const Icon(Icons.restart_alt),
             label: const Text('清除本地数据并重新开始'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DebugToolsCard extends ConsumerWidget {
+  const _DebugToolsCard();
+
+  Future<void> _add(
+    BuildContext context,
+    WidgetRef ref,
+    String habitId,
+    int amount,
+  ) async {
+    final inserted = await ref
+        .read(databaseProvider)
+        .debugAddCompletionPoints(habitId: habitId, amount: amount);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已增加 $inserted 个测试点')));
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selected = ref.watch(selectedHabitsProvider);
+    return Card(
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: ExpansionTile(
+        leading: const Icon(Icons.science_outlined),
+        title: const Text('开发测试'),
+        subtitle: const Text('仅调试版本可见，发布前删除'),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          selected.when(
+            loading: () => const LinearProgressIndicator(),
+            error: (error, _) => Text('读取失败：$error'),
+            data: (habits) => Column(
+              children: [
+                for (final habit in habits)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      firstHabits
+                          .firstWhere((item) => item.id == habit.habitId)
+                          .name,
+                    ),
+                    trailing: Wrap(
+                      spacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () => _add(context, ref, habit.habitId, 1),
+                          child: const Text('+1测试点'),
+                        ),
+                        FilledButton.tonal(
+                          onPressed: () => _add(context, ref, habit.habitId, 5),
+                          child: const Text('+5测试点'),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

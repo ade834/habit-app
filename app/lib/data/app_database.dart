@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import '../domain/habit_growth.dart';
 import '../domain/habit_tools.dart';
 
 part 'app_database.g.dart';
@@ -274,32 +277,48 @@ class AppDatabase extends _$AppDatabase {
         );
   }
 
-  Stream<DisconnectAttemptState> watchDisconnectAttemptState() {
+  Stream<DisconnectAttemptState> watchDisconnectAttemptState({
+    DateTime Function()? clock,
+  }) {
     final query = select(timerSessions)
       ..where((row) => row.habitId.equals('H4'))
-      ..orderBy([(row) => OrderingTerm.desc(row.id)]);
-    return query.watch().map((rows) {
-      var failures = 0;
-      DateTime? latestFailureAt;
-      for (final row in rows) {
-        if (row.status == 'completed') break;
-        if (row.status != 'failed') continue;
-        latestFailureAt ??= row.endedAt ?? row.startedAt;
-        failures++;
-        if (failures == 3) break;
+      ..orderBy([(row) => OrderingTerm.asc(row.id)]);
+    return query.watch().map(
+      (rows) => _disconnectAttemptState(rows, (clock ?? DateTime.now)()),
+    );
+  }
+
+  DisconnectAttemptState _disconnectAttemptState(
+    List<TimerSession> rows,
+    DateTime now,
+  ) {
+    var failures = 0;
+    DateTime? lockedUntil;
+    for (final row in rows) {
+      if (row.status == 'completed') {
+        failures = 0;
+        lockedUntil = null;
+        continue;
       }
-      if (failures < 3 || latestFailureAt == null) {
-        return DisconnectAttemptState(consecutiveFailures: failures);
+      if (row.status != 'failed') continue;
+      final failedAt = row.endedAt ?? row.startedAt;
+      if (lockedUntil != null) {
+        if (failedAt.isBefore(lockedUntil)) continue;
+        failures = 0;
+        lockedUntil = null;
       }
-      final lockedUntil = latestFailureAt.add(const Duration(hours: 10));
-      if (!DateTime.now().isBefore(lockedUntil)) {
-        return const DisconnectAttemptState(consecutiveFailures: 0);
+      failures++;
+      if (failures == 3) {
+        lockedUntil = failedAt.add(const Duration(hours: 10));
       }
-      return DisconnectAttemptState(
-        consecutiveFailures: 3,
-        lockedUntil: lockedUntil,
-      );
-    });
+    }
+    if (lockedUntil != null && !now.isBefore(lockedUntil)) {
+      return const DisconnectAttemptState(consecutiveFailures: 0);
+    }
+    return DisconnectAttemptState(
+      consecutiveFailures: failures,
+      lockedUntil: lockedUntil,
+    );
   }
 
   Future<void> pauseTimer(int id, DateTime now) =>
@@ -430,6 +449,108 @@ class AppDatabase extends _$AppDatabase {
     return (select(habitLogs)..where((log) => log.habitId.equals(habitId)))
         .watch()
         .map((rows) => rows.length);
+  }
+
+  Stream<GrowthSnapshot> watchGrowthSnapshot({DateTime Function()? clock}) {
+    final now = clock ?? DateTime.now;
+    late final StreamController<GrowthSnapshot> controller;
+    StreamSubscription<void>? subscription;
+    Timer? timer;
+
+    Future<void> emit() async {
+      final snapshot = await growthSnapshot(now: now());
+      if (!controller.isClosed) {
+        controller.add(snapshot);
+      }
+    }
+
+    controller = StreamController<GrowthSnapshot>(
+      onListen: () {
+        subscription = customSelect(
+          'SELECT 1',
+          readsFrom: {habitSelections, habitLogs},
+        ).watch().map<void>((_) {}).listen((_) => emit());
+        timer = Timer.periodic(const Duration(minutes: 1), (_) => emit());
+      },
+      onCancel: () async {
+        timer?.cancel();
+        await subscription?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  Future<GrowthSnapshot> growthSnapshot({DateTime? now}) async {
+    final selections = await select(habitSelections).get();
+    final logs = await select(habitLogs).get();
+    return calculateGrowthSnapshot(
+      enabledAtByHabit: {
+        for (final selection in selections)
+          selection.habitId: selection.enabledAt,
+      },
+      completions: [
+        for (final log in logs)
+          HabitCompletionEvent(
+            habitId: log.habitId,
+            localDate: DateTime.parse(log.localDate),
+          ),
+      ],
+      today: now ?? DateTime.now(),
+    );
+  }
+
+  Future<int> debugAddCompletionPoints({
+    required String habitId,
+    required int amount,
+    DateTime? now,
+  }) {
+    if (amount <= 0) throw ArgumentError.value(amount, 'amount');
+    final current = now ?? DateTime.now();
+    return transaction(() async {
+      final selection = await (select(
+        habitSelections,
+      )..where((row) => row.habitId.equals(habitId))).getSingleOrNull();
+      if (selection == null) throw StateError('只能给已选习惯增加测试点');
+
+      var inserted = 0;
+      var candidate = DateTime(current.year, current.month, current.day);
+      while (inserted < amount) {
+        final localDate = _localDate(candidate);
+        final existing =
+            await (select(habitLogs)..where(
+                  (row) =>
+                      row.habitId.equals(habitId) &
+                      row.localDate.equals(localDate),
+                ))
+                .getSingleOrNull();
+        if (existing == null) {
+          final occurredAt = DateTime(
+            candidate.year,
+            candidate.month,
+            candidate.day,
+            12,
+          );
+          final logId = await into(habitLogs).insert(
+            HabitLogsCompanion.insert(
+              habitId: habitId,
+              localDate: localDate,
+              timezoneOffsetMinutes: current.timeZoneOffset.inMinutes,
+              createdAt: occurredAt,
+            ),
+          );
+          await into(pointTransactions).insert(
+            PointTransactionsCompanion.insert(
+              habitLogId: logId,
+              amount: 1,
+              createdAt: occurredAt,
+            ),
+          );
+          inserted++;
+        }
+        candidate = candidate.subtract(const Duration(days: 1));
+      }
+      return inserted;
+    });
   }
 
   Stream<int> watchPointBalance() {
