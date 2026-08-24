@@ -6,6 +6,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 import '../domain/habit_growth.dart';
 import '../domain/habit_tools.dart';
 import '../domain/daily_records.dart';
+import '../domain/habit.dart';
 
 part 'app_database.g.dart';
 
@@ -13,6 +14,7 @@ class HabitSelections extends Table {
   TextColumn get habitId => text()();
   TextColumn get commitmentNote => text().withDefault(const Constant(''))();
   DateTimeColumn get enabledAt => dateTime()();
+  BoolColumn get isStarred => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column<Object>> get primaryKey => {habitId};
@@ -118,7 +120,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -144,6 +146,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 6) {
         await migrator.createTable(travelPlans);
       }
+      if (from < 7) {
+        await migrator.addColumn(habitSelections, habitSelections.isStarred);
+      }
     },
   );
 
@@ -165,14 +170,18 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> saveOnboarding({
     required Set<String> habitIds,
+    Set<String> starredHabitIds = const {},
     required String commitmentNote,
     DateTime? now,
   }) async {
-    if (habitIds.isEmpty || habitIds.length > 3) {
-      throw ArgumentError('请选择1到3个习惯');
+    if (habitIds.isEmpty || starredHabitIds.difference(habitIds).isNotEmpty) {
+      throw ArgumentError('至少选择1个习惯，星标必须属于已选习惯');
     }
 
     final enabledAt = now ?? DateTime.now();
+    if (habitIds.difference(starredHabitIds).length > 3) {
+      throw ArgumentError('普通习惯最多选择3个；更多习惯请设为星标');
+    }
     await transaction(() async {
       await delete(habitSelections).go();
       await batch((batch) {
@@ -184,6 +193,7 @@ class AppDatabase extends _$AppDatabase {
                   habitId: id,
                   commitmentNote: Value(commitmentNote.trim()),
                   enabledAt: enabledAt,
+                  isStarred: Value(starredHabitIds.contains(id)),
                 ),
               )
               .toList(),
@@ -194,22 +204,48 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> replaceSelectedHabits(
     Set<String> habitIds, {
+    Set<String> starredHabitIds = const {},
     DateTime? now,
   }) async {
-    if (habitIds.isEmpty || habitIds.length > 3) {
-      throw ArgumentError('请选择1到3个习惯');
+    if (habitIds.isEmpty || starredHabitIds.difference(habitIds).isNotEmpty) {
+      throw ArgumentError('至少选择1个习惯，星标必须属于已选习惯');
     }
     final current = now ?? DateTime.now();
     await transaction(() async {
       final existing = await select(habitSelections).get();
       final byId = {for (final row in existing) row.habitId: row};
+      final regularCount = habitIds.where((id) {
+        final selection = byId[id];
+        return countsTowardsRegularQuota(
+          habitId: id,
+          isStarred: starredHabitIds.contains(id),
+          enabledAt: selection?.enabledAt ?? current,
+          now: current,
+        );
+      }).length;
+      if (regularCount > 3) {
+        throw ArgumentError('普通习惯最多选择3个；更多习惯请设为星标');
+      }
       await (delete(
         habitSelections,
       )..where((row) => row.habitId.isNotIn(habitIds))).go();
       for (final id in habitIds) {
         if (byId.containsKey(id)) continue;
         await into(habitSelections).insert(
-          HabitSelectionsCompanion.insert(habitId: id, enabledAt: current),
+          HabitSelectionsCompanion.insert(
+            habitId: id,
+            enabledAt: current,
+            isStarred: Value(starredHabitIds.contains(id)),
+          ),
+        );
+      }
+      for (final id in habitIds.where(byId.containsKey)) {
+        await (update(
+          habitSelections,
+        )..where((row) => row.habitId.equals(id))).write(
+          HabitSelectionsCompanion(
+            isStarred: Value(starredHabitIds.contains(id)),
+          ),
         );
       }
     });
@@ -326,6 +362,10 @@ class AppDatabase extends _$AppDatabase {
     DateTime occurredAt, {
     int points = 1,
   }) async {
+    final selection = await (select(
+      habitSelections,
+    )..where((row) => row.habitId.equals(habitId))).getSingleOrNull();
+    if (selection?.isStarred == true) points = 0;
     final localDate = _localDate(occurredAt);
     final existing =
         await (select(habitLogs)..where(
@@ -796,6 +836,11 @@ class AppDatabase extends _$AppDatabase {
     ) {
       final dateKey = _localDate(date);
       final dayLogs = logsByDate[dateKey] ?? const <HabitLog>[];
+      final pointsByHabit = <String, int>{};
+      for (final log in dayLogs) {
+        pointsByHabit[log.habitId] =
+            (pointsByHabit[log.habitId] ?? 0) + (pointsByLogId[log.id] ?? 0);
+      }
       final daySessions = sessionsByDate[dateKey] ?? const <TimerSession>[];
       final focusSessions = daySessions.where(
         (session) => session.habitId == 'H2',
@@ -818,6 +863,7 @@ class AppDatabase extends _$AppDatabase {
             0,
             (sum, log) => sum + (pointsByLogId[log.id] ?? 0),
           ),
+          pointsByHabit: pointsByHabit,
           review: review == null
               ? null
               : ReviewRecord(

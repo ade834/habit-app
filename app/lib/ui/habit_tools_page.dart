@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/app_database.dart';
 import '../domain/habit_tools.dart';
 import '../domain/habit.dart';
+import '../domain/debug_clock.dart';
 
 Widget habitToolPage({required String habitId, required AppDatabase database}) {
   return switch (habitId) {
@@ -74,6 +76,7 @@ class _LaterHabitToolPageState extends State<LaterHabitToolPage> {
       secondaryText: _secondary.text,
       firstValue: double.tryParse(_firstNumber.text),
       secondValue: double.tryParse(_secondNumber.text),
+      now: appDebugNow(),
     );
     if (!mounted) return;
     setState(() => _saving = false);
@@ -119,6 +122,8 @@ class _LaterHabitToolPageState extends State<LaterHabitToolPage> {
             controller: _primary,
             minLines: 2,
             maxLines: 4,
+            maxLength: 5,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               labelText: labels.$1,
@@ -194,7 +199,7 @@ class _TravelToolPageState extends State<TravelToolPage> {
   @override
   void initState() {
     super.initState();
-    _plan = widget.database.travelPlanForYear();
+    _plan = widget.database.travelPlanForYear(now: appDebugNow());
     for (final controller in [_destination, _focus, _summary]) {
       controller.addListener(_refresh);
     }
@@ -218,6 +223,7 @@ class _TravelToolPageState extends State<TravelToolPage> {
       days: _plannedDays,
       focus: _focus.text,
       preparation: _preparation.text,
+      now: appDebugNow(),
     );
     if (mounted) Navigator.pop(context);
   }
@@ -228,6 +234,7 @@ class _TravelToolPageState extends State<TravelToolPage> {
       habitId: 'H11',
       primaryText: plan.destination,
       secondaryText: _summary.text,
+      now: appDebugNow(),
     );
     if (!mounted) return;
     setState(() => _saving = false);

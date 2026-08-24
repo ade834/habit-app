@@ -24,7 +24,7 @@ void main() {
     expect(await database.pointBalance(), 1);
   });
 
-  test('首次启动只能选择1到3个习惯', () async {
+  test('首次启动普通习惯只能选择1到3个', () async {
     expect(
       () => database.saveOnboarding(habitIds: {}, commitmentNote: ''),
       throwsArgumentError,
@@ -35,6 +35,44 @@ void main() {
         commitmentNote: '',
       ),
       throwsArgumentError,
+    );
+  });
+
+  test('首次选择时星标习惯不占普通名额', () async {
+    await database.saveOnboarding(
+      habitIds: {'H1', 'H2', 'H3', 'H5', 'H7'},
+      starredHabitIds: {'H5', 'H7'},
+      commitmentNote: '测试',
+      now: DateTime(2026, 8, 25),
+    );
+
+    final selections = await database.watchSelectedHabits().first;
+    expect(selections.where((row) => row.isStarred).map((row) => row.habitId), {
+      'H5',
+      'H7',
+    });
+  });
+
+  test('周期习惯次日转为额外名额', () async {
+    final firstDay = DateTime(2026, 8, 25);
+    final secondDay = firstDay.add(const Duration(days: 1));
+    await database.saveOnboarding(
+      habitIds: {'H1', 'H5', 'H7'},
+      commitmentNote: '测试',
+      now: firstDay,
+    );
+
+    await database.replaceSelectedHabits({
+      'H1',
+      'H2',
+      'H3',
+      'H5',
+      'H7',
+    }, now: secondDay);
+
+    expect(
+      (await database.watchSelectedHabits().first).map((row) => row.habitId),
+      containsAll(['H1', 'H2', 'H3', 'H5', 'H7']),
     );
   });
 
@@ -73,6 +111,22 @@ void main() {
       containsAll(['H5', 'H10', 'H12']),
     );
     expect(await database.watchCompletionCount('H1').first, 1);
+  });
+
+  test('星标习惯完成不加积分但增加养成进度', () async {
+    await database.saveOnboarding(habitIds: {'H1'}, commitmentNote: '测试');
+    await database.replaceSelectedHabits({'H1', 'H5'}, starredHabitIds: {'H5'});
+    expect(
+      await database.saveLaterHabitActivity(
+        habitId: 'H5',
+        primaryText: '星标任务',
+        now: DateTime(2026, 8, 25),
+      ),
+      isTrue,
+    );
+    expect(await database.pointBalance(), 0);
+    final snapshot = await database.growthSnapshot(now: DateTime(2026, 8, 25));
+    expect(snapshot.habits['H5']!.historicalCompletions, 1);
   });
 
   test('清除本地数据会删除习惯、打卡和积分', () async {

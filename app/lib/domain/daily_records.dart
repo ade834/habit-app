@@ -3,6 +3,7 @@ class DailyRecordSummary {
     required this.date,
     required this.completedHabitIds,
     required this.points,
+    this.pointsByHabit = const {},
     this.review,
     this.focus,
     this.challengeCardIndex,
@@ -13,6 +14,7 @@ class DailyRecordSummary {
   final DateTime date;
   final Set<String> completedHabitIds;
   final int points;
+  final Map<String, int> pointsByHabit;
   final ReviewRecord? review;
   final FocusRecord? focus;
   final int? challengeCardIndex;
@@ -49,8 +51,8 @@ class HabitActivityRecord {
 
   String get shortTitle {
     final title = primaryText.trim();
-    if (title.length <= 6) return title;
-    return '${title.substring(0, 6)}…';
+    if (title.length <= 5) return title;
+    return '${title.substring(0, 5)}...';
   }
 }
 

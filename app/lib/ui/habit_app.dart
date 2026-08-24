@@ -9,6 +9,7 @@ import '../domain/habit_growth.dart';
 import '../domain/habit_tools.dart';
 import '../domain/monthly_reflection.dart';
 import 'habit_tools_page.dart';
+import '../domain/debug_clock.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -121,6 +122,7 @@ class _OnboardingPage extends ConsumerStatefulWidget {
 
 class _OnboardingPageState extends ConsumerState<_OnboardingPage> {
   final _selected = <String>{};
+  final _starred = <String>{};
   final _noteController = TextEditingController();
   bool _saving = false;
 
@@ -132,6 +134,7 @@ class _OnboardingPageState extends ConsumerState<_OnboardingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final regularCount = _selected.difference(_starred).length;
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -140,20 +143,50 @@ class _OnboardingPageState extends ConsumerState<_OnboardingPage> {
             const SizedBox(height: 24),
             Text('从今天开始', style: Theme.of(context).textTheme.headlineLarge),
             const SizedBox(height: 8),
-            const Text('选择1到3个习惯，让它在你手里一点点长大。'),
+            const Text('普通习惯最多3个；星标习惯可额外选择，完成不加积分。'),
+            const SizedBox(height: 4),
+            Text('已选：普通 $regularCount/3 · 星标 ${_starred.length}'),
+            if (regularCount > 3)
+              Text(
+                '请将额外习惯设为星标后再开始',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             const SizedBox(height: 24),
             for (final habit in allHabits)
               Card(
                 child: CheckboxListTile(
                   value: _selected.contains(habit.id),
                   title: Text(habit.name),
-                  subtitle: Text(habit.description),
+                  subtitle: Text(
+                    _starred.contains(habit.id)
+                        ? '星标：完成不加积分，但增加养成进度'
+                        : habit.description,
+                  ),
+                  secondary: IconButton(
+                    tooltip: _starred.contains(habit.id) ? '取消星标' : '设为星标',
+                    icon: Icon(
+                      _starred.contains(habit.id)
+                          ? Icons.star
+                          : Icons.star_border,
+                      color: _starred.contains(habit.id)
+                          ? Colors.amber.shade700
+                          : null,
+                    ),
+                    onPressed: _selected.contains(habit.id)
+                        ? () => setState(() {
+                            if (!_starred.add(habit.id)) {
+                              _starred.remove(habit.id);
+                            }
+                          })
+                        : null,
+                  ),
                   onChanged: (checked) {
                     setState(() {
-                      if (checked == true && _selected.length < 3) {
+                      if (checked == true) {
                         _selected.add(habit.id);
                       } else if (checked == false) {
                         _selected.remove(habit.id);
+                        _starred.remove(habit.id);
                       }
                     });
                   },
@@ -170,7 +203,9 @@ class _OnboardingPageState extends ConsumerState<_OnboardingPage> {
             ),
             const SizedBox(height: 20),
             FilledButton(
-              onPressed: _selected.isEmpty || _saving ? null : _save,
+              onPressed: _selected.isEmpty || regularCount > 3 || _saving
+                  ? null
+                  : _save,
               child: Text(_saving ? '保存中…' : '开始养成'),
             ),
           ],
@@ -186,6 +221,7 @@ class _OnboardingPageState extends ConsumerState<_OnboardingPage> {
           .read(databaseProvider)
           .saveOnboarding(
             habitIds: _selected,
+            starredHabitIds: _starred,
             commitmentNote: _noteController.text,
           );
     } finally {
@@ -380,49 +416,111 @@ class _HabitsPage extends ConsumerWidget {
     List<HabitSelection> current,
   ) async {
     final selected = current.map((row) => row.habitId).toSet();
-    final result = await showDialog<Set<String>>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('选择正在养成的习惯'),
-          content: SizedBox(
-            width: 520,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                const Text('测试阶段展示全部12项，同时选择1到3项。更换不会删除历史记录。'),
-                const SizedBox(height: 12),
-                for (final habit in allHabits)
-                  CheckboxListTile(
-                    value: selected.contains(habit.id),
-                    title: Text(habit.name),
-                    subtitle: Text(habit.description),
-                    onChanged: (checked) => setDialogState(() {
-                      if (checked == true && selected.length < 3) {
-                        selected.add(habit.id);
-                      } else if (checked == false && selected.length > 1) {
-                        selected.remove(habit.id);
-                      }
-                    }),
+    final starred = current
+        .where((row) => row.isStarred)
+        .map((row) => row.habitId)
+        .toSet();
+    final result =
+        await showDialog<({Set<String> selected, Set<String> starred})>(
+          context: context,
+          builder: (context) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              final today = DateTime.now();
+              final byId = {for (final row in current) row.habitId: row};
+              final regularCount = selected.where((id) {
+                final selection = byId[id];
+                return countsTowardsRegularQuota(
+                  habitId: id,
+                  isStarred: starred.contains(id),
+                  enabledAt: selection?.enabledAt ?? today,
+                  now: today,
+                );
+              }).length;
+              return AlertDialog(
+                title: const Text('选择正在养成的习惯'),
+                content: SizedBox(
+                  width: 520,
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      const Text('普通习惯最多3个；星标习惯始终额外保留；周期性习惯从次日起也不占普通名额。'),
+                      const SizedBox(height: 4),
+                      Text('已选：普通 $regularCount/3 · 星标 ${starred.length}'),
+                      if (regularCount > 3)
+                        Text(
+                          '请将额外习惯设为星标后再保存',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      for (final habit in allHabits)
+                        CheckboxListTile(
+                          value: selected.contains(habit.id),
+                          title: Text(habit.name),
+                          subtitle: Text(
+                            starred.contains(habit.id)
+                                ? '星标：完成不加积分，但增加养成进度'
+                                : habit.description,
+                          ),
+                          secondary: IconButton(
+                            tooltip: starred.contains(habit.id)
+                                ? '取消星标'
+                                : '设为星标',
+                            icon: Icon(
+                              starred.contains(habit.id)
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              color: starred.contains(habit.id)
+                                  ? Colors.amber.shade700
+                                  : null,
+                            ),
+                            onPressed: selected.contains(habit.id)
+                                ? () => setDialogState(() {
+                                    if (!starred.add(habit.id)) {
+                                      starred.remove(habit.id);
+                                    }
+                                  })
+                                : null,
+                          ),
+                          onChanged: (checked) => setDialogState(() {
+                            if (checked == true) {
+                              selected.add(habit.id);
+                            } else if (selected.length > 1) {
+                              selected.remove(habit.id);
+                              starred.remove(habit.id);
+                            }
+                          }),
+                        ),
+                    ],
                   ),
-              ],
-            ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: regularCount > 3
+                        ? null
+                        : () => Navigator.pop(context, (
+                            selected: selected,
+                            starred: starred,
+                          )),
+                    child: const Text('保存'),
+                  ),
+                ],
+              );
+            },
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, selected),
-              child: const Text('保存'),
-            ),
-          ],
-        ),
-      ),
-    );
+        );
     if (result != null) {
-      await ref.read(databaseProvider).replaceSelectedHabits(result);
+      await ref
+          .read(databaseProvider)
+          .replaceSelectedHabits(
+            result.selected,
+            starredHabitIds: result.starred,
+          );
     }
   }
 
@@ -732,6 +830,8 @@ class _SettingsPage extends ConsumerWidget {
           if (kDebugMode) ...[
             const SizedBox(height: 24),
             const _DebugToolsCard(),
+            const SizedBox(height: 12),
+            const _DebugDateCard(),
           ],
           const SizedBox(height: 32),
           OutlinedButton.icon(
@@ -804,6 +904,49 @@ class _DebugToolsCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _DebugDateCard extends StatelessWidget {
+  const _DebugDateCard();
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<DateTime>(
+    valueListenable: debugDateNotifier,
+    builder: (context, date, _) => Card(
+      color: Theme.of(context).colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('测试日期', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text('当前测试日期：${date.year}年${date.month}月${date.day}日'),
+            const SizedBox(height: 8),
+            const Text('用于测试周/月/年任务顺延；重启 App 后恢复为真实日期。'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: () => moveDebugDate(-1),
+                  child: const Text('前一天'),
+                ),
+                FilledButton.tonal(
+                  onPressed: () => moveDebugDate(1),
+                  child: const Text('后一天'),
+                ),
+                TextButton(
+                  onPressed: () => debugDateNotifier.value = DateTime.now(),
+                  child: const Text('回到今天'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _ReviewPage extends ConsumerStatefulWidget {
@@ -1031,9 +1174,6 @@ class _DailyRecordSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final habitNames = {for (final habit in allHabits) habit.id: habit.name};
-    final completed = summary.completedHabitIds
-        .map((id) => habitNames[id] ?? id)
-        .join('、');
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
@@ -1049,7 +1189,20 @@ class _DailyRecordSheet extends StatelessWidget {
             const SizedBox(height: 20),
             _RecordSection(
               title: '完成习惯',
-              child: Text(completed.isEmpty ? '当天没有有效完成' : completed),
+              child: summary.completedHabitIds.isEmpty
+                  ? const Text('当天没有有效完成')
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final id in summary.completedHabitIds)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Text(
+                              '${habitNames[id] ?? id}  ·  ${_signedPoints(summary.pointsByHabit[id] ?? 0)} 分',
+                            ),
+                          ),
+                      ],
+                    ),
             ),
             _RecordSection(title: '获得积分', child: Text('${summary.points} 分')),
             if (summary.review != null)
@@ -1114,6 +1267,8 @@ class _DailyRecordSheet extends StatelessWidget {
     }
     return lines.join('\n');
   }
+
+  String _signedPoints(int points) => points >= 0 ? '+$points' : '$points';
 }
 
 class _RecordSection extends StatelessWidget {

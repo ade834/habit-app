@@ -43,8 +43,28 @@ class $HabitSelectionsTable extends HabitSelections
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _isStarredMeta = const VerificationMeta(
+    'isStarred',
+  );
   @override
-  List<GeneratedColumn> get $columns => [habitId, commitmentNote, enabledAt];
+  late final GeneratedColumn<bool> isStarred = GeneratedColumn<bool>(
+    'is_starred',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_starred" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    habitId,
+    commitmentNote,
+    enabledAt,
+    isStarred,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -82,6 +102,12 @@ class $HabitSelectionsTable extends HabitSelections
     } else if (isInserting) {
       context.missing(_enabledAtMeta);
     }
+    if (data.containsKey('is_starred')) {
+      context.handle(
+        _isStarredMeta,
+        isStarred.isAcceptableOrUnknown(data['is_starred']!, _isStarredMeta),
+      );
+    }
     return context;
   }
 
@@ -103,6 +129,10 @@ class $HabitSelectionsTable extends HabitSelections
         DriftSqlType.dateTime,
         data['${effectivePrefix}enabled_at'],
       )!,
+      isStarred: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_starred'],
+      )!,
     );
   }
 
@@ -116,10 +146,12 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
   final String habitId;
   final String commitmentNote;
   final DateTime enabledAt;
+  final bool isStarred;
   const HabitSelection({
     required this.habitId,
     required this.commitmentNote,
     required this.enabledAt,
+    required this.isStarred,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -127,6 +159,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
     map['habit_id'] = Variable<String>(habitId);
     map['commitment_note'] = Variable<String>(commitmentNote);
     map['enabled_at'] = Variable<DateTime>(enabledAt);
+    map['is_starred'] = Variable<bool>(isStarred);
     return map;
   }
 
@@ -135,6 +168,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
       habitId: Value(habitId),
       commitmentNote: Value(commitmentNote),
       enabledAt: Value(enabledAt),
+      isStarred: Value(isStarred),
     );
   }
 
@@ -147,6 +181,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
       habitId: serializer.fromJson<String>(json['habitId']),
       commitmentNote: serializer.fromJson<String>(json['commitmentNote']),
       enabledAt: serializer.fromJson<DateTime>(json['enabledAt']),
+      isStarred: serializer.fromJson<bool>(json['isStarred']),
     );
   }
   @override
@@ -156,6 +191,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
       'habitId': serializer.toJson<String>(habitId),
       'commitmentNote': serializer.toJson<String>(commitmentNote),
       'enabledAt': serializer.toJson<DateTime>(enabledAt),
+      'isStarred': serializer.toJson<bool>(isStarred),
     };
   }
 
@@ -163,10 +199,12 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
     String? habitId,
     String? commitmentNote,
     DateTime? enabledAt,
+    bool? isStarred,
   }) => HabitSelection(
     habitId: habitId ?? this.habitId,
     commitmentNote: commitmentNote ?? this.commitmentNote,
     enabledAt: enabledAt ?? this.enabledAt,
+    isStarred: isStarred ?? this.isStarred,
   );
   HabitSelection copyWithCompanion(HabitSelectionsCompanion data) {
     return HabitSelection(
@@ -175,6 +213,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
           ? data.commitmentNote.value
           : this.commitmentNote,
       enabledAt: data.enabledAt.present ? data.enabledAt.value : this.enabledAt,
+      isStarred: data.isStarred.present ? data.isStarred.value : this.isStarred,
     );
   }
 
@@ -183,37 +222,43 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
     return (StringBuffer('HabitSelection(')
           ..write('habitId: $habitId, ')
           ..write('commitmentNote: $commitmentNote, ')
-          ..write('enabledAt: $enabledAt')
+          ..write('enabledAt: $enabledAt, ')
+          ..write('isStarred: $isStarred')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(habitId, commitmentNote, enabledAt);
+  int get hashCode =>
+      Object.hash(habitId, commitmentNote, enabledAt, isStarred);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is HabitSelection &&
           other.habitId == this.habitId &&
           other.commitmentNote == this.commitmentNote &&
-          other.enabledAt == this.enabledAt);
+          other.enabledAt == this.enabledAt &&
+          other.isStarred == this.isStarred);
 }
 
 class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
   final Value<String> habitId;
   final Value<String> commitmentNote;
   final Value<DateTime> enabledAt;
+  final Value<bool> isStarred;
   final Value<int> rowid;
   const HabitSelectionsCompanion({
     this.habitId = const Value.absent(),
     this.commitmentNote = const Value.absent(),
     this.enabledAt = const Value.absent(),
+    this.isStarred = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   HabitSelectionsCompanion.insert({
     required String habitId,
     this.commitmentNote = const Value.absent(),
     required DateTime enabledAt,
+    this.isStarred = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : habitId = Value(habitId),
        enabledAt = Value(enabledAt);
@@ -221,12 +266,14 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
     Expression<String>? habitId,
     Expression<String>? commitmentNote,
     Expression<DateTime>? enabledAt,
+    Expression<bool>? isStarred,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (habitId != null) 'habit_id': habitId,
       if (commitmentNote != null) 'commitment_note': commitmentNote,
       if (enabledAt != null) 'enabled_at': enabledAt,
+      if (isStarred != null) 'is_starred': isStarred,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -235,12 +282,14 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
     Value<String>? habitId,
     Value<String>? commitmentNote,
     Value<DateTime>? enabledAt,
+    Value<bool>? isStarred,
     Value<int>? rowid,
   }) {
     return HabitSelectionsCompanion(
       habitId: habitId ?? this.habitId,
       commitmentNote: commitmentNote ?? this.commitmentNote,
       enabledAt: enabledAt ?? this.enabledAt,
+      isStarred: isStarred ?? this.isStarred,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -257,6 +306,9 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
     if (enabledAt.present) {
       map['enabled_at'] = Variable<DateTime>(enabledAt.value);
     }
+    if (isStarred.present) {
+      map['is_starred'] = Variable<bool>(isStarred.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -269,6 +321,7 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
           ..write('habitId: $habitId, ')
           ..write('commitmentNote: $commitmentNote, ')
           ..write('enabledAt: $enabledAt, ')
+          ..write('isStarred: $isStarred, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3176,6 +3229,7 @@ typedef $$HabitSelectionsTableCreateCompanionBuilder =
       required String habitId,
       Value<String> commitmentNote,
       required DateTime enabledAt,
+      Value<bool> isStarred,
       Value<int> rowid,
     });
 typedef $$HabitSelectionsTableUpdateCompanionBuilder =
@@ -3183,6 +3237,7 @@ typedef $$HabitSelectionsTableUpdateCompanionBuilder =
       Value<String> habitId,
       Value<String> commitmentNote,
       Value<DateTime> enabledAt,
+      Value<bool> isStarred,
       Value<int> rowid,
     });
 
@@ -3207,6 +3262,11 @@ class $$HabitSelectionsTableFilterComposer
 
   ColumnFilters<DateTime> get enabledAt => $composableBuilder(
     column: $table.enabledAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isStarred => $composableBuilder(
+    column: $table.isStarred,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3234,6 +3294,11 @@ class $$HabitSelectionsTableOrderingComposer
     column: $table.enabledAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get isStarred => $composableBuilder(
+    column: $table.isStarred,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$HabitSelectionsTableAnnotationComposer
@@ -3255,6 +3320,9 @@ class $$HabitSelectionsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get enabledAt =>
       $composableBuilder(column: $table.enabledAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get isStarred =>
+      $composableBuilder(column: $table.isStarred, builder: (column) => column);
 }
 
 class $$HabitSelectionsTableTableManager
@@ -3297,11 +3365,13 @@ class $$HabitSelectionsTableTableManager
                 Value<String> habitId = const Value.absent(),
                 Value<String> commitmentNote = const Value.absent(),
                 Value<DateTime> enabledAt = const Value.absent(),
+                Value<bool> isStarred = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => HabitSelectionsCompanion(
                 habitId: habitId,
                 commitmentNote: commitmentNote,
                 enabledAt: enabledAt,
+                isStarred: isStarred,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3309,11 +3379,13 @@ class $$HabitSelectionsTableTableManager
                 required String habitId,
                 Value<String> commitmentNote = const Value.absent(),
                 required DateTime enabledAt,
+                Value<bool> isStarred = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => HabitSelectionsCompanion.insert(
                 habitId: habitId,
                 commitmentNote: commitmentNote,
                 enabledAt: enabledAt,
+                isStarred: isStarred,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

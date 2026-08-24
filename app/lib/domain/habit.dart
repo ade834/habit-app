@@ -34,6 +34,22 @@ const laterHabits = [
 
 const allHabits = [...firstHabits, ...laterHabits];
 
+const periodicHabitIds = {'H5', 'H7', 'H10', 'H11'};
+
+bool isPeriodicHabit(String habitId) => periodicHabitIds.contains(habitId);
+
+bool countsTowardsRegularQuota({
+  required String habitId,
+  required bool isStarred,
+  required DateTime enabledAt,
+  required DateTime now,
+}) {
+  if (isStarred || !isPeriodicHabit(habitId)) return !isStarred;
+  return enabledAt.year == now.year &&
+      enabledAt.month == now.month &&
+      enabledAt.day == now.day;
+}
+
 HabitDefinition habitById(String id) => allHabits.firstWhere(
   (habit) => habit.id == id,
   orElse: () => HabitDefinition(id: id, name: id, description: ''),
