@@ -36,18 +36,40 @@ const allHabits = [...firstHabits, ...laterHabits];
 
 const periodicHabitIds = {'H5', 'H7', 'H10', 'H11'};
 
+bool exceedsStarredHabitLimit(Set<String> habitIds, int limit) =>
+    habitIds.length > limit;
+
+bool canStarHabit(Set<String> starredHabitIds, String habitId, int limit) =>
+    starredHabitIds.contains(habitId) || starredHabitIds.length < limit;
+
+bool isSamePeriodicCycle(String habitId, DateTime first, DateTime second) {
+  if (habitId == 'H10') {
+    return first.year == second.year && first.month == second.month;
+  }
+  if (habitId == 'H11') return first.year == second.year;
+  if (habitId == 'H5' || habitId == 'H7') {
+    DateTime monday(DateTime date) {
+      final day = DateTime(date.year, date.month, date.day);
+      return day.subtract(Duration(days: day.weekday - 1));
+    }
+
+    return monday(first) == monday(second);
+  }
+  return false;
+}
+
 bool isPeriodicHabit(String habitId) => periodicHabitIds.contains(habitId);
 
 bool countsTowardsRegularQuota({
   required String habitId,
   required bool isStarred,
-  required DateTime enabledAt,
+  required DateTime? activeOn,
   required DateTime now,
 }) {
-  if (isStarred || !isPeriodicHabit(habitId)) return !isStarred;
-  return enabledAt.year == now.year &&
-      enabledAt.month == now.month &&
-      enabledAt.day == now.day;
+  if (isStarred) return false;
+  return !isPeriodicHabit(habitId) ||
+      activeOn == null ||
+      !isSamePeriodicCycle(habitId, activeOn, now);
 }
 
 HabitDefinition habitById(String id) => allHabits.firstWhere(

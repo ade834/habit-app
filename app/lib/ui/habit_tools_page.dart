@@ -413,7 +413,7 @@ class _ReviewToolPageState extends State<ReviewToolPage> {
     '${_decision.text}${_result.text}${_improvement.text}',
   );
 
-  DateTime get _date => DateTime.now().subtract(Duration(days: _daysAgo));
+  DateTime get _date => appDebugNow().subtract(Duration(days: _daysAgo));
 
   @override
   void initState() {
@@ -444,15 +444,24 @@ class _ReviewToolPageState extends State<ReviewToolPage> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    final completed = await widget.database.saveReview(
-      date: _date,
-      decision: _decision.text,
-      result: _result.text,
-      improvement: _improvement.text,
-    );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    Navigator.pop(context, completed ? 1 : 0);
+    try {
+      final completed = await widget.database.saveReview(
+        date: _date,
+        decision: _decision.text,
+        result: _result.text,
+        improvement: _improvement.text,
+        now: appDebugNow(),
+      );
+      if (mounted) Navigator.pop(context, completed ? 1 : 0);
+    } on ArgumentError catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message?.toString() ?? '保存失败')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -549,7 +558,7 @@ class _FocusToolPageState extends State<FocusToolPage> {
   @override
   void initState() {
     super.initState();
-    _recommendedTopics = dailyThinkingTopics(DateTime.now());
+    _recommendedTopics = dailyThinkingTopics(appDebugNow());
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -779,7 +788,7 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
               onPressed: () async {
                 final completed = await widget.database.recordCompletion(
                   habitId: 'H3',
-                  occurredAt: DateTime.now(),
+                  occurredAt: appDebugNow(),
                 );
                 if (context.mounted) Navigator.pop(context, completed ? 1 : 0);
               },

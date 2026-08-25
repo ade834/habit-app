@@ -58,12 +58,24 @@ class $HabitSelectionsTable extends HabitSelections
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _activeOnMeta = const VerificationMeta(
+    'activeOn',
+  );
+  @override
+  late final GeneratedColumn<DateTime> activeOn = GeneratedColumn<DateTime>(
+    'active_on',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     habitId,
     commitmentNote,
     enabledAt,
     isStarred,
+    activeOn,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -108,6 +120,12 @@ class $HabitSelectionsTable extends HabitSelections
         isStarred.isAcceptableOrUnknown(data['is_starred']!, _isStarredMeta),
       );
     }
+    if (data.containsKey('active_on')) {
+      context.handle(
+        _activeOnMeta,
+        activeOn.isAcceptableOrUnknown(data['active_on']!, _activeOnMeta),
+      );
+    }
     return context;
   }
 
@@ -133,6 +151,10 @@ class $HabitSelectionsTable extends HabitSelections
         DriftSqlType.bool,
         data['${effectivePrefix}is_starred'],
       )!,
+      activeOn: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}active_on'],
+      ),
     );
   }
 
@@ -147,11 +169,13 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
   final String commitmentNote;
   final DateTime enabledAt;
   final bool isStarred;
+  final DateTime? activeOn;
   const HabitSelection({
     required this.habitId,
     required this.commitmentNote,
     required this.enabledAt,
     required this.isStarred,
+    this.activeOn,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -160,6 +184,9 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
     map['commitment_note'] = Variable<String>(commitmentNote);
     map['enabled_at'] = Variable<DateTime>(enabledAt);
     map['is_starred'] = Variable<bool>(isStarred);
+    if (!nullToAbsent || activeOn != null) {
+      map['active_on'] = Variable<DateTime>(activeOn);
+    }
     return map;
   }
 
@@ -169,6 +196,9 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
       commitmentNote: Value(commitmentNote),
       enabledAt: Value(enabledAt),
       isStarred: Value(isStarred),
+      activeOn: activeOn == null && nullToAbsent
+          ? const Value.absent()
+          : Value(activeOn),
     );
   }
 
@@ -182,6 +212,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
       commitmentNote: serializer.fromJson<String>(json['commitmentNote']),
       enabledAt: serializer.fromJson<DateTime>(json['enabledAt']),
       isStarred: serializer.fromJson<bool>(json['isStarred']),
+      activeOn: serializer.fromJson<DateTime?>(json['activeOn']),
     );
   }
   @override
@@ -192,6 +223,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
       'commitmentNote': serializer.toJson<String>(commitmentNote),
       'enabledAt': serializer.toJson<DateTime>(enabledAt),
       'isStarred': serializer.toJson<bool>(isStarred),
+      'activeOn': serializer.toJson<DateTime?>(activeOn),
     };
   }
 
@@ -200,11 +232,13 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
     String? commitmentNote,
     DateTime? enabledAt,
     bool? isStarred,
+    Value<DateTime?> activeOn = const Value.absent(),
   }) => HabitSelection(
     habitId: habitId ?? this.habitId,
     commitmentNote: commitmentNote ?? this.commitmentNote,
     enabledAt: enabledAt ?? this.enabledAt,
     isStarred: isStarred ?? this.isStarred,
+    activeOn: activeOn.present ? activeOn.value : this.activeOn,
   );
   HabitSelection copyWithCompanion(HabitSelectionsCompanion data) {
     return HabitSelection(
@@ -214,6 +248,7 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
           : this.commitmentNote,
       enabledAt: data.enabledAt.present ? data.enabledAt.value : this.enabledAt,
       isStarred: data.isStarred.present ? data.isStarred.value : this.isStarred,
+      activeOn: data.activeOn.present ? data.activeOn.value : this.activeOn,
     );
   }
 
@@ -223,14 +258,15 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
           ..write('habitId: $habitId, ')
           ..write('commitmentNote: $commitmentNote, ')
           ..write('enabledAt: $enabledAt, ')
-          ..write('isStarred: $isStarred')
+          ..write('isStarred: $isStarred, ')
+          ..write('activeOn: $activeOn')
           ..write(')'))
         .toString();
   }
 
   @override
   int get hashCode =>
-      Object.hash(habitId, commitmentNote, enabledAt, isStarred);
+      Object.hash(habitId, commitmentNote, enabledAt, isStarred, activeOn);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -238,7 +274,8 @@ class HabitSelection extends DataClass implements Insertable<HabitSelection> {
           other.habitId == this.habitId &&
           other.commitmentNote == this.commitmentNote &&
           other.enabledAt == this.enabledAt &&
-          other.isStarred == this.isStarred);
+          other.isStarred == this.isStarred &&
+          other.activeOn == this.activeOn);
 }
 
 class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
@@ -246,12 +283,14 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
   final Value<String> commitmentNote;
   final Value<DateTime> enabledAt;
   final Value<bool> isStarred;
+  final Value<DateTime?> activeOn;
   final Value<int> rowid;
   const HabitSelectionsCompanion({
     this.habitId = const Value.absent(),
     this.commitmentNote = const Value.absent(),
     this.enabledAt = const Value.absent(),
     this.isStarred = const Value.absent(),
+    this.activeOn = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   HabitSelectionsCompanion.insert({
@@ -259,6 +298,7 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
     this.commitmentNote = const Value.absent(),
     required DateTime enabledAt,
     this.isStarred = const Value.absent(),
+    this.activeOn = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : habitId = Value(habitId),
        enabledAt = Value(enabledAt);
@@ -267,6 +307,7 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
     Expression<String>? commitmentNote,
     Expression<DateTime>? enabledAt,
     Expression<bool>? isStarred,
+    Expression<DateTime>? activeOn,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -274,6 +315,7 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
       if (commitmentNote != null) 'commitment_note': commitmentNote,
       if (enabledAt != null) 'enabled_at': enabledAt,
       if (isStarred != null) 'is_starred': isStarred,
+      if (activeOn != null) 'active_on': activeOn,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -283,6 +325,7 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
     Value<String>? commitmentNote,
     Value<DateTime>? enabledAt,
     Value<bool>? isStarred,
+    Value<DateTime?>? activeOn,
     Value<int>? rowid,
   }) {
     return HabitSelectionsCompanion(
@@ -290,6 +333,7 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
       commitmentNote: commitmentNote ?? this.commitmentNote,
       enabledAt: enabledAt ?? this.enabledAt,
       isStarred: isStarred ?? this.isStarred,
+      activeOn: activeOn ?? this.activeOn,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -309,6 +353,9 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
     if (isStarred.present) {
       map['is_starred'] = Variable<bool>(isStarred.value);
     }
+    if (activeOn.present) {
+      map['active_on'] = Variable<DateTime>(activeOn.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -322,6 +369,7 @@ class HabitSelectionsCompanion extends UpdateCompanion<HabitSelection> {
           ..write('commitmentNote: $commitmentNote, ')
           ..write('enabledAt: $enabledAt, ')
           ..write('isStarred: $isStarred, ')
+          ..write('activeOn: $activeOn, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3193,6 +3241,277 @@ class TravelPlansCompanion extends UpdateCompanion<TravelPlan> {
   }
 }
 
+class $MissedHabitRecordsTable extends MissedHabitRecords
+    with TableInfo<$MissedHabitRecordsTable, MissedHabitRecord> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MissedHabitRecordsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _habitIdMeta = const VerificationMeta(
+    'habitId',
+  );
+  @override
+  late final GeneratedColumn<String> habitId = GeneratedColumn<String>(
+    'habit_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _localDateMeta = const VerificationMeta(
+    'localDate',
+  );
+  @override
+  late final GeneratedColumn<String> localDate = GeneratedColumn<String>(
+    'local_date',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _settledOnMeta = const VerificationMeta(
+    'settledOn',
+  );
+  @override
+  late final GeneratedColumn<String> settledOn = GeneratedColumn<String>(
+    'settled_on',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [habitId, localDate, settledOn];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'missed_habit_records';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<MissedHabitRecord> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('habit_id')) {
+      context.handle(
+        _habitIdMeta,
+        habitId.isAcceptableOrUnknown(data['habit_id']!, _habitIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_habitIdMeta);
+    }
+    if (data.containsKey('local_date')) {
+      context.handle(
+        _localDateMeta,
+        localDate.isAcceptableOrUnknown(data['local_date']!, _localDateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localDateMeta);
+    }
+    if (data.containsKey('settled_on')) {
+      context.handle(
+        _settledOnMeta,
+        settledOn.isAcceptableOrUnknown(data['settled_on']!, _settledOnMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {habitId, localDate};
+  @override
+  MissedHabitRecord map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MissedHabitRecord(
+      habitId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}habit_id'],
+      )!,
+      localDate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_date'],
+      )!,
+      settledOn: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}settled_on'],
+      ),
+    );
+  }
+
+  @override
+  $MissedHabitRecordsTable createAlias(String alias) {
+    return $MissedHabitRecordsTable(attachedDatabase, alias);
+  }
+}
+
+class MissedHabitRecord extends DataClass
+    implements Insertable<MissedHabitRecord> {
+  final String habitId;
+  final String localDate;
+  final String? settledOn;
+  const MissedHabitRecord({
+    required this.habitId,
+    required this.localDate,
+    this.settledOn,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['habit_id'] = Variable<String>(habitId);
+    map['local_date'] = Variable<String>(localDate);
+    if (!nullToAbsent || settledOn != null) {
+      map['settled_on'] = Variable<String>(settledOn);
+    }
+    return map;
+  }
+
+  MissedHabitRecordsCompanion toCompanion(bool nullToAbsent) {
+    return MissedHabitRecordsCompanion(
+      habitId: Value(habitId),
+      localDate: Value(localDate),
+      settledOn: settledOn == null && nullToAbsent
+          ? const Value.absent()
+          : Value(settledOn),
+    );
+  }
+
+  factory MissedHabitRecord.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MissedHabitRecord(
+      habitId: serializer.fromJson<String>(json['habitId']),
+      localDate: serializer.fromJson<String>(json['localDate']),
+      settledOn: serializer.fromJson<String?>(json['settledOn']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'habitId': serializer.toJson<String>(habitId),
+      'localDate': serializer.toJson<String>(localDate),
+      'settledOn': serializer.toJson<String?>(settledOn),
+    };
+  }
+
+  MissedHabitRecord copyWith({
+    String? habitId,
+    String? localDate,
+    Value<String?> settledOn = const Value.absent(),
+  }) => MissedHabitRecord(
+    habitId: habitId ?? this.habitId,
+    localDate: localDate ?? this.localDate,
+    settledOn: settledOn.present ? settledOn.value : this.settledOn,
+  );
+  MissedHabitRecord copyWithCompanion(MissedHabitRecordsCompanion data) {
+    return MissedHabitRecord(
+      habitId: data.habitId.present ? data.habitId.value : this.habitId,
+      localDate: data.localDate.present ? data.localDate.value : this.localDate,
+      settledOn: data.settledOn.present ? data.settledOn.value : this.settledOn,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MissedHabitRecord(')
+          ..write('habitId: $habitId, ')
+          ..write('localDate: $localDate, ')
+          ..write('settledOn: $settledOn')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(habitId, localDate, settledOn);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MissedHabitRecord &&
+          other.habitId == this.habitId &&
+          other.localDate == this.localDate &&
+          other.settledOn == this.settledOn);
+}
+
+class MissedHabitRecordsCompanion extends UpdateCompanion<MissedHabitRecord> {
+  final Value<String> habitId;
+  final Value<String> localDate;
+  final Value<String?> settledOn;
+  final Value<int> rowid;
+  const MissedHabitRecordsCompanion({
+    this.habitId = const Value.absent(),
+    this.localDate = const Value.absent(),
+    this.settledOn = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MissedHabitRecordsCompanion.insert({
+    required String habitId,
+    required String localDate,
+    this.settledOn = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : habitId = Value(habitId),
+       localDate = Value(localDate);
+  static Insertable<MissedHabitRecord> custom({
+    Expression<String>? habitId,
+    Expression<String>? localDate,
+    Expression<String>? settledOn,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (habitId != null) 'habit_id': habitId,
+      if (localDate != null) 'local_date': localDate,
+      if (settledOn != null) 'settled_on': settledOn,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MissedHabitRecordsCompanion copyWith({
+    Value<String>? habitId,
+    Value<String>? localDate,
+    Value<String?>? settledOn,
+    Value<int>? rowid,
+  }) {
+    return MissedHabitRecordsCompanion(
+      habitId: habitId ?? this.habitId,
+      localDate: localDate ?? this.localDate,
+      settledOn: settledOn ?? this.settledOn,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (habitId.present) {
+      map['habit_id'] = Variable<String>(habitId.value);
+    }
+    if (localDate.present) {
+      map['local_date'] = Variable<String>(localDate.value);
+    }
+    if (settledOn.present) {
+      map['settled_on'] = Variable<String>(settledOn.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MissedHabitRecordsCompanion(')
+          ..write('habitId: $habitId, ')
+          ..write('localDate: $localDate, ')
+          ..write('settledOn: $settledOn, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3208,6 +3527,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $HabitActivityEntriesTable habitActivityEntries =
       $HabitActivityEntriesTable(this);
   late final $TravelPlansTable travelPlans = $TravelPlansTable(this);
+  late final $MissedHabitRecordsTable missedHabitRecords =
+      $MissedHabitRecordsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3221,6 +3542,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     challengeDraws,
     habitActivityEntries,
     travelPlans,
+    missedHabitRecords,
   ];
 }
 
@@ -3230,6 +3552,7 @@ typedef $$HabitSelectionsTableCreateCompanionBuilder =
       Value<String> commitmentNote,
       required DateTime enabledAt,
       Value<bool> isStarred,
+      Value<DateTime?> activeOn,
       Value<int> rowid,
     });
 typedef $$HabitSelectionsTableUpdateCompanionBuilder =
@@ -3238,6 +3561,7 @@ typedef $$HabitSelectionsTableUpdateCompanionBuilder =
       Value<String> commitmentNote,
       Value<DateTime> enabledAt,
       Value<bool> isStarred,
+      Value<DateTime?> activeOn,
       Value<int> rowid,
     });
 
@@ -3267,6 +3591,11 @@ class $$HabitSelectionsTableFilterComposer
 
   ColumnFilters<bool> get isStarred => $composableBuilder(
     column: $table.isStarred,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get activeOn => $composableBuilder(
+    column: $table.activeOn,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3299,6 +3628,11 @@ class $$HabitSelectionsTableOrderingComposer
     column: $table.isStarred,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<DateTime> get activeOn => $composableBuilder(
+    column: $table.activeOn,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$HabitSelectionsTableAnnotationComposer
@@ -3323,6 +3657,9 @@ class $$HabitSelectionsTableAnnotationComposer
 
   GeneratedColumn<bool> get isStarred =>
       $composableBuilder(column: $table.isStarred, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get activeOn =>
+      $composableBuilder(column: $table.activeOn, builder: (column) => column);
 }
 
 class $$HabitSelectionsTableTableManager
@@ -3366,12 +3703,14 @@ class $$HabitSelectionsTableTableManager
                 Value<String> commitmentNote = const Value.absent(),
                 Value<DateTime> enabledAt = const Value.absent(),
                 Value<bool> isStarred = const Value.absent(),
+                Value<DateTime?> activeOn = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => HabitSelectionsCompanion(
                 habitId: habitId,
                 commitmentNote: commitmentNote,
                 enabledAt: enabledAt,
                 isStarred: isStarred,
+                activeOn: activeOn,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3380,12 +3719,14 @@ class $$HabitSelectionsTableTableManager
                 Value<String> commitmentNote = const Value.absent(),
                 required DateTime enabledAt,
                 Value<bool> isStarred = const Value.absent(),
+                Value<DateTime?> activeOn = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => HabitSelectionsCompanion.insert(
                 habitId: habitId,
                 commitmentNote: commitmentNote,
                 enabledAt: enabledAt,
                 isStarred: isStarred,
+                activeOn: activeOn,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -5184,6 +5525,181 @@ typedef $$TravelPlansTableProcessedTableManager =
       TravelPlan,
       PrefetchHooks Function()
     >;
+typedef $$MissedHabitRecordsTableCreateCompanionBuilder =
+    MissedHabitRecordsCompanion Function({
+      required String habitId,
+      required String localDate,
+      Value<String?> settledOn,
+      Value<int> rowid,
+    });
+typedef $$MissedHabitRecordsTableUpdateCompanionBuilder =
+    MissedHabitRecordsCompanion Function({
+      Value<String> habitId,
+      Value<String> localDate,
+      Value<String?> settledOn,
+      Value<int> rowid,
+    });
+
+class $$MissedHabitRecordsTableFilterComposer
+    extends Composer<_$AppDatabase, $MissedHabitRecordsTable> {
+  $$MissedHabitRecordsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get habitId => $composableBuilder(
+    column: $table.habitId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get settledOn => $composableBuilder(
+    column: $table.settledOn,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$MissedHabitRecordsTableOrderingComposer
+    extends Composer<_$AppDatabase, $MissedHabitRecordsTable> {
+  $$MissedHabitRecordsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get habitId => $composableBuilder(
+    column: $table.habitId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localDate => $composableBuilder(
+    column: $table.localDate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get settledOn => $composableBuilder(
+    column: $table.settledOn,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$MissedHabitRecordsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $MissedHabitRecordsTable> {
+  $$MissedHabitRecordsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get habitId =>
+      $composableBuilder(column: $table.habitId, builder: (column) => column);
+
+  GeneratedColumn<String> get localDate =>
+      $composableBuilder(column: $table.localDate, builder: (column) => column);
+
+  GeneratedColumn<String> get settledOn =>
+      $composableBuilder(column: $table.settledOn, builder: (column) => column);
+}
+
+class $$MissedHabitRecordsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $MissedHabitRecordsTable,
+          MissedHabitRecord,
+          $$MissedHabitRecordsTableFilterComposer,
+          $$MissedHabitRecordsTableOrderingComposer,
+          $$MissedHabitRecordsTableAnnotationComposer,
+          $$MissedHabitRecordsTableCreateCompanionBuilder,
+          $$MissedHabitRecordsTableUpdateCompanionBuilder,
+          (
+            MissedHabitRecord,
+            BaseReferences<
+              _$AppDatabase,
+              $MissedHabitRecordsTable,
+              MissedHabitRecord
+            >,
+          ),
+          MissedHabitRecord,
+          PrefetchHooks Function()
+        > {
+  $$MissedHabitRecordsTableTableManager(
+    _$AppDatabase db,
+    $MissedHabitRecordsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MissedHabitRecordsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MissedHabitRecordsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MissedHabitRecordsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> habitId = const Value.absent(),
+                Value<String> localDate = const Value.absent(),
+                Value<String?> settledOn = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MissedHabitRecordsCompanion(
+                habitId: habitId,
+                localDate: localDate,
+                settledOn: settledOn,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String habitId,
+                required String localDate,
+                Value<String?> settledOn = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MissedHabitRecordsCompanion.insert(
+                habitId: habitId,
+                localDate: localDate,
+                settledOn: settledOn,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$MissedHabitRecordsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $MissedHabitRecordsTable,
+      MissedHabitRecord,
+      $$MissedHabitRecordsTableFilterComposer,
+      $$MissedHabitRecordsTableOrderingComposer,
+      $$MissedHabitRecordsTableAnnotationComposer,
+      $$MissedHabitRecordsTableCreateCompanionBuilder,
+      $$MissedHabitRecordsTableUpdateCompanionBuilder,
+      (
+        MissedHabitRecord,
+        BaseReferences<
+          _$AppDatabase,
+          $MissedHabitRecordsTable,
+          MissedHabitRecord
+        >,
+      ),
+      MissedHabitRecord,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -5204,4 +5720,6 @@ class $AppDatabaseManager {
       $$HabitActivityEntriesTableTableManager(_db, _db.habitActivityEntries);
   $$TravelPlansTableTableManager get travelPlans =>
       $$TravelPlansTableTableManager(_db, _db.travelPlans);
+  $$MissedHabitRecordsTableTableManager get missedHabitRecords =>
+      $$MissedHabitRecordsTableTableManager(_db, _db.missedHabitRecords);
 }

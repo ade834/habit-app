@@ -68,19 +68,73 @@ void main() {
     );
   });
 
-  test('首次选择时星标习惯不占普通名额', () async {
+  test('首次选择不允许星标，后续选择可把星标设为额外项', () async {
+    await expectLater(
+      database.saveOnboarding(
+        habitIds: {'H1'},
+        starredHabitIds: {'H1'},
+        commitmentNote: '测试',
+      ),
+      throwsArgumentError,
+    );
     await database.saveOnboarding(
-      habitIds: {'H1', 'H2', 'H3', 'H5', 'H7'},
-      starredHabitIds: {'H5', 'H7'},
+      habitIds: {'H1', 'H2', 'H3'},
       commitmentNote: '测试',
       now: DateTime(2026, 8, 25),
+    );
+    await database.replaceSelectedHabits(
+      {'H1', 'H2', 'H3', 'H5'},
+      starredHabitIds: {'H5'},
+      now: DateTime(2026, 8, 26),
     );
 
     final selections = await database.watchSelectedHabits().first;
     expect(selections.where((row) => row.isStarred).map((row) => row.habitId), {
       'H5',
-      'H7',
     });
+  });
+
+  test('星标第一阶段限1个，解锁第二阶段后限2个', () async {
+    await expectLater(
+      database.saveOnboarding(
+        habitIds: {'H1', 'H2'},
+        starredHabitIds: {'H1', 'H2'},
+        commitmentNote: '测试',
+      ),
+      throwsArgumentError,
+    );
+    await database.saveOnboarding(
+      habitIds: {'H1'},
+      commitmentNote: '测试',
+      now: DateTime(2026, 1, 1),
+    );
+    await expectLater(
+      database.replaceSelectedHabits(
+        {'H1', 'H7'},
+        starredHabitIds: {'H1', 'H7'},
+        now: DateTime(2026, 1, 1),
+      ),
+      throwsArgumentError,
+    );
+    for (var day = 1; day <= 6; day++) {
+      await database.recordCompletion(
+        habitId: 'H1',
+        occurredAt: DateTime(2026, 1, day),
+      );
+    }
+    await database.replaceSelectedHabits(
+      {'H1', 'H7'},
+      starredHabitIds: {'H1', 'H7'},
+      now: DateTime(2026, 1, 7),
+    );
+    await expectLater(
+      database.replaceSelectedHabits(
+        {'H1', 'H7', 'H8'},
+        starredHabitIds: {'H1', 'H7', 'H8'},
+        now: DateTime(2026, 1, 7),
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('周期习惯次日转为额外名额', () async {
@@ -103,6 +157,138 @@ void main() {
     expect(
       (await database.watchSelectedHabits().first).map((row) => row.habitId),
       containsAll(['H1', 'H2', 'H3', 'H5', 'H7']),
+    );
+  });
+
+  test('新的一天自动保留星标和周期习惯', () async {
+    final firstDay = DateTime(2026, 8, 25);
+    final secondDay = firstDay.add(const Duration(days: 1));
+    await database.saveOnboarding(
+      habitIds: {'H1', 'H2', 'H5'},
+      commitmentNote: '测试',
+      now: firstDay,
+    );
+
+    expect(
+      (await database.watchActiveHabits(now: firstDay).first).map(
+        (row) => row.habitId,
+      ),
+      containsAll({'H1', 'H2', 'H5'}),
+    );
+    await database.replaceSelectedHabits(
+      {'H2', 'H5'},
+      starredHabitIds: {'H2'},
+      now: secondDay,
+    );
+    expect(
+      (await database.watchActiveHabits(now: secondDay).first).map(
+        (row) => row.habitId,
+      ),
+      {'H2', 'H5'},
+    );
+  });
+
+  test('重新选择的月任务会保留到本月完成', () async {
+    await database.saveLaterHabitActivity(
+      habitId: 'H10',
+      primaryText: '八月读完的书',
+      now: DateTime(2026, 8, 20),
+    );
+    final selectedOn = DateTime(2026, 9, 1);
+    await database.replaceSelectedHabits({'H10'}, now: selectedOn);
+
+    expect(
+      (await database.watchActiveHabits(now: DateTime(2026, 9, 2)).first).map(
+        (row) => row.habitId,
+      ),
+      contains('H10'),
+    );
+  });
+
+  test('未完成周期任务只留在被选择的自然周期内', () async {
+    final cases = [
+      ('H5', DateTime(2026, 9, 1), DateTime(2026, 9, 7)),
+      ('H10', DateTime(2026, 9, 1), DateTime(2026, 10, 1)),
+      ('H11', DateTime(2026, 1, 1), DateTime(2027, 1, 1)),
+    ];
+    for (final entry in cases) {
+      await database.clearAllData();
+      await database.replaceSelectedHabits({entry.$1}, now: entry.$2);
+
+      expect(
+        (await database.watchActiveHabits(now: entry.$2).first).map(
+          (row) => row.habitId,
+        ),
+        contains(entry.$1),
+      );
+      expect(await database.watchActiveHabits(now: entry.$3).first, isEmpty);
+      expect(
+        (await database.watchSelectedHabits().first).map((row) => row.habitId),
+        contains(entry.$1),
+      );
+    }
+  });
+
+  test('次日重新选择时周期习惯不占普通名额', () async {
+    final firstDay = DateTime(2026, 8, 25);
+    final secondDay = firstDay.add(const Duration(days: 1));
+    await database.saveOnboarding(
+      habitIds: {'H1', 'H5'},
+      commitmentNote: '测试',
+      now: firstDay,
+    );
+
+    await database.replaceSelectedHabits({
+      'H1',
+      'H2',
+      'H3',
+      'H5',
+    }, now: secondDay);
+
+    expect(
+      (await database.watchActiveHabits(now: secondDay).first).map(
+        (row) => row.habitId,
+      ),
+      containsAll({'H1', 'H2', 'H3', 'H5'}),
+    );
+  });
+
+  test('跨周期重新选择的周期习惯会重新占当天名额', () async {
+    await database.saveOnboarding(
+      habitIds: {'H1', 'H5'},
+      commitmentNote: '测试',
+      now: DateTime(2026, 9, 1),
+    );
+
+    await expectLater(
+      database.replaceSelectedHabits({
+        'H1',
+        'H2',
+        'H5',
+        'H7',
+      }, now: DateTime(2026, 9, 7)),
+      throwsArgumentError,
+    );
+  });
+
+  test('周期任务到期未完成会写入周期末日并在结算日提示', () async {
+    await database.saveOnboarding(
+      habitIds: {'H5'},
+      commitmentNote: '测试',
+      now: DateTime(2026, 9, 1),
+    );
+    final settledOn = DateTime(2026, 9, 8);
+    await database.settleMissedPeriodicHabits(now: settledOn);
+
+    expect(await database.settledPeriodicMissedHabitCountForDate(settledOn), 1);
+    final summaries = await database.monthlyRecordSummaries(DateTime(2026, 9));
+    final periodEnd = summaries.firstWhere((item) => item.date.day == 6);
+    expect(periodEnd.missedHabitIds, contains('H5'));
+    expect(
+      (await database.watchActiveHabits(now: settledOn).first).map(
+        (row) => row.habitId,
+      ),
+      isNot(contains('H5')),
     );
   });
 

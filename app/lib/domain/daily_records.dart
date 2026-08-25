@@ -2,6 +2,7 @@ class DailyRecordSummary {
   const DailyRecordSummary({
     required this.date,
     required this.completedHabitIds,
+    this.missedHabitIds = const {},
     required this.points,
     this.pointsByHabit = const {},
     this.review,
@@ -13,6 +14,7 @@ class DailyRecordSummary {
 
   final DateTime date;
   final Set<String> completedHabitIds;
+  final Set<String> missedHabitIds;
   final int points;
   final Map<String, int> pointsByHabit;
   final ReviewRecord? review;
@@ -26,6 +28,7 @@ class DailyRecordSummary {
 
   bool get hasAnyRecord =>
       completedHabitIds.isNotEmpty ||
+      missedHabitIds.isNotEmpty ||
       points > 0 ||
       review != null ||
       focus != null ||

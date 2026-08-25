@@ -15,6 +15,7 @@ class HabitSelections extends Table {
   TextColumn get commitmentNote => text().withDefault(const Constant(''))();
   DateTimeColumn get enabledAt => dateTime()();
   BoolColumn get isStarred => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get activeOn => dateTime().nullable()();
 
   @override
   Set<Column<Object>> get primaryKey => {habitId};
@@ -102,6 +103,15 @@ class TravelPlans extends Table {
   Set<Column<Object>> get primaryKey => {year};
 }
 
+class MissedHabitRecords extends Table {
+  TextColumn get habitId => text()();
+  TextColumn get localDate => text()();
+  TextColumn get settledOn => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {habitId, localDate};
+}
+
 @DriftDatabase(
   tables: [
     HabitSelections,
@@ -112,6 +122,7 @@ class TravelPlans extends Table {
     ChallengeDraws,
     HabitActivityEntries,
     TravelPlans,
+    MissedHabitRecords,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -120,7 +131,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -146,20 +157,192 @@ class AppDatabase extends _$AppDatabase {
       if (from < 6) {
         await migrator.createTable(travelPlans);
       }
-      if (from < 7) {
+      if (from < 7 && !await _hasColumn('habit_selections', 'is_starred')) {
         await migrator.addColumn(habitSelections, habitSelections.isStarred);
+      }
+      if (from < 8) {
+        if (!await _hasColumn('habit_selections', 'active_on')) {
+          await migrator.addColumn(habitSelections, habitSelections.activeOn);
+        }
+        await customStatement(
+          'UPDATE habit_selections SET active_on = enabled_at',
+        );
+      }
+      if (from < 9) await migrator.createTable(missedHabitRecords);
+      if (from < 10) {
+        if (!await _hasColumn('missed_habit_records', 'settled_on')) {
+          await migrator.addColumn(
+            missedHabitRecords,
+            missedHabitRecords.settledOn,
+          );
+        }
       }
     },
   );
 
+  Future<bool> _hasColumn(String tableName, String columnName) async {
+    final columns = await customSelect('PRAGMA table_info($tableName)').get();
+    return columns.any((row) => row.read<String>('name') == columnName);
+  }
+
   Stream<List<HabitSelection>> watchSelectedHabits() =>
       select(habitSelections).watch();
+
+  Stream<List<HabitSelection>> watchActiveHabits({DateTime? now}) {
+    final current = now ?? DateTime.now();
+    final day = DateTime(current.year, current.month, current.day);
+    return customSelect(
+      'SELECT 1',
+      readsFrom: {habitSelections, habitActivityEntries},
+    ).watch().asyncMap((_) async {
+      final rows = await select(habitSelections).get();
+      final active = <HabitSelection>[];
+      for (final row in rows) {
+        final selected =
+            row.isStarred ||
+            isPeriodicHabit(row.habitId) ||
+            (row.activeOn != null && _sameDay(row.activeOn!, day));
+        if (!selected) continue;
+        if (isPeriodicHabit(row.habitId)) {
+          final completedAt = await _periodicCompletedAt(row.habitId, current);
+          if (completedAt != null) {
+            if (!_sameDay(completedAt, day)) continue;
+          } else {
+            final selectedThisPeriod =
+                row.activeOn != null &&
+                _activityPeriodKey(row.habitId, row.activeOn!) ==
+                    _activityPeriodKey(row.habitId, current);
+            if (!selectedThisPeriod) continue;
+          }
+        }
+        active.add(row);
+      }
+      return active;
+    });
+  }
+
+  Future<DateTime?> _periodicCompletedAt(String habitId, DateTime now) async {
+    final periodKey = _activityPeriodKey(habitId, now);
+    final entry =
+        await (select(habitActivityEntries)..where(
+              (row) =>
+                  row.habitId.equals(habitId) & row.periodKey.equals(periodKey),
+            ))
+            .getSingleOrNull();
+    return entry?.completedAt;
+  }
+
+  Future<Set<String>> completedPeriodicHabitIds({DateTime? now}) async {
+    final current = now ?? DateTime.now();
+    final completed = <String>{};
+    for (final habitId in periodicHabitIds) {
+      final completedAt = await _periodicCompletedAt(habitId, current);
+      if (completedAt != null && !_sameDay(completedAt, current)) {
+        completed.add(habitId);
+      }
+    }
+    return completed;
+  }
+
+  Future<void> settleMissedOrdinaryHabits({DateTime? now}) async {
+    final current = now ?? DateTime.now();
+    final today = DateTime(current.year, current.month, current.day);
+    final selections = await select(habitSelections).get();
+    await transaction(() async {
+      for (final selection in selections) {
+        final activeOn = selection.activeOn;
+        if (selection.isStarred ||
+            isPeriodicHabit(selection.habitId) ||
+            activeOn == null ||
+            !_isBeforeDay(activeOn, today)) {
+          continue;
+        }
+        final date = _localDate(activeOn);
+        final completed =
+            await (select(habitLogs)..where(
+                  (log) =>
+                      log.habitId.equals(selection.habitId) &
+                      log.localDate.equals(date),
+                ))
+                .getSingleOrNull();
+        if (completed == null) {
+          await into(missedHabitRecords).insertOnConflictUpdate(
+            MissedHabitRecordsCompanion.insert(
+              habitId: selection.habitId,
+              localDate: date,
+            ),
+          );
+        }
+        await (update(habitSelections)
+              ..where((row) => row.habitId.equals(selection.habitId)))
+            .write(const HabitSelectionsCompanion(activeOn: Value(null)));
+      }
+    });
+  }
+
+  Future<void> settleMissedPeriodicHabits({DateTime? now}) async {
+    final current = now ?? DateTime.now();
+    final selections = await select(habitSelections).get();
+    await transaction(() async {
+      for (final selection in selections) {
+        final activeOn = selection.activeOn;
+        if (!isPeriodicHabit(selection.habitId) || activeOn == null) continue;
+        if (isSamePeriodicCycle(selection.habitId, activeOn, current)) continue;
+        final completedAt = await _periodicCompletedAt(
+          selection.habitId,
+          activeOn,
+        );
+        if (completedAt == null) {
+          await into(missedHabitRecords).insertOnConflictUpdate(
+            MissedHabitRecordsCompanion.insert(
+              habitId: selection.habitId,
+              localDate: _localDate(_periodEnd(selection.habitId, activeOn)),
+              settledOn: Value(_localDate(current)),
+            ),
+          );
+        }
+        await (update(habitSelections)
+              ..where((row) => row.habitId.equals(selection.habitId)))
+            .write(const HabitSelectionsCompanion(activeOn: Value(null)));
+      }
+    });
+  }
+
+  Future<int> missedHabitCountForDate(DateTime date) async {
+    final key = _localDate(date);
+    return (await (select(
+      missedHabitRecords,
+    )..where((row) => row.localDate.equals(key))).get()).length;
+  }
+
+  Future<int> settledPeriodicMissedHabitCountForDate(DateTime date) async {
+    final key = _localDate(date);
+    return (await (select(
+      missedHabitRecords,
+    )..where((row) => row.settledOn.equals(key))).get()).length;
+  }
+
+  Future<void> removeHabitFromToday(String habitId) async {
+    final selection = await (select(
+      habitSelections,
+    )..where((row) => row.habitId.equals(habitId))).getSingleOrNull();
+    if (selection == null) return;
+    if (selection.isStarred || isPeriodicHabit(habitId)) {
+      await (delete(
+        habitSelections,
+      )..where((row) => row.habitId.equals(habitId))).go();
+      return;
+    }
+    await (update(habitSelections)..where((row) => row.habitId.equals(habitId)))
+        .write(const HabitSelectionsCompanion(activeOn: Value(null)));
+  }
 
   Future<void> clearAllData() async {
     await transaction(() async {
       await delete(challengeDraws).go();
       await delete(habitActivityEntries).go();
       await delete(travelPlans).go();
+      await delete(missedHabitRecords).go();
       await delete(timerSessions).go();
       await delete(reviewEntries).go();
       await delete(pointTransactions).go();
@@ -177,8 +360,11 @@ class AppDatabase extends _$AppDatabase {
     if (habitIds.isEmpty || starredHabitIds.difference(habitIds).isNotEmpty) {
       throw ArgumentError('至少选择1个习惯，星标必须属于已选习惯');
     }
-
+    if (starredHabitIds.isNotEmpty) {
+      throw ArgumentError('首次选择不支持星标，请完成任务后再设置');
+    }
     final enabledAt = now ?? DateTime.now();
+    await _validateStarredHabitLimit(starredHabitIds, enabledAt);
     if (habitIds.difference(starredHabitIds).length > 3) {
       throw ArgumentError('普通习惯最多选择3个；更多习惯请设为星标');
     }
@@ -194,6 +380,7 @@ class AppDatabase extends _$AppDatabase {
                   commitmentNote: Value(commitmentNote.trim()),
                   enabledAt: enabledAt,
                   isStarred: Value(starredHabitIds.contains(id)),
+                  activeOn: Value(enabledAt),
                 ),
               )
               .toList(),
@@ -207,10 +394,11 @@ class AppDatabase extends _$AppDatabase {
     Set<String> starredHabitIds = const {},
     DateTime? now,
   }) async {
-    if (habitIds.isEmpty || starredHabitIds.difference(habitIds).isNotEmpty) {
-      throw ArgumentError('至少选择1个习惯，星标必须属于已选习惯');
+    if (starredHabitIds.difference(habitIds).isNotEmpty) {
+      throw ArgumentError('星标必须属于当天已选习惯');
     }
     final current = now ?? DateTime.now();
+    await _validateStarredHabitLimit(starredHabitIds, current);
     await transaction(() async {
       final existing = await select(habitSelections).get();
       final byId = {for (final row in existing) row.habitId: row};
@@ -219,36 +407,53 @@ class AppDatabase extends _$AppDatabase {
         return countsTowardsRegularQuota(
           habitId: id,
           isStarred: starredHabitIds.contains(id),
-          enabledAt: selection?.enabledAt ?? current,
+          activeOn: selection?.activeOn,
           now: current,
         );
       }).length;
       if (regularCount > 3) {
         throw ArgumentError('普通习惯最多选择3个；更多习惯请设为星标');
       }
-      await (delete(
-        habitSelections,
-      )..where((row) => row.habitId.isNotIn(habitIds))).go();
+      for (final row in existing) {
+        if (!habitIds.contains(row.habitId) && !row.isStarred) {
+          await (update(habitSelections)
+                ..where((entry) => entry.habitId.equals(row.habitId)))
+              .write(const HabitSelectionsCompanion(activeOn: Value(null)));
+        }
+      }
       for (final id in habitIds) {
-        if (byId.containsKey(id)) continue;
+        if (byId.containsKey(id)) {
+          await (update(
+            habitSelections,
+          )..where((entry) => entry.habitId.equals(id))).write(
+            HabitSelectionsCompanion(
+              isStarred: Value(starredHabitIds.contains(id)),
+              activeOn: Value(current),
+            ),
+          );
+          continue;
+        }
         await into(habitSelections).insert(
           HabitSelectionsCompanion.insert(
             habitId: id,
             enabledAt: current,
             isStarred: Value(starredHabitIds.contains(id)),
-          ),
-        );
-      }
-      for (final id in habitIds.where(byId.containsKey)) {
-        await (update(
-          habitSelections,
-        )..where((row) => row.habitId.equals(id))).write(
-          HabitSelectionsCompanion(
-            isStarred: Value(starredHabitIds.contains(id)),
+            activeOn: Value(current),
           ),
         );
       }
     });
+  }
+
+  Future<void> _validateStarredHabitLimit(
+    Set<String> starredHabitIds,
+    DateTime now,
+  ) async {
+    final unlocked = (await growthSnapshot(now: now)).chapterTwoUnlocked;
+    final limit = unlocked ? 2 : 1;
+    if (exceedsStarredHabitLimit(starredHabitIds, limit)) {
+      throw ArgumentError('当前阶段最多选择 $limit 个星标习惯');
+    }
   }
 
   Future<bool> saveLaterHabitActivity({
@@ -348,6 +553,13 @@ class AppDatabase extends _$AppDatabase {
       return 'week-${_localDate(monday)}';
     }
     return _localDate(date);
+  }
+
+  DateTime _periodEnd(String habitId, DateTime date) {
+    if (habitId == 'H10') return DateTime(date.year, date.month + 1, 0);
+    if (habitId == 'H11') return DateTime(date.year, 12, 31);
+    final day = DateTime(date.year, date.month, date.day);
+    return day.add(Duration(days: 7 - day.weekday));
   }
 
   Future<bool> recordCompletion({
@@ -800,6 +1012,13 @@ class AppDatabase extends _$AppDatabase {
                   row.completedAt.isSmallerThanValue(last),
             ))
             .get();
+    final missed =
+        await (select(missedHabitRecords)..where(
+              (row) =>
+                  row.localDate.isBiggerOrEqualValue(_localDate(first)) &
+                  row.localDate.isSmallerThanValue(_localDate(last)),
+            ))
+            .get();
     final transactions = await select(pointTransactions).get();
     final pointsByLogId = <int, int>{
       for (final transaction in transactions)
@@ -826,6 +1045,10 @@ class AppDatabase extends _$AppDatabase {
       activitiesByDate
           .putIfAbsent(_localDate(activity.completedAt), () => [])
           .add(activity);
+    }
+    final missedByDate = <String, Set<String>>{};
+    for (final record in missed) {
+      missedByDate.putIfAbsent(record.localDate, () => {}).add(record.habitId);
     }
 
     final result = <DailyRecordSummary>[];
@@ -859,6 +1082,7 @@ class AppDatabase extends _$AppDatabase {
         DailyRecordSummary(
           date: date,
           completedHabitIds: dayLogs.map((log) => log.habitId).toSet(),
+          missedHabitIds: missedByDate[dateKey] ?? const {},
           points: dayLogs.fold<int>(
             0,
             (sum, log) => sum + (pointsByLogId[log.id] ?? 0),
@@ -928,4 +1152,15 @@ class AppDatabase extends _$AppDatabase {
       '${date.year.toString().padLeft(4, '0')}-'
       '${date.month.toString().padLeft(2, '0')}-'
       '${date.day.toString().padLeft(2, '0')}';
+
+  bool _sameDay(DateTime first, DateTime second) =>
+      first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
+
+  bool _isBeforeDay(DateTime first, DateTime second) => DateTime(
+    first.year,
+    first.month,
+    first.day,
+  ).isBefore(DateTime(second.year, second.month, second.day));
 }
