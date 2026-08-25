@@ -1,9 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/app_database.dart';
 import '../domain/habit_tools.dart';
+import '../domain/habit.dart';
+import '../domain/debug_clock.dart';
 
 Widget habitToolPage({required String habitId, required AppDatabase database}) {
   return switch (habitId) {
@@ -11,8 +15,383 @@ Widget habitToolPage({required String habitId, required AppDatabase database}) {
     'H2' => FocusToolPage(database: database),
     'H3' => ChallengeToolPage(database: database),
     'H4' => DisconnectToolPage(database: database),
+    'H5' ||
+    'H6' ||
+    'H7' ||
+    'H8' ||
+    'H9' ||
+    'H10' ||
+    'H12' => LaterHabitToolPage(habitId: habitId, database: database),
+    'H11' => TravelToolPage(database: database),
     _ => const Scaffold(body: Center(child: Text('该习惯工具尚未开放。'))),
   };
+}
+
+class LaterHabitToolPage extends StatefulWidget {
+  const LaterHabitToolPage({
+    super.key,
+    required this.habitId,
+    required this.database,
+  });
+  final String habitId;
+  final AppDatabase database;
+
+  @override
+  State<LaterHabitToolPage> createState() => _LaterHabitToolPageState();
+}
+
+class _LaterHabitToolPageState extends State<LaterHabitToolPage> {
+  final _primary = TextEditingController();
+  final _secondary = TextEditingController();
+  final _firstNumber = TextEditingController();
+  final _secondNumber = TextEditingController();
+  bool _saving = false;
+
+  static const _labels = <String, (String, String, String)>{
+    'H5': ('联系了谁？', '你们聊了什么？（选填）', '本周完成'),
+    'H6': ('清理了哪个信息源？', '为什么它不值得继续占用注意力？（选填）', '完成清理'),
+    'H7': ('本周最大的财务发现是什么？', '下周想调整什么？（选填）', '完成本周盘点'),
+    'H8': ('你拒绝了什么？', '你守住了哪条边界？（选填）', '今天守住了边界'),
+    'H9': ('这次输出讲清了什么？', '你能讲给我听听么？', '完成一次输出'),
+    'H10': ('读完了哪本跨界书？', '最重要的一条收获（选填）', '完成本月阅读'),
+    'H11': ('这次独自去了哪里？', '旅途中重新看见了什么？（选填）', '完成本年旅行'),
+    'H12': ('今天必须承认的真话是什么？', '明天采取什么行动？（选填）', '记下这句真话'),
+  };
+
+  @override
+  void dispose() {
+    _primary.dispose();
+    _secondary.dispose();
+    _firstNumber.dispose();
+    _secondNumber.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_primary.text.trim().isEmpty) return;
+    if (widget.habitId == 'H7' &&
+        (!isOptionalNumber(_firstNumber.text) ||
+            !isOptionalNumber(_secondNumber.text))) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('资产投入和消费消耗仅能填写数字，也可留空。')));
+      return;
+    }
+    setState(() => _saving = true);
+    final completed = await widget.database.saveLaterHabitActivity(
+      habitId: widget.habitId,
+      primaryText: _primary.text,
+      secondaryText: _secondary.text,
+      firstValue: double.tryParse(_firstNumber.text),
+      secondValue: double.tryParse(_secondNumber.text),
+      now: appDebugNow(),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (completed) {
+      Navigator.pop(context, _pointsForHabit(widget.habitId));
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('这个周期已经完成过了。')));
+  }
+
+  int _pointsForHabit(String habitId) => switch (habitId) {
+    'H5' || 'H7' => 3,
+    'H10' => 4,
+    _ => 1,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final definition = habitById(widget.habitId);
+    final labels = _labels[widget.habitId]!;
+    final finance = widget.habitId == 'H7';
+    return Scaffold(
+      appBar: AppBar(title: Text(definition.name)),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text(
+            definition.description,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          if (const {'H5', 'H7', 'H10', 'H11'}.contains(widget.habitId))
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '这是周期任务。今天没完成也不用丢弃，可以暂存到之后完成；完成后按实际完成日期记录。',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _primary,
+            minLines: 2,
+            maxLines: 4,
+            maxLength: 5,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: labels.$1,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _secondary,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: labels.$2,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          if (finance) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _firstNumber,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: '资产投入',
+                      helperText: '选填，只能填数字',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _secondNumber,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: '消费消耗',
+                      helperText: '选填，只能填数字',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: _saving || _primary.text.trim().isEmpty ? null : _save,
+            child: Text(_saving ? '保存中…' : labels.$3),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TravelToolPage extends StatefulWidget {
+  const TravelToolPage({super.key, required this.database});
+  final AppDatabase database;
+
+  @override
+  State<TravelToolPage> createState() => _TravelToolPageState();
+}
+
+class _TravelToolPageState extends State<TravelToolPage> {
+  final _destination = TextEditingController();
+  final _focus = TextEditingController();
+  final _preparation = TextEditingController();
+  final _summary = TextEditingController();
+  late Future<TravelPlan?> _plan;
+  int _plannedDays = 3;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _plan = widget.database.travelPlanForYear(now: appDebugNow());
+    for (final controller in [_destination, _focus, _summary]) {
+      controller.addListener(_refresh);
+    }
+  }
+
+  void _refresh() => setState(() {});
+
+  @override
+  void dispose() {
+    _destination.dispose();
+    _focus.dispose();
+    _preparation.dispose();
+    _summary.dispose();
+    super.dispose();
+  }
+
+  Future<void> _savePlan() async {
+    setState(() => _saving = true);
+    await widget.database.saveTravelPlan(
+      destination: _destination.text,
+      days: _plannedDays,
+      focus: _focus.text,
+      preparation: _preparation.text,
+      now: appDebugNow(),
+    );
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _complete(TravelPlan plan) async {
+    setState(() => _saving = true);
+    final completed = await widget.database.saveLaterHabitActivity(
+      habitId: 'H11',
+      primaryText: plan.destination,
+      secondaryText: _summary.text,
+      now: appDebugNow(),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (completed) {
+      Navigator.pop(context, 99);
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('今年的独自旅行已经完成过了。')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('每年一次独自旅行')),
+    body: FutureBuilder<TravelPlan?>(
+      future: _plan,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final plan = snapshot.data;
+        return ListView(
+          padding: const EdgeInsets.all(24),
+          children: plan == null ? _guideFields() : _summaryFields(plan),
+        );
+      },
+    ),
+  );
+
+  List<Widget> _guideFields() => [
+    Text('先为自己设计一次真正的独处旅程。', style: Theme.of(context).textTheme.titleLarge),
+    const SizedBox(height: 8),
+    const Text('选一个目的地，留出不被日常角色打扰的时间。路线不必塞满，但每天要有一段只属于自己的探索。'),
+    const SizedBox(height: 20),
+    TextField(
+      controller: _destination,
+      decoration: const InputDecoration(
+        labelText: '想去哪里？',
+        border: OutlineInputBorder(),
+      ),
+    ),
+    const SizedBox(height: 12),
+    InputDecorator(
+      decoration: const InputDecoration(
+        labelText: '计划几天？',
+        border: OutlineInputBorder(),
+      ),
+      child: SizedBox(
+        height: 116,
+        child: CupertinoPicker(
+          itemExtent: 40,
+          scrollController: FixedExtentScrollController(
+            initialItem: _plannedDays - 1,
+          ),
+          onSelectedItemChanged: (index) =>
+              setState(() => _plannedDays = index + 1),
+          children: [
+            for (var days = 1; days <= 30; days++)
+              Center(
+                child: Text(
+                  '$days 天',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+    const SizedBox(height: 12),
+    TextField(
+      controller: _focus,
+      minLines: 2,
+      maxLines: 4,
+      decoration: const InputDecoration(
+        labelText: '这趟旅行最想想清楚什么？',
+        border: OutlineInputBorder(),
+      ),
+    ),
+    const SizedBox(height: 12),
+    TextField(
+      controller: _preparation,
+      minLines: 2,
+      maxLines: 4,
+      decoration: const InputDecoration(
+        labelText: '路线、预算和准备事项（选填）',
+        border: OutlineInputBorder(),
+      ),
+    ),
+    const SizedBox(height: 16),
+    Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text('向导建议', style: TextStyle(fontWeight: FontWeight.bold)),
+            SizedBox(height: 8),
+            Text('• 每天只安排一个核心地点\n• 留出至少一小时独自行走\n• 选一顿饭不看手机\n• 每晚记下今天看见的自己'),
+          ],
+        ),
+      ),
+    ),
+    const SizedBox(height: 16),
+    FilledButton(
+      onPressed:
+          _saving ||
+              _destination.text.trim().isEmpty ||
+              _focus.text.trim().isEmpty
+          ? null
+          : _savePlan,
+      child: Text(_saving ? '保存中…' : '保存旅行计划'),
+    ),
+  ];
+
+  List<Widget> _summaryFields(TravelPlan plan) => [
+    Text(
+      '${plan.destination} · ${plan.days}天',
+      style: Theme.of(context).textTheme.headlineSmall,
+    ),
+    const SizedBox(height: 8),
+    Text('这趟旅行想想清楚：${plan.focus}'),
+    if (plan.preparation.isNotEmpty) Text('准备：${plan.preparation}'),
+    const SizedBox(height: 24),
+    const Text('旅行回来后，再完成这一步。'),
+    const SizedBox(height: 12),
+    TextField(
+      controller: _summary,
+      minLines: 4,
+      maxLines: 8,
+      decoration: const InputDecoration(
+        labelText: '旅途中重新看见了什么？',
+        border: OutlineInputBorder(),
+      ),
+    ),
+    const SizedBox(height: 20),
+    FilledButton(
+      onPressed: _saving || _summary.text.trim().isEmpty
+          ? null
+          : () => _complete(plan),
+      child: Text(_saving ? '保存中…' : '完成旅行 · 获得99积分'),
+    ),
+  ];
 }
 
 class ReviewToolPage extends StatefulWidget {
@@ -34,7 +413,7 @@ class _ReviewToolPageState extends State<ReviewToolPage> {
     '${_decision.text}${_result.text}${_improvement.text}',
   );
 
-  DateTime get _date => DateTime.now().subtract(Duration(days: _daysAgo));
+  DateTime get _date => appDebugNow().subtract(Duration(days: _daysAgo));
 
   @override
   void initState() {
@@ -65,25 +444,24 @@ class _ReviewToolPageState extends State<ReviewToolPage> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    final completed = await widget.database.saveReview(
-      date: _date,
-      decision: _decision.text,
-      result: _result.text,
-      improvement: _improvement.text,
-    );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _daysAgo > 0
-              ? '补录已保存，不发放积分。'
-              : completed
-              ? '记下来了，这就是进步的证据。'
-              : '今日复盘已保存。',
-        ),
-      ),
-    );
+    try {
+      final completed = await widget.database.saveReview(
+        date: _date,
+        decision: _decision.text,
+        result: _result.text,
+        improvement: _improvement.text,
+        now: appDebugNow(),
+      );
+      if (mounted) Navigator.pop(context, completed ? 1 : 0);
+    } on ArgumentError catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message?.toString() ?? '保存失败')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -180,7 +558,7 @@ class _FocusToolPageState extends State<FocusToolPage> {
   @override
   void initState() {
     super.initState();
-    _recommendedTopics = dailyThinkingTopics(DateTime.now());
+    _recommendedTopics = dailyThinkingTopics(appDebugNow());
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -300,10 +678,13 @@ class _FocusToolPageState extends State<FocusToolPage> {
                 ),
               FilledButton(
                 onPressed: remaining == 0
-                    ? () => widget.database.finishFocusTimer(
-                        session.id,
-                        DateTime.now(),
-                      )
+                    ? () async {
+                        final completed = await widget.database
+                            .finishFocusTimer(session.id, DateTime.now());
+                        if (context.mounted) {
+                          Navigator.pop(context, completed ? 1 : 0);
+                        }
+                      }
                     : null,
                 child: const Text('完成'),
               ),
@@ -405,11 +786,11 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
             const SizedBox(height: 12),
             FilledButton(
               onPressed: () async {
-                await widget.database.recordCompletion(
+                final completed = await widget.database.recordCompletion(
                   habitId: 'H3',
-                  occurredAt: DateTime.now(),
+                  occurredAt: appDebugNow(),
                 );
-                if (context.mounted) Navigator.pop(context);
+                if (context.mounted) Navigator.pop(context, completed ? 1 : 0);
               },
               child: const Text('我做到了'),
             ),
@@ -485,10 +866,7 @@ class _DisconnectToolPageState extends State<DisconnectToolPage>
     );
     _activeSessionId = null;
     if (completed && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('今晚，你比手机先睡着的样子，很好看。')));
-      Navigator.pop(context);
+      Navigator.pop(context, 1);
     }
     _completing = false;
   }
