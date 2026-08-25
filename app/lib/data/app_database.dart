@@ -884,7 +884,9 @@ class AppDatabase extends _$AppDatabase {
     controller = StreamController<GrowthSnapshot>(
       onListen: () {
         subscription = customSelect(
-          'SELECT 1',
+          'SELECT '
+          '(SELECT COUNT(*) FROM habit_logs) AS log_count, '
+          '(SELECT COUNT(*) FROM habit_selections) AS selection_count',
           readsFrom: {habitSelections, habitLogs},
         ).watch().map<void>((_) {}).listen((_) => emit());
         timer = Timer.periodic(const Duration(minutes: 1), (_) => emit());

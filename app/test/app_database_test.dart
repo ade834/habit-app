@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
@@ -24,6 +25,30 @@ void main() {
       isFalse,
     );
     expect(await database.pointBalance(), 1);
+  });
+
+  test('完成后成长快照立即刷新', () async {
+    final now = DateTime(2026, 8, 25, 9);
+    await database.saveOnboarding(
+      habitIds: {'H3'},
+      commitmentNote: '测试',
+      now: now,
+    );
+    final updates = StreamIterator(
+      database.watchGrowthSnapshot(clock: () => now),
+    );
+    addTearDown(updates.cancel);
+
+    expect(await updates.moveNext(), isTrue);
+    expect(updates.current.habits['H3']!.historicalCompletions, 0);
+
+    await database.recordCompletion(habitId: 'H3', occurredAt: now);
+
+    expect(
+      await updates.moveNext().timeout(const Duration(seconds: 1)),
+      isTrue,
+    );
+    expect(updates.current.habits['H3']!.historicalCompletions, 1);
   });
 
   test('月历最多显示3条活动短标题', () {
