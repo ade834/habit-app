@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:habit_app/data/app_database.dart';
+import 'package:habit_app/domain/daily_records.dart';
+import 'package:habit_app/domain/habit_tools.dart';
 
 void main() {
   late AppDatabase database;
@@ -22,6 +24,34 @@ void main() {
       isFalse,
     );
     expect(await database.pointBalance(), 1);
+  });
+
+  test('月历最多显示3条活动短标题', () {
+    final summary = DailyRecordSummary(
+      date: DateTime(2026, 8, 25),
+      completedHabitIds: const {},
+      points: 0,
+      activities: List.generate(
+        4,
+        (index) => HabitActivityRecord(
+          habitId: 'H${index + 5}',
+          primaryText: '记录${index + 1}',
+          secondaryText: '',
+        ),
+      ),
+    );
+
+    expect(summary.calendarActivities.map((activity) => activity.primaryText), [
+      '记录1',
+      '记录2',
+      '记录3',
+    ]);
+  });
+
+  test('H7财务字段仅允许选填数字', () {
+    expect(isOptionalNumber(''), isTrue);
+    expect(isOptionalNumber('12.5'), isTrue);
+    expect(isOptionalNumber('一百'), isFalse);
   });
 
   test('首次启动普通习惯只能选择1到3个', () async {

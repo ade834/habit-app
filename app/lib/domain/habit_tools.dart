@@ -39,6 +39,9 @@ class DisconnectAttemptState {
       lockedUntil != null && DateTime.now().isBefore(lockedUntil!);
 }
 
+bool isOptionalNumber(String value) =>
+    value.trim().isEmpty || double.tryParse(value.trim()) != null;
+
 String disconnectAttemptMessage(
   int consecutiveFailures, {
   String? lockedUntilLabel,

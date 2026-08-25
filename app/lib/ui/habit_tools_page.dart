@@ -69,6 +69,14 @@ class _LaterHabitToolPageState extends State<LaterHabitToolPage> {
 
   Future<void> _save() async {
     if (_primary.text.trim().isEmpty) return;
+    if (widget.habitId == 'H7' &&
+        (!isOptionalNumber(_firstNumber.text) ||
+            !isOptionalNumber(_secondNumber.text))) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('资产投入和消费消耗仅能填写数字，也可留空。')));
+      return;
+    }
     setState(() => _saving = true);
     final completed = await widget.database.saveLaterHabitActivity(
       habitId: widget.habitId,
@@ -147,9 +155,12 @@ class _LaterHabitToolPageState extends State<LaterHabitToolPage> {
                 Expanded(
                   child: TextField(
                     controller: _firstNumber,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: const InputDecoration(
                       labelText: '资产投入',
+                      helperText: '选填，只能填数字',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -158,9 +169,12 @@ class _LaterHabitToolPageState extends State<LaterHabitToolPage> {
                 Expanded(
                   child: TextField(
                     controller: _secondNumber,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: const InputDecoration(
                       labelText: '消费消耗',
+                      helperText: '选填，只能填数字',
                       border: OutlineInputBorder(),
                     ),
                   ),

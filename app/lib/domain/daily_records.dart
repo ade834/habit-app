@@ -21,6 +21,9 @@ class DailyRecordSummary {
   final DisconnectRecord? disconnect;
   final List<HabitActivityRecord> activities;
 
+  List<HabitActivityRecord> get calendarActivities =>
+      activities.take(3).toList();
+
   bool get hasAnyRecord =>
       completedHabitIds.isNotEmpty ||
       points > 0 ||

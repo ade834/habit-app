@@ -1149,11 +1149,11 @@ class _CalendarDay extends StatelessWidget {
                 count > 0 ? '$count项' : '·',
                 style: Theme.of(context).textTheme.labelSmall,
               ),
-            if (summary.activities.isNotEmpty)
+            for (final activity in summary.calendarActivities)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 3),
                 child: Text(
-                  summary.activities.first.shortTitle,
+                  activity.shortTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelSmall,
