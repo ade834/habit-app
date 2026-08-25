@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视觉方向 B5 · 日漫风</title>
+<style>
+  :root{
+    --paper:#F5F3EE; --ink:#191919; --ink-soft:#55524B; --tone:#D8D4CB;
+    --accent:#E2574C; --sky:#6FA8DC;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#DEDBD2; font-family:"Hiragino Sans GB","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink); padding:36px 24px 60px; display:flex; flex-direction:column; align-items:center; gap:28px;
+  }
+  .page-title{font-size:15px; letter-spacing:6px; font-weight:800; color:#3A3A34}
+  .page-title em{color:var(--accent); font-style:normal}
+  .frame{
+    width:374px; border-radius:30px; overflow:hidden; background:var(--paper); position:relative;
+    box-shadow:0 20px 50px rgba(30,30,20,.30); border:2px solid var(--ink);
+  }
+  /* 网点背景 */
+  .frame::before{content:""; position:absolute; inset:0; pointer-events:none; opacity:.16;
+    background-image:radial-gradient(var(--ink) 1.2px, transparent 1.2px);
+    background-size:9px 9px;}
+  .phone-top{height:44px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px; border-bottom:2px solid var(--ink)}
+  .notch{width:108px; height:20px; border-radius:10px; background:var(--ink)}
+  .head{padding:18px 22px 10px; position:relative; border-bottom:2px solid var(--ink)}
+  .date{font-size:12px; font-weight:700; letter-spacing:2px}
+  .greet{font-size:26px; font-weight:900; letter-spacing:1px; margin-top:4px}
+  .greet i{font-style:normal; color:var(--accent)}
+  /* 花园:分镜 */
+  .garden{
+    margin:12px 18px 4px; padding:12px 12px 10px; background:#FBF9F4;
+    border:2px solid var(--ink); border-radius:6px; position:relative;
+  }
+  .panel-label{font-size:10px; font-weight:800; letter-spacing:3px; color:var(--ink-soft); margin-bottom:6px; display:flex; justify-content:space-between}
+  .plants{display:flex; justify-content:space-around; align-items:flex-end; height:76px}
+  .p{display:flex; flex-direction:column; align-items:center; gap:2px; position:relative}
+  .p b{font-size:10px; font-weight:700; letter-spacing:1px}
+  .p b.on{color:var(--accent)}
+  .flash{position:absolute; font-size:17px; font-weight:900; font-style:italic; top:-8px; right:-6px; color:var(--accent); transform:rotate(8deg)}
+  /* 卡片 */
+  .cards{padding:10px 18px 4px; display:flex; flex-direction:column; gap:12px; position:relative}
+  .card{
+    background:#FCFAF4; border:2px solid var(--ink); border-radius:4px; padding:12px 14px;
+    display:flex; align-items:center; gap:14px; position:relative;
+    box-shadow:4px 4px 0 var(--ink);
+  }
+  .card::before{ /* 分镜斜切角 */
+    content:""; position:absolute; top:-1px; right:16px; width:34px; height:4px;
+    background:repeating-linear-gradient(45deg,var(--ink) 0 3px,transparent 3px 6px); opacity:.35;
+  }
+  .icon{width:44px; height:44px; border-radius:4px; border:2px solid var(--ink); flex:none;
+    display:flex; align-items:center; justify-content:center; background:#F1EEE5}
+  .ttl{font-size:16px; font-weight:900; letter-spacing:1px}
+  .sub{font-size:12px; color:var(--ink-soft); margin-top:2px}
+  .ck{
+    margin-left:auto; width:30px; height:30px; border-radius:4px; border:2px solid var(--ink);
+    display:flex; align-items:center; justify-content:center; color:transparent; font-size:13px; flex:none; background:#fff;
+  }
+  .ck.on{background:var(--ink); color:#fff}
+  .card.done .ttl{color:var(--ink-soft)}
+  .card.done .sub{text-decoration:line-through}
+  /* 速度线装饰 */
+  .speed{position:absolute; right:0; top:-42px; width:120px; height:40px; opacity:.5;
+    background:repeating-linear-gradient(100deg,transparent 0 8px,var(--ink) 8px 9px);}
+  .nav{display:flex; justify-content:space-around; padding:14px 16px 22px; margin-top:8px}
+  .nav span{font-size:11px; font-weight:800; letter-spacing:2px; color:var(--ink-soft); position:relative}
+  .nav span.on{color:var(--accent)}
+  .nav span.on::after{content:"⬇"; position:absolute; top:-14px; left:38%; font-size:11px}
+  .spec{
+    width:374px; background:#FCFAF4; border:2px solid var(--ink); border-radius:6px;
+    box-shadow:4px 4px 0 var(--ink); padding:22px; font-size:13px; line-height:1.9; color:var(--ink);
+  }
+  .spec h2{font-size:17px; font-weight:900; letter-spacing:1px}
+  .sw{display:flex; gap:10px; margin:12px 0 4px}
+  .chip{flex:1; text-align:center; font-size:10px}
+  .chip i{display:block; height:34px; border-radius:4px; margin-bottom:4px; border:1px solid var(--ink)}
+  .promise{font-size:14px; font-weight:800; margin-top:12px; color:var(--accent); letter-spacing:1px}
+  ul{margin:8px 0 0 18px}
+</style>
+</head>
+<body>
+
+<div class="page-title">B5 · 日本漫画风<em>!</em></div>
+
+<div class="frame">
+  <div class="speed"></div>
+  <div class="phone-top"><div class="notch"></div></div>
+  <div class="head">
+    <div class="date">8 月 25 日 · 周二 · 第 3 话</div>
+    <div class="greet">今天的任务<em>· 8</em></div>
+  </div>
+
+  <div class="garden">
+    <div class="panel-label"><span>◆ 后花园</span><span style="color:var(--accent)">新芽 2 株!!</span></div>
+    <div class="plants">
+      <div class="p"><span class="flash">!</span><svg width="32" height="58" viewBox="0 0 40 60" fill="none" stroke="#191919" stroke-width="2.4"><line x1="8" y1="54" x2="32" y2="54"/><circle cx="20" cy="48" r="3.4" fill="#191919"/><path d="M10 54 c6 -2 10 -6 8 -12" opacity=".4"/></svg><b>种子</b></div>
+      <div class="p"><svg width="36" height="58" viewBox="0 0 40 60" fill="none" stroke="#191919" stroke-width="2.4" stroke-linecap="round"><path d="M20 52 V30"/><path d="M20 34 C15 30 12 25 14 20 M20 34 C25 30 28 25 26 20"/></svg><b>发芽</b></div>
+      <div class="p"><span class="flash" style="color:var(--sky)">✦</span><svg width="36" height="58" viewBox="0 0 40 60" fill="none" stroke="#191919" stroke-width="2.4" stroke-linecap="round"><path d="M20 52 V20"/><path d="M20 14 c-4 -4 -2 -9 3 -8 c-1 -5 3 -7 6 -3 c1 -4 6 -3 6 1 c4 0 5 5 1 7 c-3 1 -8 1 -16 3 Z" fill="#fff"/></svg><b>开花</b></div>
+      <div class="p"><b class="on">MOE</b><svg width="26" height="58" viewBox="0 0 40 60" fill="none" stroke="#E2574C" stroke-width="2.6"><circle cx="20" cy="34" r="12"/><path d="M14 40 a8 8 0 0 0 12 0" opacity=".7"/></svg></div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card done">
+      <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#191919" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21 L4 4 M4 15 L14 9 M13 8 L20 3 M20 3 L18 10"/><circle cx="9" cy="18" r="2.6" fill="#fff"/></svg></div>
+      <div><div class="ttl">晨间复盘</div><div class="sub">第 3 话 · 完成</div></div>
+      <div class="ck on">✓</div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#191919" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8 v4.5 l3 2"/></svg></div>
+      <div><div class="ttl">专注 25 分钟</div><div class="sub">ドキドキ … 要开始了</div></div>
+      <div class="ck"></div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#191919" stroke-width="2.6" stroke-linecap="round"><path d="M20 11.5 c0 5 -3.5 8.5 -8 8.5 c-4.5 0 -8 -3.5 -8 -8.5 C4 8 6 5.5 8.5 4.5 M20 11.5 L20 20"/><circle cx="17.5" cy="6.5" r="3.2" fill="#fff"/></svg></div>
+      <div><div class="ttl">断网仪式</div><div class="sub">静音模式 · ON!</div></div>
+      <div class="ck"></div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <span>今天</span>
+    <span class="on">养成物</span>
+    <span>复盘</span>
+    <span>设置</span>
+  </div>
+</div>
+
+<div class="spec">
+  <h2>这一版给你的是——日漫风</h2>
+  <p>像一页少年漫:墨线勾边、网点铺底、卡片有硬朗投影,完成一件事就像"收下一格分镜"。豆知识:每个完成都能配一句语气词。</p>
+  <div class="sw" style="margin-top:12px">
+    <div class="chip"><i style="background:#F5F3EE"></i>纸白 #F5F3EE</div>
+    <div class="chip"><i style="background:#191919"></i>墨黑 #191919</div>
+    <div class="chip"><i style="background:#D8D4CB"></i>网点灰 #D8D4CB</div>
+    <div class="chip"><i style="background:#E2574C"></i>大红 #E2574C</div>
+    <div class="chip"><i style="background:#6FA8DC"></i>湛蓝 #6FA8DC</div>
+  </div>
+  <ul>
+    <li>字体:特粗黑体,标题带磅与语气词,标注用窄字距小字</li>
+    <li>组件:4px 直角 + 2px 墨线 + 4px 硬投影,网点做背景肌理</li>
+    <li>图标:2.6px 闭合线稿,完成即墨块反白,点缀感叹号/星符</li>
+    <li>动效:完成时"砰!"印章爆出 + 屏幕线抖动;植物冒头用"ドン"弹跳</li>
+  </ul>
+  <div class="promise">一句话:把每一天过成一话连载,做完了才翻页。</div>
+</div>
+
+</body>
+</html>

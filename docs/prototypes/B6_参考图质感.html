@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视觉方向 B6 · 参考图质感（复古森系）</title>
+<style>
+  :root{
+    /* 全部来自用户参考图提取的真实色板 */
+    --cream:#F0E3C8;      /* 椰奶纸底 #E7CEA9/#EBD2B4 */
+    --cream-bright:#F9F0DA;/* 高光纸 */
+    --olive:#98925A;      /* 橄榄绿 主次色 */
+    --olive-deep:#757146;
+    --blue:#90B0D6;       /* 雾霾蓝 */
+    --moss:#55764E;       /* 苔绿 */
+    --tan:#9D8E6C;        /* 陶土棕 */
+    --tan-light:#DFB998;  /* 浅陶 */
+    --pine:#1A475B;       /* 深松绿(文字/重点) */
+    --line:#CDC0A2;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:linear-gradient(160deg,#E4D5B6 0%, #EDE0C4 60%, #E7D9BA 100%);
+    font-family:"Songti SC","STSong","SimSun",serif;
+    color:var(--pine); padding:36px 24px 60px; display:flex; flex-direction:column; align-items:center; gap:28px;
+  }
+  .page-title{font-size:17px; letter-spacing:10px; color:#6E623F}
+  .frame{
+    width:374px; border-radius:8px; overflow:hidden; background:var(--cream); position:relative;
+    box-shadow:0 26px 60px rgba(80,60,30,.32);
+  }
+  /* 纸隙与旧纸边 */
+  .frame::before{content:""; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at 20% 15%, rgba(255,248,225,.5), transparent 55%),
+               radial-gradient(ellipse at 85% 85%, rgba(120,95,55,.10), transparent 45%),
+               radial-gradient(rgba(110,95,60,.05) 1px, transparent 1.3px);
+    background-size:auto,auto,5px 5px;}
+  .phone-top{height:44px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px}
+  .notch{width:108px; height:20px; border-radius:10px; background:var(--pine)}
+  .head{padding:20px 24px 10px; position:relative; border-bottom:1px double var(--tan)}
+  .kicker{font-size:10px; letter-spacing:6px; color:var(--olive-deep)}
+  .date{font-size:24px; font-weight:600; letter-spacing:3px; margin-top:8px; color:var(--pine)}
+  .date small{font-size:12px; color:var(--tan); letter-spacing:3px; margin-left:8px; font-weight:400}
+  /* 花园:标本台 */
+  .garden{
+    margin:14px 20px 6px; padding:16px 14px 12px; background:var(--cream-bright);
+    border:1px solid var(--line); border-radius:4px; position:relative;
+  }
+  .garden::after{content:"GARDEN · 记事第 18 叶"; position:absolute; top:6px; right:12px;
+    font-size:9px; letter-spacing:2px; color:var(--tan)}
+  .plants{display:flex; justify-content:space-around; align-items:flex-end; height:88px}
+  .p{display:flex; flex-direction:column; align-items:center; gap:5px; position:relative}
+  .p em{font-style:normal; font-size:9px; letter-spacing:2px; color:var(--tan); border-bottom:1px dotted var(--tan)}
+  .label-tag{font-size:9px; background:var(--cream); border:1px solid var(--tan); padding:1px 5px; letter-spacing:1px; color:var(--olive-deep)}
+  /* 卡片 */
+  .cards{padding:10px 20px 6px; display:flex; flex-direction:column; gap:14px}
+  .card{
+    background:var(--cream-bright); border:1px solid var(--line); border-radius:6px; padding:14px 16px;
+    display:flex; align-items:center; gap:16px; position:relative;
+    box-shadow:0 2px 0 rgba(157,142,108,.25);
+  }
+  .card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px;
+    background:linear-gradient(var(--olive),var(--blue)); opacity:.55}
+  .icon{
+    width:48px; height:48px; border-radius:4px; border:1px solid var(--line);
+    background:var(--cream); flex:none; display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .ttl{font-size:17px; font-weight:600; letter-spacing:2px; color:var(--pine)}
+  .sub{font-size:12px; color:var(--tan); margin-top:3px; letter-spacing:1px}
+  .ck{
+    margin-left:auto; width:32px; height:32px; border:1.6px solid var(--olive); flex:none;
+    background:var(--cream-bright); display:flex; align-items:center; justify-content:center;
+    color:transparent; font-size:15px; transform:rotate(45deg) scale(.9); border-radius:2px;
+  }
+  .ck.on{background:var(--moss); border-color:var(--moss); color:var(--cream-bright); transform:rotate(0)}
+  .card.done .ttl{color:var(--olive-deep)}
+  .card.done .sub{text-decoration:line-through dotted}
+  .nav{display:flex; justify-content:space-around; padding:16px 24px 24px; margin-top:4px; border-top:1px dotted var(--tan); margin-top:10px}
+  .nav span{font-size:11px; letter-spacing:4px; color:var(--tan)}
+  .nav span.on{color:var(--olive-deep); font-weight:700}
+  .spec{
+    width:374px; background:var(--cream-bright); border:1px solid var(--line); border-radius:6px;
+    padding:22px; font-size:13px; line-height:2; color:var(--pine);
+  }
+  .spec h2{font-size:18px; letter-spacing:3px; font-weight:700}
+  .spec h3{font-size:11px; letter-spacing:5px; color:var(--tan); font-weight:400; margin:2px 0 2px}
+  .sw{display:flex; gap:10px; margin:12px 0 4px}
+  .chip{flex:1; text-align:center; font-size:10px}
+  .chip b{font-weight:400; letter-spacing:1px}
+  .chip i{display:block; height:36px; border-radius:4px; margin-bottom:4px; border:1px solid rgba(90,70,40,.18)}
+  .promise{font-size:15px; margin-top:12px; color:var(--moss); letter-spacing:2px; font-weight:600}
+  ul{margin:8px 0 0 18px}
+  .src{font-size:11px; color:var(--tan); letter-spacing:1px; margin-top:10px}
+</style>
+</head>
+<body>
+
+<div class="page-title">B6 · 参考图质感</div>
+
+<div class="frame">
+  <div class="phone-top"><div class="notch"></div></div>
+  <div class="head">
+    <div class="kicker">八月 · 植物志</div>
+    <div class="date">廿五日 <small>星期二</small></div>
+  </div>
+
+  <div class="garden">
+    <div class="plants">
+      <div class="p"><svg width="34" height="66" viewBox="0 0 44 70"><ellipse cx="22" cy="64" rx="14" ry="4" fill="#C9B98F"/><path d="M14 62 C24 56 26 44 16 36 C24 42 26 52 22 60 Z" fill="#A59A6A" opacity=".6"/><line x1="32" y1="44" x2="30" y2="38" stroke="#757146" stroke-width=".8"/></svg><em>种子 Ledum</em></div>
+      <div class="p"><svg width="40" height="66" viewBox="0 0 44 70"><path d="M22 64 C14 50 14 34 22 28" stroke="#55764E" stroke-width="2.2" fill="none" stroke-linecap="round"/><ellipse cx="15" cy="40" rx="9" ry="4" fill="#90B0D6" opacity=".5" transform="rotate(-22 15 40)"/><ellipse cx="29" cy="52" rx="9" ry="4" fill="#98925A" opacity=".6" transform="rotate(24 29 52)"/><line x1="6" y1="62" x2="38" y2="62" stroke="#9D8E6C" stroke-width="1"/></svg><em>芽 Alba</em></div>
+      <div class="p"><svg width="44" height="66" viewBox="0 0 44 70"><path d="M22 64 L22 22" stroke="#55764E" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="22" cy="15" r="6.5" fill="#F9F0DA" stroke="#98925A" stroke-width="1.6"/><circle cx="22" cy="15" r="2.6" fill="#DFB998"/><circle cx="12" cy="34" r="4" fill="#90B0D6" opacity=".65"/><circle cx="32" cy="44" r="4" fill="#98925A" opacity=".7"/></svg><em>花 Tecum</em></div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card done">
+      <div class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#55764E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 C5 8 9 4 19 3 C18 12 14 16 5 19 Z"/><path d="M3 21 L21 3" opacity=".35"/></svg></div>
+      <div><div class="ttl">晨间复盘</div><div class="sub">已归档 · 第 23 页</div></div>
+      <div class="ck on">✓</div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#55764E" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M9 8 h6 M12 4 v2" opacity=".5"/></svg></div>
+      <div><div class="ttl">专注 25 分钟</div><div class="sub">合上眼睛,心在土里</div></div>
+      <div class="ck"></div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#55764E" stroke-width="1.6" stroke-linecap="round"><path d="M21 12.5 C21 16 17.5 19.5 12 19.5 C6.5 19.5 3 16 3 12.5 C3 9 5.5 6 8.5 5 M21 12.5 C21 14 20.5 15.5 19 17"/><circle cx="15" cy="6" r="2.6" fill="#90B0D6" stroke="none"/></svg></div>
+      <div><div class="ttl">断网仪式</div><div class="sub">等月影移到窗台</div></div>
+      <div class="ck"></div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <span>今天</span>
+    <span class="on">养成物</span>
+    <span>复盘</span>
+    <span>设置</span>
+  </div>
+</div>
+
+<div class="spec">
+  <h2>这一版给你的是——你图上那种安静</h2>
+  <h3>参考图色板直接取样 · 复古森系 / 植物标本册</h3>
+  <div class="sw" style="margin-top:12px">
+    <div class="chip"><i style="background:#F0E3C8"></i><b>椰奶纸</b><br>#F0E3C8</div>
+    <div class="chip"><i style="background:#98925A"></i><b>橄榄</b><br>#98925A</div>
+    <div class="chip"><i style="background:#90B0D6"></i><b>雾霾蓝</b><br>#90B0D6</div>
+    <div class="chip"><i style="background:#55764E"></i><b>苔绿</b><br>#55764E</div>
+    <div class="chip"><i style="background:#C9B98F"></i><b>陶土</b><br>#C9B98F</div>
+  </div>
+  <div class="sw">
+    <div class="chip"><i style="background:#DFB998"></i><b>浅陶</b><br>#DFB998</div>
+    <div class="chip"><i style="background:#9D8E6C"></i><b>麻棕</b><br>#9D8E6C</div>
+    <div class="chip"><i style="background:#1A475B"></i><b>深松绿</b><br>#1A475B</div>
+    <div class="chip"><i style="background:#F9F0DA"></i><b>亮纸</b><br>#F9F0DA</div>
+  </div>
+  <ul>
+    <li>字体:宋体做全部正文(老植物志/铅字印刷感),标题加字距</li>
+    <li>组件:直边长圆角(6px)、纸色明暗两层、双线或点线分隔,几乎无阴影</li>
+    <li>图标:植物版刻线稿(1.6px)+ 低饱和色块,像标本贴签"Ledum / Alba / Tecum"</li>
+    <li>动效:植物芽点以 8s 慢格呼吸,露珠极慢滑落,卷轴式缓缓展开</li>
+  </ul>
+  <div class="promise">一句话:像打开一本旧植物标本册,每一株都有一枚手写贴签。</div>
+  <div class="src">※ 色板为对你参考图做像素取样得出(窗口比对+每图中 12 主色聚类),非凭空配色。</div>
+</div>
+
+</body>
+</html>

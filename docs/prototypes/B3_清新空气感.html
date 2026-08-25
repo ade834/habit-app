@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视觉方向 B3 · 清新空气感</title>
+<style>
+  :root{
+    --sky:#EAF7F9; --dew:#A5DCE0; --lake:#5FA8B6; --ink:#2E5E68; --ink-soft:#7FA3AB;
+    --mint:#BFDFC9; --glass:rgba(255,255,255,.55);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:linear-gradient(160deg,#D9F1F4 0%, #EEF9F7 45%, #E7F3F5 100%);
+    font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink); padding:36px 24px 60px; display:flex; flex-direction:column; align-items:center; gap:28px;
+  }
+  .page-title{font-size:15px; letter-spacing:8px; color:#4A8791; font-weight:600}
+  .frame{
+    width:374px; border-radius:38px; overflow:hidden; position:relative;
+    background:linear-gradient(175deg, #F4FBFD 0%, #EAF7F7 100%);
+    box-shadow:0 24px 60px rgba(90,140,150,.30);
+  }
+  /* 光晕 */
+  .frame::before{content:""; position:absolute; top:-70px; right:-60px; width:230px; height:230px;
+    background:radial-gradient(circle, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 70%);}
+  .phone-top{height:44px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px}
+  .notch{width:108px; height:20px; border-radius:10px; background:rgba(46,94,104,.55)}
+  .head{padding:22px 24px 10px; position:relative}
+  .date{font-size:12px; color:var(--ink-soft); letter-spacing:2px}
+  .greet{font-size:26px; font-weight:600; margin-top:6px; color:var(--ink)}
+  .greet em{font-style:normal; color:var(--lake)}
+  /* 玻璃花园条 */
+  .garden{
+    margin:16px 20px 6px; padding:14px 14px 10px; border-radius:26px;
+    background:var(--glass); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,.85); box-shadow:0 8px 24px rgba(120,170,180,.18);
+  }
+  .garden-title{font-size:11px; color:var(--ink-soft); letter-spacing:2px; margin-bottom:8px}
+  .plants{display:flex; justify-content:space-around; align-items:flex-end; height:76px}
+  .p{display:flex; flex-direction:column; align-items:center; gap:4px}
+  .p b{font-size:10px; font-weight:600; color:var(--ink-soft)}
+  /* 卡片 */
+  .cards{padding:10px 20px 6px; display:flex; flex-direction:column; gap:14px; position:relative}
+  .card{
+    background:var(--glass); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,.9); border-radius:26px; padding:16px 18px;
+    display:flex; align-items:center; gap:14px; box-shadow:0 10px 26px rgba(110,165,175,.16);
+  }
+  .icon{
+    width:48px; height:48px; border-radius:50%; background:linear-gradient(140deg,#D7F0F2,#C4E8EA);
+    display:flex; align-items:center; justify-content:center; flex:none; color:var(--lake);
+  }
+  .ttl{font-size:16px; font-weight:600}
+  .sub{font-size:12px; color:var(--ink-soft); margin-top:3px}
+  .ck{
+    margin-left:auto; width:30px; height:30px; border-radius:50%;
+    background:rgba(255,255,255,.8); border:1.6px solid rgba(95,168,182,.5);
+    display:flex; align-items:center; justify-content:center; color:transparent; font-size:14px; flex:none;
+  }
+  .ck.on{background:linear-gradient(140deg,#8FD6DC,#5FA8B6); border-color:transparent; color:#fff;
+    box-shadow:0 4px 14px rgba(95,168,182,.4)}
+  .done .ttl{color:var(--ink-soft)}
+  /* 导航 */
+  .nav{display:flex; justify-content:space-around; padding:14px 20px 24px; margin-top:6px}
+  .nav span{display:flex; flex-direction:column; align-items:center; gap:4px; font-size:10px; color:var(--ink-soft)}
+  .nav span.on{color:var(--lake); font-weight:700}
+  .nav i{width:24px; height:24px; border-radius:12px; background:rgba(255,255,255,.7)}
+  .spec{
+    width:374px; background:rgba(255,255,255,.72); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.9); border-radius:28px; padding:22px; font-size:13px; line-height:1.9; color:var(--ink);
+  }
+  .spec h2{font-size:17px; font-weight:700; letter-spacing:1px; margin-bottom:2px; color:var(--ink)}
+  .sw{display:flex; gap:10px; margin:12px 0 4px}
+  .chip{flex:1; text-align:center; font-size:10px}
+  .chip i{display:block; height:34px; border-radius:12px; margin-bottom:4px}
+  .promise{font-size:14px; font-weight:600; margin-top:12px; color:var(--lake); letter-spacing:1px}
+  ul{margin:8px 0 0 18px}
+</style>
+</head>
+<body>
+
+<div class="page-title">B3 · 清新空气感</div>
+
+<div class="frame">
+  <div class="phone-top"><div class="notch"></div></div>
+  <div class="head">
+    <div class="date">8 月 25 日 · 周二</div>
+    <div class="greet">早上的空气<em>刚刚好</em></div>
+  </div>
+
+  <div class="garden">
+    <div class="garden-title">后花园 · 露水还在</div>
+    <div class="plants">
+      <div class="p"><svg width="34" height="58" viewBox="0 0 40 60"><ellipse cx="20" cy="53" rx="12" ry="3" fill="#D8ECEC"/><path d="M14 50 C20 44 20 38 14 33 C20 38 22 44 20 50 Z" fill="#A5DCE0" opacity=".6"/><circle cx="28" cy="45" r="2.4" fill="#8FD6DC" opacity=".8"/></svg><b>种子</b></div>
+      <div class="p"><svg width="40" height="58" viewBox="0 0 40 60"><path d="M20 52 C14 42 14 30 20 26" stroke="#7AC2CB" stroke-width="2.6" stroke-linecap="round" fill="none"/><ellipse cx="14" cy="33" rx="9" ry="4" fill="#BFDFC9" transform="rotate(-20 14 33)"/><circle cx="27" cy="38" r="1.8" fill="#8FD6DC"/></svg><b>发芽</b></div>
+      <div class="p"><svg width="40" height="58" viewBox="0 0 40 60"><path d="M20 52 L20 22" stroke="#5FA8B6" stroke-width="2.4" stroke-linecap="round"/><circle cx="20" cy="16" r="6" fill="#A5DCE0"/><circle cx="20" cy="16" r="2.6" fill="#F7FDFD"/><ellipse cx="12" cy="30" rx="8" ry="4" fill="#BFDFC9" transform="rotate(-22 12 30)"/></svg><b>开花</b></div>
+      <div class="p"><svg width="28" height="58" viewBox="0 0 40 60"><path d="M20 52 C16 40 16 30 20 24 C24 30 24 40 20 52" fill="#BFDFC9" opacity=".8"/><circle cx="24" cy="40" r="2" fill="#8FD6DC"/></svg><b>晨露</b></div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card done">
+      <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4.5 15.5 L9.5 20.5 L20.5 5.5"/></svg></div>
+      <div><div class="ttl">晨间复盘</div><div class="sub">它被浇过水了</div></div>
+      <div class="ck on">✓</div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3 C8 3 5 8 5 13 A7 7 0 0 0 19 13 C19 8 16 3 12 3 Z"/><path d="M9 16 c2 2.4 4 2.4 6 0" stroke-width="1.8"/></svg></div>
+      <div><div class="ttl">专注 25 分钟</div><div class="sub">深呼吸,合上屏幕</div></div>
+      <div class="ck"></div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 13.5 C21 17 18 20 12 20 C6 20 3 17 3 13.5 C3 10 5 7.5 7 6.5" /><path d="M3 13.5 C7 14 11 12 14 9.5"/></svg></div>
+      <div><div class="ttl">断网仪式</div><div class="sub">等月亮升起来</div></div>
+      <div class="ck"></div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <span class="on"><i></i>今天</span>
+    <span><i></i>养成物</span>
+    <span><i></i>复盘</span>
+    <span><i></i>设置</span>
+  </div>
+</div>
+
+<div class="spec">
+  <h2>这一版给你的是——清新空气感</h2>
+  <p>像清晨窗台刚推开一条缝:天光从左上角洒进来,卡片像沾了露水的磨砂玻璃,所有颜色都泡在水里。</p>
+  <div class="sw" style="margin-top:12px">
+    <div class="chip"><i style="background:#F4FBFD"></i>窗白 #F4FBFD</div>
+    <div class="chip"><i style="background:#A5DCE0"></i>晨露 #A5DCE0</div>
+    <div class="chip"><i style="background:#5FA8B6"></i>湖水 #5FA8B6</div>
+    <div class="chip"><i style="background:#BFDFC9"></i>薄荷 #BFDFC9</div>
+    <div class="chip"><i style="background:#2E5E68"></i>深青 #2E5E68</div>
+  </div>
+  <ul>
+    <li>字体:圆润无衬线,行距拉大,标题带一点湖水色高光</li>
+    <li>组件:26px 超大圆角磨砂玻璃卡、白色光边、柔和光晕阴影</li>
+    <li>图标:2.2px 圆头描边,填充用渐变湖水色,藏露珠小点</li>
+    <li>动效:常驻 8 秒一次的"露珠滑落"与 3 秒呼吸光晕,植物叶尖轻摆</li>
+  </ul>
+  <div class="promise">一句话:打开就是早上七点的新鲜空气。</div>
+</div>
+
+</body>
+</html>

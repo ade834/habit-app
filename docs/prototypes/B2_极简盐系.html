@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视觉方向 B2 · 极简盐系</title>
+<style>
+  :root{
+    --bg:#F8F8F6; --card:#FFFFFF; --ink:#1E1E1C; --ink-soft:#8A8A84;
+    --slate:#7A8B8B; --hair:#E6E6E1; --tao:#B98A62;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:#EFEFEC; font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink); padding:36px 24px 60px; display:flex; flex-direction:column; align-items:center; gap:28px;
+  }
+  .page-title{font-size:15px; letter-spacing:8px; color:#55554F; font-weight:500}
+  .frame{
+    width:374px; border-radius:34px; overflow:hidden; background:var(--bg);
+    box-shadow:0 20px 50px rgba(30,30,26,.12); position:relative;
+  }
+  .phone-top{height:44px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px}
+  .notch{width:108px; height:20px; border-radius:10px; background:#1E1E1C}
+  .head{padding:34px 26px 22px}
+  .kicker{font-size:11px; letter-spacing:4px; color:var(--ink-soft)}
+  .date{font-size:34px; font-weight:600; letter-spacing:1px; margin-top:10px}
+  .garden{border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); margin:0 26px; padding:18px 0 20px}
+  .garden-label{font-size:10px; letter-spacing:3px; color:var(--ink-soft); margin-bottom:16px}
+  .plants{display:flex; justify-content:space-between; align-items:flex-end; height:64px}
+  .svg-hint{font-size:9px; letter-spacing:2px; color:#C4C4BD; text-align:center; margin-top:10px}
+  .p{width:25%; text-align:center}
+  .cards{padding:20px 26px 8px; display:flex; flex-direction:column; gap:14px}
+  .card{
+    background:var(--card); border:1px solid transparent; border-radius:12px; padding:0 18px;
+    height:74px; display:flex; align-items:center; gap:16px;
+  }
+  .card:hover{border-color:var(--hair)}
+  .icon{width:40px; height:40px; display:flex; align-items:center; justify-content:center; flex:none; color:var(--ink)}
+  .ttl{font-size:15px; font-weight:500; letter-spacing:1px}
+  .sub{font-size:12px; color:var(--ink-soft); margin-top:3px; letter-spacing:.5px}
+  .ck{
+    margin-left:auto; width:26px; height:26px; border-radius:50%; border:1.2px solid #D2D2CB;
+    display:flex; align-items:center; justify-content:center; flex:none; color:transparent; font-size:13px;
+  }
+  .ck.on{background:#1E1E1C; border-color:#1E1E1C; color:#fff}
+  .done .ttl{color:var(--ink-soft); font-weight:400; text-decoration:line-through; text-decoration-color:#C4C4BD}
+  .done .icon{color:#B9B9B2}
+  .nav{display:flex; justify-content:space-around; padding:22px 30px 26px; margin-top:4px}
+  .nav span{font-size:11px; letter-spacing:2px; color:#B9B9B2}
+  .nav span.on{color:#1E1E1C; font-weight:600}
+  .spec{
+    width:374px; background:#FFFFFF; border:1px solid var(--hair); border-radius:16px;
+    padding:24px; font-size:13px; line-height:1.9; color:var(--ink);
+  }
+  .spec h2{font-size:16px; letter-spacing:2px; font-weight:600; margin-bottom:2px}
+  .sw{display:flex; gap:10px; margin:12px 0 4px}
+  .chip{flex:1; text-align:center; font-size:10px}
+  .chip i{display:block; height:34px; border-radius:8px; margin-bottom:4px; border:1px solid rgba(0,0,0,.05)}
+  .promise{font-size:14px; font-weight:500; margin-top:12px; letter-spacing:1px}
+  ul{margin:8px 0 0 18px}
+</style>
+</head>
+<body>
+
+<div class="page-title">B2 · 极简盐系</div>
+
+<div class="frame">
+  <div class="phone-top"><div class="notch"></div></div>
+  <div class="head">
+    <div class="kicker">TODAY</div>
+    <div class="date">8 月 25 日</div>
+  </div>
+
+  <div class="garden">
+    <div class="garden-label">后花园 · GARDEN</div>
+    <div class="plants">
+      <div class="p"><svg width="30" height="44" viewBox="0 0 30 44" fill="none" stroke="#B9B9B2" stroke-width="1.4"><ellipse cx="15" cy="40" rx="9" ry="2.4"/><circle cx="15" cy="35" r="2.6"/></svg><div class="svg-hint">种子</div></div>
+      <div class="p"><svg width="32" height="44" viewBox="0 0 32 44" fill="none" stroke="#7A8B8B" stroke-width="1.4" stroke-linecap="round"><path d="M16 40 V26"/><path d="M16 28 C12 24 10 20 12 16 M16 28 C20 24 22 20 20 16"/></svg><div class="svg-hint">发芽</div></div>
+      <div class="p"><svg width="32" height="44" viewBox="0 0 32 44" fill="none" stroke="#7A8B8B" stroke-width="1.4" stroke-linecap="round"><path d="M16 40 V20"/><circle cx="16" cy="16" r="4"/><path d="M16 24 C12 20 11 16 12 12 M16 24 C20 20 21 16 20 12"/></svg><div class="svg-hint">开花</div></div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card done">
+      <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4.5 15.5 L9.5 20.5 L20.5 5.5"/></svg></div>
+      <div><div class="ttl">晨间复盘</div><div class="sub">完成</div></div>
+      <div class="ck on">✓</div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8 v4 l3 2"/></svg></div>
+      <div><div class="ttl">专注 25 分钟</div><div class="sub">0%</div></div>
+      <div class="ck"></div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 15 L9.5 9.5 L13 13 L20 5.5"/></svg></div>
+      <div><div class="ttl">断网仪式</div><div class="sub">冷却中</div></div>
+      <div class="ck"></div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <span>今天</span>
+    <span class="on">养成物</span>
+    <span>复盘</span>
+    <span>设置</span>
+  </div>
+</div>
+
+<div class="spec">
+  <h2>这一版给你的是——极简盐系</h2>
+  <p>像苹果健康和盐系日本杂货的中间值:大留白、细线、一个墨色勾选,全场只留一件"重的"东西。</p>
+  <div class="sw" style="margin-top:12px">
+    <div class="chip"><i style="background:#F8F8F6"></i>盐白 #F8F8F6</div>
+    <div class="chip"><i style="background:#7A8B8B"></i>石青 #7A8B8B</div>
+    <div class="chip"><i style="background:#1E1E1C"></i>墨黑 #1E1E1C</div>
+    <div class="chip"><i style="background:#B98A62"></i>陶 #B98A62</div>
+  </div>
+  <ul>
+    <li>字体:无衬线细体,大字重留白,标注用极小字距字</li>
+    <li>组件:10px 小圆角、纯白卡、1px 发丝线分隔、几乎无阴影</li>
+    <li>图标:1.5px 细线稿,单色,克制到只有勾和圆</li>
+    <li>动效:可做极轻淡入 + 勾选笔画动画,不弹不跳</li>
+  </ul>
+  <div class="promise">一句话:把界面做"轻",轻到像盐一样不起眼但手边总要有。</div>
+</div>
+
+</body>
+</html>
