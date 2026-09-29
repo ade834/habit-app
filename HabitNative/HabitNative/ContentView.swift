@@ -44,7 +44,7 @@ private struct TodayRootView: View {
         ZStack(alignment: .bottom) {
             // 主内容区域（包含顶部和卡片/页面）
             VStack(spacing: 0) {
-                if state.tab == .today && !isExecuting {
+                if state.tab == .today && !isExecuting && state.mode != .browsingDeck {
                     TodayHeaderView(selectedCount: state.selectedGoalIDs.count, mode: state.mode, tuning: tuning)
                 }
                 Spacer(minLength: 16)
@@ -72,7 +72,7 @@ private struct TodayRootView: View {
                                 .offset(y: tuning.cardOffsetY + 10)
                         }
                     case .browsingDeck:
-                        GoalDeckView(goals: goals, state: $state)
+                        TodayStackDeckView(goals: goals, state: $state)
                     case .homeSelected:
                         SelectedGoalView(goals: goals, state: $state)
                     case .executing(let id):
@@ -89,7 +89,7 @@ private struct TodayRootView: View {
                 Spacer(minLength: 16)
 
                 // 底部占位高度，确保主内容不被底部胶囊栏遮挡
-                Color.clear.frame(height: 94)
+                Color.clear.frame(height: state.mode == .browsingDeck ? 154 : 94)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -1028,5 +1028,4 @@ private struct PrototypeIcon: View {
 }
 
 #Preview { ContentView() }
-
 
