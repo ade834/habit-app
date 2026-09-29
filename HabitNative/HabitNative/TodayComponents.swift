@@ -1,135 +1,202 @@
 import SwiftUI
 
-/// A single stack retains card order while opening, stretching and settling.
+/// A seven-card fan with the active goal fixed in the third display slot.
 struct TodayStackDeckView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var opened = false
-    @State private var closing = false
     @GestureState private var drag: CGFloat = 0
+    @State private var bounceID: String?
 
     private var focus: Int {
         goals.firstIndex { $0.id == state.focusedGoalID } ?? 0
     }
 
     private var spring: Animation {
-        reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.48, dampingFraction: 0.82)
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.46, dampingFraction: 0.72)
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Button(action: close) {
-                    Image(systemName: "chevron.left")
-                        .frame(width: 44, height: 44)
+        VStack(spacing: 8) {
+            HStack(alignment: .center) {
+                Text("选择今天的目标")
+                    .font(.system(size: 27, weight: .medium))
+                    .tracking(-0.4)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                Spacer(minLength: 8)
+                HStack(spacing: 5) {
+                    Text("\(state.selectedGoalIDs.count)").fontWeight(.semibold)
+                    Text("/ 3").foregroundStyle(.secondary)
                 }
-                .accessibilityLabel("返回今天")
-                Spacer()
-                Text("今日目标").font(.system(size: 22, weight: .medium))
-                Spacer()
-                Text("\(state.selectedGoalIDs.count) / 3")
-                    .font(.system(size: 14, weight: .medium)).frame(width: 44)
+                .font(.system(size: 17))
+                .padding(.horizontal, 15).padding(.vertical, 9)
+                .background(.white.opacity(0.78), in: Capsule())
             }
-            .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.29))
+            .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
+            .padding(.horizontal, 4)
 
             GeometryReader { geometry in
-                let cardHeight = min(210.0, geometry.size.height * 0.45)
-                let step = min(62.0, max(28.0, (geometry.size.height - cardHeight - 24) / CGFloat(max(1, goals.count - 1))))
+                let proportions: [CGFloat] = [0.075, 0.085, 0.47, 0.12, 0.095, 0.08, 0.075]
+                let heights = proportions.map { geometry.size.height * $0 }
+                let heroHeight = heights[2]
                 ZStack(alignment: .top) {
                     ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
-                        card(goal, index: index)
-                            .frame(height: cardHeight)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
+                        let isHero = slot == 2
+                        let isSelected = state.selectedGoalIDs.contains(goal.id)
+                        goalCard(goal, index: index, isHero: isHero, selected: isSelected)
+                            .frame(height: heroHeight, alignment: .top)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: heights[min(slot, heights.count - 1)], alignment: .top)
+                            .clipped()
+                            .background {
+                                RoundedRectangle(cornerRadius: isHero ? 30 : 28, style: .continuous)
+                                    .fill(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
+                                        .opacity(isHero ? 0.76 : 0.54))
+                            }
                             .overlay {
-                                RoundedRectangle(cornerRadius: 24)
-                                    .stroke(.white.opacity(0.65), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: isHero ? 30 : 28, style: .continuous)
+                                    .stroke(.white.opacity(isHero ? 0.78 : 0.48), lineWidth: 1)
                             }
-                            .clipShape(RoundedRectangle(cornerRadius: 24))
-                            .shadow(color: .black.opacity(0.14), radius: 12, y: 8)
-                            .scaleEffect(opened || reduceMotion ? 1 - Double(abs(index - focus)) * 0.012 : 0.80, anchor: .bottom)
-                            .rotation3DEffect(.degrees(reduceMotion ? 0 : (opened ? -7 : -24) + Double(drag / 24)), axis: (x: 1, y: 0, z: 0), perspective: 0.45)
-                            .offset(y: offset(index: index, step: step, height: geometry.size.height, cardHeight: cardHeight))
-                            .zIndex(Double(index))
-                            .onTapGesture {
-                                withAnimation(spring) { state.focusedGoalID = goal.id }
-                            }
+                            .clipShape(RoundedRectangle(cornerRadius: isHero ? 30 : 28, style: .continuous))
+                            .shadow(color: Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(0.16), radius: isHero ? 15 : 8, y: 5)
+                            .offset(y: heights.prefix(slot).reduce(0, +) + dragOffset(slot: slot))
+                            .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
+                            .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 32), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
+                            .zIndex(Double(slot))
+                            .contentShape(Rectangle())
+                            .onTapGesture { toggle(goal) }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(goal.previewTitle)，\(isSelected ? "已选择" : "未选择")")
+                            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                            .accessibilityHint("轻点切换选择状态")
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 10)
-                    .updating($drag) { value, position, _ in
+                .gesture(DragGesture(minimumDistance: 12)
+                    .updating($drag) { value, current, _ in
                         guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                        position = max(-100, min(100, value.translation.height))
+                        current = max(-90, min(90, value.translation.height))
                     }
                     .onEnded { value in
-                        guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                        let projected = value.predictedEndTranslation.height
-                        if abs(projected) > 45 {
-                            let next = min(goals.count - 1, max(0, focus + (projected < 0 ? 1 : -1)))
-                            guard goals.indices.contains(next) else { return }
-                            withAnimation(spring) { state.focusedGoalID = goals[next].id }
-                        }
+                        guard abs(value.translation.height) > abs(value.translation.width), abs(value.translation.height) > 48 else { return }
+                        let next = (focus + (value.predictedEndTranslation.height < 0 ? 1 : -1) + goals.count) % goals.count
+                        guard goals.indices.contains(next) else { return }
+                        withAnimation(spring) { state.focusedGoalID = goals[next].id }
                     })
                 .animation(spring, value: drag == 0)
             }
+            .padding(.top, 2)
         }
         .padding(.horizontal, 24)
-        .onAppear { withAnimation(spring) { opened = true } }
-    }
-
-    private func offset(index: Int, step: CGFloat, height: CGFloat, cardHeight: CGFloat) -> CGFloat {
-        guard opened || reduceMotion else { return height - cardHeight + CGFloat(index - goals.count + 1) * 5 }
-        // The focused card exposes its body; following cards compress toward the bottom.
-        let base = CGFloat(index) * step
-        let reveal = index > focus ? min(80, step * 1.4) : 0
-        let compensation = CGFloat(index) / CGFloat(max(1, goals.count - 1)) * min(80, step * 1.4)
-        let stretch = reduceMotion ? 0 : drag * (CGFloat(index + 1) / CGFloat(max(1, goals.count))) * 0.55
-        return base + reveal - compensation + stretch
-    }
-
-    private func card(_ goal: Goal, index: Int) -> some View {
-        let selected = state.selectedGoalIDs.contains(goal.id)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(String(format: "%02d", index + 1)).font(.system(size: 12, weight: .medium))
-                Text(goal.previewTitle).font(.system(size: 18, weight: .semibold))
-                Spacer()
-                Button {
-                    withAnimation(spring) {
-                        state.focusedGoalID = goal.id
-                        if selected { state.selectedGoalIDs.remove(goal.id) }
-                        else if state.selectedGoalIDs.count < 3 { state.selectedGoalIDs.insert(goal.id) }
-                    }
-                } label: {
-                    Image(systemName: selected ? "checkmark.circle.fill" : "plus.circle")
-                        .font(.system(size: 24)).frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .disabled(!selected && state.selectedGoalIDs.count >= 3)
-                .accessibilityLabel("\(selected ? "取消" : "选择")\(goal.previewTitle)")
+        .onAppear {
+            // The reference composition opens with the first goal in the center slot.
+            if let first = goals.first, state.focusedGoalID != first.id {
+                withAnimation(spring) { state.focusedGoalID = first.id }
             }
-            Text(goal.summary).font(.system(size: 15)).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Text(goal.category).font(.system(size: 12, weight: .medium)).opacity(0.7)
         }
-        .padding(.horizontal, 18).padding(.vertical, 10)
-        .foregroundStyle(Color(red: 0.25, green: 0.20, blue: 0.25))
+        .animation(spring, value: state.focusedGoalID)
+        .animation(spring, value: state.selectedGoalIDs)
+    }
+
+    private func goalCard(_ goal: Goal, index: Int, isHero: Bool, selected: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if isHero {
+                HStack(spacing: 12) {
+                    Text(String(format: "%02d", goal.order))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .frame(width: 34, height: 34)
+                        .background(.white.opacity(0.16), in: Circle())
+                    Text("\(goal.id) · \(goal.category)")
+                        .font(.system(size: 14, weight: .medium))
+                    Spacer()
+                    selectionMark(goal, selected: selected, size: 30)
+                }
+                .padding(.horizontal, 20).padding(.top, 9)
+                .foregroundStyle(.white)
+                Text(goal.title)
+                    .font(.system(size: 30, weight: .semibold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 24).padding(.top, 12)
+                Spacer(minLength: 8)
+                ZStack {
+                    Circle().fill(.white.opacity(0.18)).frame(width: 118, height: 118)
+                    Circle().stroke(.white.opacity(0.55), lineWidth: 1.3).frame(width: 64, height: 64)
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.94))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                Text(goal.summary)
+                    .font(.system(size: 16, weight: .medium))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(0.94))
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 8)
+                Spacer(minLength: 12)
+            } else {
+                HStack(spacing: 12) {
+                    Text(String(format: "%02d", goal.order))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .frame(width: 34, height: 34)
+                        .background(.white.opacity(0.16), in: Circle())
+                    Text(goal.previewTitle)
+                        .font(.system(size: 18, weight: .semibold))
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Spacer(minLength: 4)
+                    selectionMark(goal, selected: selected, size: 25)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20).padding(.top, 9)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background {
-            Color(red: 0.98, green: 0.95, blue: 0.96)
             Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
-                .opacity(selected ? 0.30 : 0.12)
+                .opacity(isHero ? 0.78 : 0.58)
         }
     }
 
-    private func close() {
-        guard !closing else { return }
-        closing = true
-        withAnimation(spring, completionCriteria: .logicallyComplete) {
-            opened = false
-        } completion: {
-            state.mode = .homeUnselected
+    private func selectionMark(_ goal: Goal, selected: Bool, size: CGFloat) -> some View {
+        ZStack {
+            Circle().strokeBorder(.white.opacity(0.92), lineWidth: 1.4)
+            if selected {
+                Circle().fill(.white.opacity(0.94))
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private func dragOffset(slot: Int) -> CGFloat {
+        guard !reduceMotion else { return 0 }
+        let fraction = CGFloat(slot + 1) / CGFloat(max(1, goals.count))
+        return drag * fraction * 0.46
+    }
+
+    private func toggle(_ goal: Goal) {
+        let wasSelected = state.selectedGoalIDs.contains(goal.id)
+        guard wasSelected || state.selectedGoalIDs.count < 3 else { return }
+        withAnimation(spring) {
+            if wasSelected { state.selectedGoalIDs.remove(goal.id) }
+            else { state.selectedGoalIDs.insert(goal.id) }
+            bounceID = goal.id
+        }
+        guard !reduceMotion else { bounceID = nil; return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.76)) { bounceID = nil }
         }
     }
 }
