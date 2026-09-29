@@ -26,7 +26,8 @@ struct ContentView: View {
         }
         .task {
             while !Task.isCancelled {
-                goals = (try? await repository.availableGoals(for: .now)) ?? []
+                let refreshedGoals = (try? await repository.availableGoals(for: .now)) ?? []
+                if refreshedGoals != goals { goals = refreshedGoals }
                 if goals.isEmpty {
                     state.mode = .homeUnselected
                 } else if !goals.contains(where: { $0.id == state.focusedGoalID }) {
