@@ -16,7 +16,7 @@ struct ContentView: View {
     @State private var goals: [Goal] = []
     private let tuning = UITuningState()
 
-    private let repository: any GoalRepository = InMemoryGoalRepository()
+    private let repository: any GoalRepository = SharedHabitRepository()
 
     var body: some View {
         ZStack {
@@ -25,7 +25,15 @@ struct ContentView: View {
             TodayRootView(goals: goals, state: $state, tuning: tuning, reduceMotion: reduceMotion)
         }
         .task {
-            goals = (try? await repository.availableGoals(for: .now)) ?? []
+            while !Task.isCancelled {
+                goals = (try? await repository.availableGoals(for: .now)) ?? []
+                if goals.isEmpty {
+                    state.mode = .homeUnselected
+                } else if !goals.contains(where: { $0.id == state.focusedGoalID }) {
+                    state.focusedGoalID = goals.first?.id ?? "H1"
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
         }
     }
 }
@@ -47,7 +55,7 @@ private struct TodayRootView: View {
                 if state.tab == .today && !isExecuting && state.mode != .browsingDeck {
                     TodayHeaderView(selectedCount: state.selectedGoalIDs.count, mode: state.mode, tuning: tuning)
                 }
-                Spacer(minLength: 16)
+                if state.mode != .browsingDeck { Spacer(minLength: 16) }
 
                 if state.tab == .today {
                     switch state.mode {
@@ -72,7 +80,14 @@ private struct TodayRootView: View {
                                 .offset(y: tuning.cardOffsetY + 10)
                         }
                     case .browsingDeck:
-                        TodayStackDeckView(goals: goals, state: $state)
+                        VStack(spacing: 10) {
+                            Button("‹ 返回") { withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeUnselected } }
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 28)
+                            TodayStackDeckView(goals: goals, state: $state)
+                        }
                     case .homeSelected:
                         SelectedGoalView(goals: goals, state: $state)
                     case .executing(let id):
@@ -86,7 +101,16 @@ private struct TodayRootView: View {
                         ))
                 }
 
-                Spacer(minLength: 16)
+                if state.mode == .browsingDeck {
+                    Button("返回") { withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeUnselected } }
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 2)
+                }
+
+                if state.mode != .browsingDeck { Spacer(minLength: 16) }
 
                 // 底部占位高度，确保主内容不被底部胶囊栏遮挡
                 Color.clear.frame(height: state.mode == .browsingDeck ? 154 : 94)
@@ -1028,4 +1052,3 @@ private struct PrototypeIcon: View {
 }
 
 #Preview { ContentView() }
-
