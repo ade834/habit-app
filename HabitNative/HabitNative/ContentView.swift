@@ -171,7 +171,7 @@ private struct TodayRootView: View {
             // 底部确认栏（选卡片时）
             if state.mode == .browsingDeck && state.tab == .today {
                 ConfirmSelectionBar(goals: goals, state: state, action: onConfirm)
-                    .padding(.bottom, 78)
+                    .padding(.bottom, 94)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
