@@ -941,16 +941,17 @@ private struct TodayBottomNavigationView: View {
             ZStack(alignment: .leading) {
                 // 1. 胶囊外壳晶莹透明液态玻璃底座
                 Capsule()
-                    .fill(.ultraThinMaterial.opacity(0.32))
+                    .fill(.white.opacity(0.012))
+                    .glassEffect(.clear.tint(.white.opacity(0.025)), in: Capsule())
                     .overlay(
                         Capsule()
                             .fill(
                                 LinearGradient(
                                     colors: [
-                                        .white.opacity(0.35),
-                                        .white.opacity(0.06),
+                                        .white.opacity(0.14),
+                                        .white.opacity(0.025),
                                         .clear,
-                                        .white.opacity(0.12)
+                                        .white.opacity(0.05)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -962,10 +963,10 @@ private struct TodayBottomNavigationView: View {
                             .stroke(
                                 LinearGradient(
                                     colors: [
-                                        .white.opacity(0.95),
-                                        .white.opacity(0.40),
-                                        .white.opacity(0.10),
-                                        .white.opacity(0.70)
+                                        .white.opacity(0.78),
+                                        .white.opacity(0.22),
+                                        .black.opacity(0.08),
+                                        .white.opacity(0.42)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -1007,7 +1008,7 @@ private struct TodayBottomNavigationView: View {
             }
             .clipShape(Capsule())
             .overlay {
-                Capsule().strokeBorder(.white.opacity(0.86), lineWidth: 1.2)
+                Capsule().strokeBorder(.white.opacity(0.58), lineWidth: 1.1)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 60) // 恢复舒适大气的底层导航栏高度
@@ -1021,12 +1022,13 @@ private struct TodayBottomNavigationView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(.ultraThinMaterial.opacity(0.38))
+                        .fill(.white.opacity(0.012))
+                        .glassEffect(.clear.tint(.white.opacity(0.025)), in: Circle())
                         .overlay(
                             Circle()
                                 .fill(
                                     RadialGradient(
-                                        colors: [.white.opacity(0.40), .white.opacity(0.05), .clear],
+                                        colors: [.white.opacity(0.18), .white.opacity(0.035), .clear],
                                         center: .topLeading,
                                         startRadius: 3,
                                         endRadius: 30
@@ -1038,10 +1040,10 @@ private struct TodayBottomNavigationView: View {
                                 .stroke(
                                     LinearGradient(
                                         colors: [
-                                            .white.opacity(0.98),
-                                            .white.opacity(0.45),
-                                            .white.opacity(0.12),
-                                            .white.opacity(0.80)
+                                            .white.opacity(0.82),
+                                            .white.opacity(0.24),
+                                            .black.opacity(0.08),
+                                            .white.opacity(0.48)
                                         ],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
@@ -1113,19 +1115,18 @@ private struct FluidContinuousDropletView: View, Animatable {
         let scaleY = reduceMotion ? 1 : 1 - transitFactor * 0.42
 
         ZStack {
-            // 选中态采用调节杆滑钮的高透液态玻璃：亮面、折射和内侧暗边都收在胶囊内。
+            // 选中态采用调节杆滑钮的高透液态玻璃：主体近透明，只保留折射、边缘高光和微弱暗边。
             Capsule()
-                .fill(.ultraThinMaterial.opacity(0.92))
-                .overlay(Capsule().fill(.white.opacity(0.20)))
-                .glassEffect(.regular.tint(.white.opacity(0.26)).interactive(), in: Capsule())
+                .fill(.white.opacity(0.018))
+                .glassEffect(.clear.tint(.white.opacity(0.025)).interactive(), in: Capsule())
 
             Capsule()
                 .fill(
                     RadialGradient(
-                        colors: [.white.opacity(0.88), .white.opacity(0.26), .clear],
+                        colors: [.white.opacity(0.30), .white.opacity(0.08), .clear],
                         center: .topLeading,
                         startRadius: 1,
-                        endRadius: 34
+                        endRadius: 42
                     )
                 )
 
@@ -1133,9 +1134,10 @@ private struct FluidContinuousDropletView: View, Animatable {
                 .strokeBorder(
                     LinearGradient(
                         colors: [
-                            .white.opacity(0.98),
-                            .white.opacity(0.50),
-                            .black.opacity(0.14)
+                            .white.opacity(0.88),
+                            .white.opacity(0.24),
+                            .black.opacity(0.10),
+                            .white.opacity(0.46)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -1152,7 +1154,7 @@ private struct FluidContinuousDropletView: View, Animatable {
             radius: 7 + transitFactor * 3,
             y: 2.5 - transitFactor * 1.5
         )
-        .shadow(color: Color.black.opacity(0.13), radius: 8, y: 3)
+        .shadow(color: Color.black.opacity(0.09), radius: 7, y: 3)
     }
 }
 

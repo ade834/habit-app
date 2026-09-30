@@ -122,13 +122,21 @@ private struct CanvasLiquidBackground: View {
             Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.60),
             Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.0)
         ]
-        let didCrossCenter = !reduceMotion && cos(time * 0.42) < 0
+        let motionPhase = time * 0.42
+        let exchangeSignal = sin((motionPhase - .pi / 2) / 2)
+        let exchangeProgress = reduceMotion ? 0.0 : 0.5 + 0.5 * tanh(exchangeSignal * 4.2)
+        let firstSpherePalette = zip(pinkPalette, peachPalette).map {
+            blendedColor(from: $0.0, to: $0.1, progress: exchangeProgress)
+        }
+        let secondSpherePalette = zip(peachPalette, pinkPalette).map {
+            blendedColor(from: $0.0, to: $0.1, progress: exchangeProgress)
+        }
 
-        // 融合峰值之后保持交换后的配色，下一次碰撞再交还，避免分离时颜色突变。
+        // 交换在碰撞峰值附近用连续曲线完成，分离后保留交换结果，不再跳切整套色板。
         drawSphere(in: &context, center: pinkCenter, radius: pinkRadius, time: time, phase: 0.0,
-                   colors: didCrossCenter ? peachPalette : pinkPalette)
+                   colors: firstSpherePalette)
         drawSphere(in: &context, center: peachCenter, radius: peachRadius, time: time, phase: 3.14,
-                   colors: didCrossCenter ? pinkPalette : peachPalette)
+                   colors: secondSpherePalette)
 
         // 3. 两主光球碰撞挤压产生的混合熔融过渡发光（Melting Core）
         let dist = hypot(peachCenter.x - pinkCenter.x, peachCenter.y - pinkCenter.y)
@@ -160,6 +168,10 @@ private struct CanvasLiquidBackground: View {
                 )
             )
         }
+    }
+
+    private func blendedColor(from: Color, to: Color, progress: Double) -> Color {
+        from.mix(with: to, by: min(max(progress, 0), 1))
     }
 
     // 绘制具有自然表面波形扰动（Fluid Morphing）的球体
