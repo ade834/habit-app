@@ -114,12 +114,27 @@ struct TodayStackDeckView: View {
                             .contentShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
                         }
                     }
+
+                    // 交互层独立置于所有卡片之上，避免相邻卡片的大画布遮住星标命中区。
+                    ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
+                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
+                        if slot < visibleSlots {
+                            starButton(goal)
+                                .position(
+                                    x: geometry.size.width - 27,
+                                    y: cardTop(slot: slot, step: step, height: cardHeight) + 31
+                                )
+                                .offset(y: dragOffset(slot: slot))
+                                .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
+                                .zIndex(100 + Double(slot))
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
                 .frame(height: max(0, geometry.size.height - 15), alignment: .top)
                 .clipped()
                 .contentShape(Rectangle())
-                .simultaneousGesture(DragGesture(minimumDistance: 12)
+                .gesture(DragGesture(minimumDistance: 12)
                     .onChanged { value in
                         guard abs(value.translation.width) > abs(value.translation.height), draggedGoalID == nil else { return }
                         draggedGoalID = goalAt(value.startLocation.y, step: step, height: cardHeight, count: visibleSlots)?.id
@@ -145,7 +160,7 @@ struct TodayStackDeckView: View {
                         guard !goals.isEmpty else { return }
                         let next = (focus + (value.predictedEndTranslation.height < 0 ? 1 : -1) + goals.count) % goals.count
                         withAnimation(spring) { state.focusedGoalID = goals[next].id }
-                    })
+                    }, including: .gesture)
                 .animation(spring, value: drag == 0)
                 .animation(spring, value: horizontalDrag == 0)
             }
@@ -172,12 +187,11 @@ struct TodayStackDeckView: View {
 
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
         let tint = Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
-        let accent: Color = state.starredGoalIDs.contains(goal.id) ? Color(red: 0.97, green: 0.70, blue: 0.22) : goal.isPeriodic ? Color(red: 0.30, green: 0.61, blue: 0.88) : tint
         return PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
             .fill(LinearGradient(stops: [
-                .init(color: accent.opacity(0.99), location: 0),
-                .init(color: tint.opacity(0.98), location: 0.47),
-                .init(color: tint.opacity(0.94), location: 1)
+                .init(color: tint.opacity(0.99), location: 0),
+                .init(color: tint.opacity(0.97), location: 0.48),
+                .init(color: tint.opacity(0.92), location: 1)
             ], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay(alignment: .top) {
                 PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
@@ -192,6 +206,12 @@ struct TodayStackDeckView: View {
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .frame(width: 34, height: 34)
                     .background(.white.opacity(0.16), in: Circle())
+
+                Text(goal.title)
+                    .font(.system(size: isHero ? 17 : 16, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
                 if isHero {
                     Text(taskTypeTitle(for: goal))
                         .font(.system(size: 11, weight: .bold))
@@ -201,22 +221,15 @@ struct TodayStackDeckView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.88)))
                 }
                 Spacer(minLength: 4)
-                starButton(goal)
+                Image(systemName: state.starredGoalIDs.contains(goal.id) ? "star.fill" : "star")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(state.starredGoalIDs.contains(goal.id) ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
+                    .frame(width: 52, height: 52)
+                    .hidden()
             }
             .padding(.leading, 20).padding(.trailing, 12).padding(.top, 5)
             .foregroundStyle(.white)
             .zIndex(2)
-
-            // 标题始终贴近卡片上缘；卡片从遮挡中翻出时同步显现。
-            Text(goal.title)
-                .font(.system(size: isHero ? 30 : 22, weight: .semibold))
-                .lineLimit(2)
-                .minimumScaleFactor(0.82)
-                .fixedSize(horizontal: false, vertical: true)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24).padding(.top, 10)
-                .opacity(max(0.18, contentReveal))
-                .offset(y: (1 - contentReveal) * 7)
 
             if isHero {
                 // 主展示位的选择图标前置，避免被下一层卡片遮住。
@@ -258,29 +271,32 @@ struct TodayStackDeckView: View {
 
     private func starButton(_ goal: Goal) -> some View {
         let starred = state.starredGoalIDs.contains(goal.id)
-        let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
         let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
-        return Button {
-            withAnimation(spring) {
-                if starred {
-                    state.starredGoalIDs.remove(goal.id)
-                    if goal.countsTowardQuota && regularCount >= 3 { state.selectedGoalIDs.remove(goal.id) }
-                } else if canStar {
-                    state.starredGoalIDs.insert(goal.id)
-                    state.selectedGoalIDs.insert(goal.id)
-                }
-            }
-        } label: {
-            Image(systemName: starred ? "star.fill" : "star")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
-                .frame(width: 52, height: 52)
+        return StarTapControl(starred: starred, enabled: starred || canStar) {
+            toggleStar(goal)
         }
-        .buttonStyle(StarPressStyle())
-        .contentShape(Circle())
-        .disabled(!starred && !canStar)
-        .accessibilityLabel(starred ? "取消星标" : "设为星标")
-        .accessibilityHint(starred ? "取消星标；普通名额已满时会同时取消选择" : "设为星标并加入今日选择，不占普通名额")
+    }
+
+    private func toggleStar(_ goal: Goal) {
+        let starred = state.starredGoalIDs.contains(goal.id)
+        let regularCount = goals.filter {
+            state.selectedGoalIDs.contains($0.id)
+                && !state.starredGoalIDs.contains($0.id)
+                && $0.countsTowardQuota
+        }.count
+        let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
+
+        withAnimation(spring) {
+            if starred {
+                state.starredGoalIDs.remove(goal.id)
+                if goal.countsTowardQuota && regularCount >= 3 {
+                    state.selectedGoalIDs.remove(goal.id)
+                }
+            } else if canStar {
+                state.starredGoalIDs.insert(goal.id)
+                state.selectedGoalIDs.insert(goal.id)
+            }
+        }
     }
 
     private func taskTypeTitle(for goal: Goal) -> String {
@@ -368,28 +384,55 @@ struct TodayStackDeckView: View {
     }
 }
 
-private struct StarPressStyle: ButtonStyle {
+private struct StarTapControl: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var pressed = false
+    let starred: Bool
+    let enabled: Bool
+    let action: () -> Void
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+    var body: some View {
+        Image(systemName: starred ? "star.fill" : "star")
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
+            .frame(width: 52, height: 52)
             .background {
                 Circle()
-                    .fill(.black.opacity(configuration.isPressed ? 0.16 : 0))
+                    .fill(.black.opacity(pressed ? 0.16 : 0))
                     .overlay {
                         Circle()
-                            .stroke(.black.opacity(configuration.isPressed ? 0.26 : 0), lineWidth: 3)
-                            .blur(radius: configuration.isPressed ? 2 : 0)
-                            .offset(y: configuration.isPressed ? 1.5 : 0)
+                            .stroke(.black.opacity(pressed ? 0.26 : 0), lineWidth: 3)
+                            .blur(radius: pressed ? 2 : 0)
+                            .offset(y: pressed ? 1.5 : 0)
                     }
             }
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .contentShape(Circle())
+            .opacity(enabled ? 1 : 0.42)
+            .scaleEffect(pressed && !reduceMotion ? 0.96 : 1)
             .animation(
                 reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.55),
-                value: configuration.isPressed
+                value: pressed
             )
-            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, isPressed in
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($pressed) { _, value, _ in
+                        if enabled { value = true }
+                    }
+                    .onEnded { value in
+                        guard enabled,
+                              abs(value.translation.width) < 12,
+                              abs(value.translation.height) < 12 else { return }
+                        action()
+                    },
+                including: .gesture
+            )
+            .sensoryFeedback(.impact(weight: .light), trigger: pressed) { _, isPressed in
                 isPressed
             }
+            .accessibilityElement()
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(starred ? "取消星标" : "设为星标")
+            .accessibilityHint(starred ? "取消星标；普通名额已满时会同时取消选择" : "设为星标并加入今日选择，不占普通名额")
+            .accessibilityAction { if enabled { action() } }
     }
 }
