@@ -57,6 +57,11 @@ struct TodayStackDeckView: View {
         reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.46, dampingFraction: 0.72)
     }
 
+    // 第二张主卡的轮廓是整组卡片唯一的斜边与圆角基准。
+    private var deckCardShape: PerspectiveCardShape {
+        PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             HStack(alignment: .center) {
@@ -94,7 +99,7 @@ struct TodayStackDeckView: View {
 
             GeometryReader { geometry in
                 let cardHeight = min(geometry.size.height * 0.56, 390)
-                // 第二张作为主展示位；第三、第四张逐级减少露出，底部边界保持不变。
+                // 第二张作为主展示位；第三至第五张按递减比例向下展开。
                 let step = max(45, geometry.size.height * 0.094)
                 let visibleSlots = min(goals.count, 5)
                 ZStack(alignment: .top) {
@@ -114,9 +119,9 @@ struct TodayStackDeckView: View {
                             .frame(height: cardHeight, alignment: .top)
                             .frame(maxWidth: .infinity)
                             .background { cardSurface(goal, isHero: isHero) }
-                            .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
+                            .clipShape(deckCardShape)
                             .overlay {
-                                PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
+                                deckCardShape
                                     .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
                                     .allowsHitTesting(false)
                             }
@@ -125,7 +130,7 @@ struct TodayStackDeckView: View {
                             .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
                             .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
                             .zIndex(Double(slot))
-                            .contentShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
+                            .contentShape(deckCardShape)
                         }
                     }
 
@@ -238,14 +243,14 @@ struct TodayStackDeckView: View {
 
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
         let tint = Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
-        return PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
+        return deckCardShape
             .fill(LinearGradient(stops: [
                 .init(color: tint.opacity(0.99), location: 0),
                 .init(color: tint.opacity(0.97), location: 0.48),
                 .init(color: tint.opacity(0.92), location: 1)
             ], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay(alignment: .top) {
-                PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
+                deckCardShape
                     .fill(LinearGradient(colors: [.white.opacity(0.28), .clear, .black.opacity(0.12)], startPoint: .top, endPoint: .bottom))
             }
     }
@@ -406,8 +411,8 @@ struct TodayStackDeckView: View {
     }
 
     private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
-        let thirdTop = step + height * 0.68
-        let fourthTop = thirdTop + height * 0.34
+        let thirdTop = step + height * 0.75
+        let fourthTop = thirdTop + height * 0.32
         return switch slot {
         case 0: 0
         case 1: step
