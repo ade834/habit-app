@@ -13,11 +13,11 @@ private struct PerspectiveCardShape: Shape {
         path.move(to: CGPoint(x: rect.minX + topR, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY))
         path.addCurve(to: CGPoint(x: rect.maxX, y: rect.minY + topR), control1: CGPoint(x: rect.maxX - topR * 0.42, y: rect.minY), control2: CGPoint(x: rect.maxX, y: rect.minY + topR * 0.42))
-        path.addCurve(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR), control1: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.44), control2: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR * 1.55))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR))
         path.addQuadCurve(to: CGPoint(x: rect.maxX - inset - bottomR, y: rect.maxY), control: CGPoint(x: rect.maxX - inset, y: rect.maxY))
         path.addLine(to: CGPoint(x: rect.minX + inset + bottomR, y: rect.maxY))
         path.addQuadCurve(to: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR), control: CGPoint(x: rect.minX + inset, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + topR), control1: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR * 1.55), control2: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.44))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + topR))
         path.addCurve(to: CGPoint(x: rect.minX + topR, y: rect.minY), control1: CGPoint(x: rect.minX, y: rect.minY + topR * 0.42), control2: CGPoint(x: rect.minX + topR * 0.42, y: rect.minY))
         path.closeSubpath()
         return path
@@ -85,28 +85,30 @@ struct TodayStackDeckView: View {
                         goalCard(goal, index: index, isHero: isHero, selected: isSelected)
                             .frame(height: cardHeight, alignment: .top)
                             .frame(maxWidth: .infinity)
-                            .background { cardSurface(goal, isHero: isHero) }
+                            .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
+                            .background {
+                                cardSurface(goal, isHero: isHero)
+                                    .shadow(color: .black.opacity(isHero ? 0.20 : 0.24), radius: 12, y: -5)
+                                    .shadow(color: Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(0.23), radius: 13, y: 8)
+                            }
                             .overlay {
-                                PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35)
+                                PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
                                     .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
                                     .allowsHitTesting(false)
                             }
-                            .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35))
-                            .shadow(color: .black.opacity(isHero ? 0.24 : 0.28), radius: 15, y: -7)
-                            .shadow(color: Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(0.31), radius: 17, y: 13)
                             .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
                             .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                             .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
                             .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
                             .zIndex(Double(slot))
-                            .contentShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35))
+                            .contentShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .clipped()
                 .mask(alignment: .top) {
-                    let limit = min(geometry.size.height, cardTop(slot: visibleSlots - 1, step: step, height: cardHeight) + 68)
+                    let limit = max(0, geometry.size.height - 15)
                     VStack(spacing: 0) {
                         Rectangle().frame(height: max(0, limit - 18))
                         LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
@@ -162,14 +164,14 @@ struct TodayStackDeckView: View {
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
         let tint = Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
         let accent: Color = state.starredGoalIDs.contains(goal.id) ? Color(red: 0.878, green: 0.816, blue: 0.659) : goal.isPeriodic ? Color(red: 0.725, green: 0.800, blue: 0.831) : tint
-        return PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35)
+        return PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
             .fill(LinearGradient(stops: [
                 .init(color: accent.opacity(0.99), location: 0),
                 .init(color: tint.opacity(0.98), location: 0.47),
                 .init(color: tint.opacity(0.94), location: 1)
             ], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay(alignment: .top) {
-                PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35)
+                PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
                     .fill(LinearGradient(colors: [.white.opacity(0.28), .clear, .black.opacity(0.12)], startPoint: .top, endPoint: .bottom))
             }
     }
@@ -249,13 +251,14 @@ struct TodayStackDeckView: View {
     private func starButton(_ goal: Goal) -> some View {
         let starred = state.starredGoalIDs.contains(goal.id)
         let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
-        let canUnstar = !goal.countsTowardQuota || regularCount < 3
-        let canStar = state.selectedGoalIDs.contains(goal.id) && !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
+        let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
         return Button {
             if starred {
                 state.starredGoalIDs.remove(goal.id)
+                if goal.countsTowardQuota && regularCount >= 3 { state.selectedGoalIDs.remove(goal.id) }
             } else if canStar {
                 state.starredGoalIDs.insert(goal.id)
+                state.selectedGoalIDs.insert(goal.id)
             }
         } label: {
             Image(systemName: starred ? "star.fill" : "star")
@@ -264,9 +267,9 @@ struct TodayStackDeckView: View {
                 .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
-        .disabled(starred ? !canUnstar : !canStar)
+        .disabled(!starred && !canStar)
         .accessibilityLabel(starred ? "取消星标" : "设为星标")
-        .accessibilityHint(starred && !canUnstar ? "先右滑取消一个普通习惯" : !starred && !canStar ? "先右滑选中卡片，再设置星标" : "点按切换星标")
+        .accessibilityHint(starred ? "取消星标；普通名额已满时会同时取消选择" : "设为星标并加入今日选择，不占普通名额")
     }
 
     private func selectionMark(_ goal: Goal, selected: Bool, size: CGFloat) -> some View {
@@ -292,8 +295,8 @@ struct TodayStackDeckView: View {
     private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
         switch slot {
         case 0...2: CGFloat(slot) * step
-        case 3: 2 * step + height * 0.72
-        default: 2 * step + height * 0.72 + CGFloat(slot - 3) * max(54, height * 0.22)
+        case 3: 2 * step + height * 0.77
+        default: 2 * step + height * 0.77 + CGFloat(slot - 3) * max(60, height * 0.24)
         }
     }
 

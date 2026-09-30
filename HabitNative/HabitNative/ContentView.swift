@@ -59,13 +59,19 @@ struct ContentView: View {
     private func confirmSelection() {
         Task {
             do {
-                try await repository.saveSelectedGoalIDs(state.selectedGoalIDs, starredIDs: state.starredGoalIDs, for: .now)
-                goals = try await repository.availableGoals(for: .now)
-                state.selectedGoalIDs = try await repository.selectedGoalIDs(for: .now)
-                if let snapshot = try? SharedHabitSelectionStore().snapshot(at: .now) {
-                    state.starredGoalIDs = snapshot.starredIDs
-                    state.isFirstSelection = snapshot.isFirstSelection
+                let date = Date()
+                let requestedIDs = state.selectedGoalIDs
+                let requestedStars = state.starredGoalIDs
+                try await repository.saveSelectedGoalIDs(requestedIDs, starredIDs: requestedStars, for: date)
+                let persisted = try SharedHabitSelectionStore().snapshot(at: date)
+                guard persisted.activeIDs.union(persisted.starredIDs) == requestedIDs,
+                      persisted.starredIDs == requestedStars else {
+                    throw HabitSelectionError.databaseFailure("保存后重新读取的选择与页面不一致，请重试。")
                 }
+                goals = try await repository.availableGoals(for: date)
+                state.selectedGoalIDs = persisted.activeIDs.union(persisted.starredIDs)
+                state.starredGoalIDs = persisted.starredIDs
+                state.isFirstSelection = persisted.isFirstSelection
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeSelected }
             } catch {
                 switch error {
@@ -73,6 +79,7 @@ struct ContentView: View {
                 case HabitSelectionError.starLimitExceeded(let limit): databaseError = "当前阶段最多设置 \(limit) 个星标习惯。"
                 case HabitSelectionError.firstSelectionRequiresGoal: databaseError = "首次使用请至少选择一个目标。"
                 case HabitSelectionError.invalidStarredSelection: databaseError = "星标必须属于已选目标；首次选择暂不能设置星标。"
+                case HabitSelectionError.databaseFailure(let message): databaseError = message
                 default: databaseError = "数据库未能保存这次选择：\(error.localizedDescription)"
                 }
             }
@@ -139,7 +146,14 @@ private struct TodayRootView: View {
                     case .executing(let id):
                         ExecutionView(goal: goals.first(where: { $0.id == id }) ?? goals.first, state: $state)
                     }
-                } else if state.tab == .garden || state.tab == .review {
+                } else if state.tab == .garden {
+                    GrowthView(goals: goals)
+                        .padding(.bottom, 84)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.98)),
+                            removal: .opacity
+                        ))
+                } else if state.tab == .review {
                     AppTabPage(tab: state.tab, goals: goals, state: $state)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.98)),
@@ -507,15 +521,13 @@ private struct ConfirmSelectionBar: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("当天新建 \(regularCount)/3 · 星标 \(state.starredGoalIDs.count)/\(state.starLimit)")
                     .font(.system(size: 12, weight: .semibold))
-                Text(state.isFirstSelection ? "首日周期计名额 · 完成后可设星标" : "右滑后可设星标 · 周期次日保留")
+                Text(state.isFirstSelection ? "首日周期计名额 · 完成后可设星标" : "点星标可额外选 · 周期次日保留")
                     .font(.system(size: 11))
             }
             .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
             Spacer(minLength: 4)
             Button("确认选择") { action() }
-                .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 20).frame(height: 44)
-                .background(.black.opacity(0.72), in: Capsule())
+                .buttonStyle(ConfirmPressStyle())
                 .disabled(state.isFirstSelection && state.selectedGoalIDs.isEmpty)
                 .opacity(state.isFirstSelection && state.selectedGoalIDs.isEmpty ? 0.42 : 1)
         }
@@ -523,6 +535,33 @@ private struct ConfirmSelectionBar: View {
         .background(.white.opacity(0.32), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.66), lineWidth: 1))
         .padding(.horizontal, 22).padding(.bottom, 6)
+    }
+}
+
+private struct ConfirmPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .frame(height: 44)
+            .background {
+                Capsule()
+                    .fill(Color(red: 0.23, green: 0.18, blue: 0.22).opacity(0.92))
+                    .overlay {
+                        Capsule()
+                            .stroke(.black.opacity(configuration.isPressed ? 0.42 : 0.12), lineWidth: 3)
+                            .blur(radius: configuration.isPressed ? 3 : 1)
+                            .offset(y: configuration.isPressed ? 2 : 0)
+                            .mask(Capsule())
+                    }
+                    .shadow(color: .black.opacity(configuration.isPressed ? 0.08 : 0.22), radius: configuration.isPressed ? 2 : 8, y: configuration.isPressed ? 1 : 5)
+            }
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.34, dampingFraction: 0.55), value: configuration.isPressed)
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, pressed in pressed }
     }
 }
 
@@ -715,9 +754,9 @@ private struct HomePreviewDeckView: View {
 
     private var poses: [PreviewPose] {
         [
-            PreviewPose(x: -tuning.cardWidth * 0.32, y: 20, width: tuning.cardWidth * 0.94, rotation: -7, opacity: 0.25),
-            PreviewPose(x: 0, y: 0, width: tuning.cardWidth, rotation: 0, opacity: 0.30),
-            PreviewPose(x: tuning.cardWidth * 0.32, y: 18, width: tuning.cardWidth * 0.94, rotation: 7, opacity: 0.27)
+            PreviewPose(x: -tuning.cardWidth * 0.32, y: 20, width: tuning.cardWidth * 0.94, rotation: -7, opacity: 0.75),
+            PreviewPose(x: 0, y: 0, width: tuning.cardWidth, rotation: 0, opacity: 0.75),
+            PreviewPose(x: tuning.cardWidth * 0.32, y: 18, width: tuning.cardWidth * 0.94, rotation: 7, opacity: 0.75)
         ]
     }
 
@@ -761,7 +800,7 @@ private struct PreviewGoalCard: View {
     var isPrimary = true
 
     private var textColor: Color {
-        surfaceOpacity < 0.5 ? Color(red: 0.27, green: 0.19, blue: 0.29) : .white
+        .white
     }
 
     var body: some View {
@@ -770,15 +809,13 @@ private struct PreviewGoalCard: View {
                 .font(.system(size: 11, weight: .medium))
                 .tracking(1.32)
                 .foregroundStyle(textColor.opacity(isPrimary ? 0.85 : 0.45))
-            if isPrimary {
-                Text(goal.previewTitle)
-                    .font(.system(size: 25, weight: .semibold))
+            Text(goal.previewTitle)
+                    .font(.system(size: isPrimary ? 25 : 21, weight: .semibold))
                     .tracking(-0.77)
                     .foregroundStyle(textColor)
-                Text(goal.previewSummary)
-                    .font(.system(size: 12, weight: .medium))
+            Text(goal.previewSummary)
+                    .font(.system(size: isPrimary ? 12 : 11, weight: .medium))
                     .foregroundStyle(textColor.opacity(0.86))
-            }
             Spacer()
         }
         .padding(.horizontal, 20)
@@ -786,7 +823,11 @@ private struct PreviewGoalCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(surfaceOpacity))
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(surfaceOpacity))
+                }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
