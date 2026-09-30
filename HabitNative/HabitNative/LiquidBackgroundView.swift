@@ -9,7 +9,7 @@ struct LiquidBackgroundView: View {
     }
 }
 
-// 全屏磨砂玻璃流体光球背景：包含底部两个 6:4 比例挤压融合的主光球 + 侧边两个飘逸点缀光球
+// 全屏磨砂玻璃流体光球背景：两个 6.5:3.5 主光球碰撞、融合、交换色位，旁侧有呼吸点缀光球。
 private struct CanvasLiquidBackground: View {
     let reduceMotion: Bool
 
@@ -20,7 +20,7 @@ private struct CanvasLiquidBackground: View {
             GeometryReader { proxy in
                 ZStack {
                     // 底层淡雅米桃暖光底色
-                    Color(red: 0.70, green: 0.70, blue: 0.73)
+                    Color(red: 0.40, green: 0.40, blue: 0.43)
 
                     // 动态光球流体层
                     Canvas { context, size in
@@ -50,13 +50,13 @@ private struct CanvasLiquidBackground: View {
         let morph2 = cos(time * 0.65) * 0.08 + sin(time * 0.82) * 0.05
         let collision = reduceMotion ? 0.72 : (sin(time * 0.42) + 1) * 0.5
 
-        // 玫红球从左下向画面中心上移；橙色球从右上向中心下移。
-        let pinkRadius = minDim * (0.62 + morph1)
+        // 主球视觉体量按 6.5:3.5；每次在中心融合后，两个色相交换各自的对角位置。
+        let pinkRadius = minDim * (0.68 + morph1)
         let pinkCenter = CGPoint(
             x: width * (0.20 + 0.31 * collision),
             y: height * (0.80 - 0.30 * collision)
         )
-        let peachRadius = minDim * (0.52 + morph2)
+        let peachRadius = minDim * (0.43 + morph2)
         let peachCenter = CGPoint(
             x: width * (0.84 - 0.31 * collision),
             y: height * (0.20 + 0.32 * collision)
@@ -68,16 +68,16 @@ private struct CanvasLiquidBackground: View {
         // 点缀光球2：左中上侧淡丁香粉雾
         // ----------------------------------------------------
         let floatAccent1Center = CGPoint(
-            x: width * 0.86 + cos(time * 0.55) * 25,
-            y: height * 0.18 + sin(time * 0.46) * 28
+            x: width * 0.86 + cos(time * 1.14) * 29,
+            y: height * 0.18 + sin(time * 0.98) * 30
         )
-        let floatAccent1Radius = minDim * (0.34 + sin(time * 0.65) * 0.05)
+        let floatAccent1Radius = minDim * (0.26 + sin(time * 1.28) * 0.09)
 
         let floatAccent2Center = CGPoint(
-            x: width * 0.14 + sin(time * 0.50) * 22,
-            y: height * 0.40 + cos(time * 0.42) * 24
+            x: width * 0.14 + sin(time * 1.06) * 27,
+            y: height * 0.44 + cos(time * 1.20) * 28
         )
-        let floatAccent2Radius = minDim * (0.28 + cos(time * 0.58) * 0.04)
+        let floatAccent2Radius = minDim * (0.21 + cos(time * 1.36) * 0.08)
 
         // 柔和渲染模式与漫反射模糊（模糊度 50，色彩更富饱满层次感）
         context.addFilter(.blur(radius: 50))
@@ -110,35 +110,25 @@ private struct CanvasLiquidBackground: View {
             ]
         )
 
-        // 绘制底部主光球 1 (6成体量，深玫粉/紫丁香主调，扩大覆盖，高饱和通透度)
-        drawSphere(
-            in: &context,
-            center: pinkCenter,
-            radius: pinkRadius,
-            time: time,
-            phase: 0.0,
-            colors: [
-                Color(red: 240 / 255, green: 75 / 255, blue: 175 / 255).opacity(0.95),
-                Color(red: 208 / 255, green: 60 / 255, blue: 165 / 255).opacity(0.88),
-                Color(red: 175 / 255, green: 65 / 255, blue: 178 / 255).opacity(0.75),
-                Color(red: 175 / 255, green: 65 / 255, blue: 178 / 255).opacity(0.0)
-            ]
-        )
+        let pinkPalette = [
+            Color(red: 240 / 255, green: 75 / 255, blue: 175 / 255).opacity(0.95),
+            Color(red: 208 / 255, green: 60 / 255, blue: 165 / 255).opacity(0.88),
+            Color(red: 175 / 255, green: 65 / 255, blue: 178 / 255).opacity(0.75),
+            Color(red: 175 / 255, green: 65 / 255, blue: 178 / 255).opacity(0.0)
+        ]
+        let peachPalette = [
+            Color(red: 255 / 255, green: 202 / 255, blue: 130 / 255).opacity(0.96),
+            Color(red: 255 / 255, green: 150 / 255, blue: 95 / 255).opacity(0.85),
+            Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.60),
+            Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.0)
+        ]
+        let didCrossCenter = !reduceMotion && cos(time * 0.42) < 0
 
-        // 绘制底部主光球 2 (4成体量，暖橙金黄蜜桃调，明亮温暖光斑)
-        drawSphere(
-            in: &context,
-            center: peachCenter,
-            radius: peachRadius,
-            time: time,
-            phase: 3.14,
-            colors: [
-                Color(red: 255 / 255, green: 202 / 255, blue: 130 / 255).opacity(0.96),
-                Color(red: 255 / 255, green: 150 / 255, blue: 95 / 255).opacity(0.85),
-                Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.60),
-                Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.0)
-            ]
-        )
+        // 融合峰值之后保持交换后的配色，下一次碰撞再交还，避免分离时颜色突变。
+        drawSphere(in: &context, center: pinkCenter, radius: pinkRadius, time: time, phase: 0.0,
+                   colors: didCrossCenter ? peachPalette : pinkPalette)
+        drawSphere(in: &context, center: peachCenter, radius: peachRadius, time: time, phase: 3.14,
+                   colors: didCrossCenter ? pinkPalette : peachPalette)
 
         // 3. 两主光球碰撞挤压产生的混合熔融过渡发光（Melting Core）
         let dist = hypot(peachCenter.x - pinkCenter.x, peachCenter.y - pinkCenter.y)

@@ -35,7 +35,7 @@ struct ContentView: View {
         ZStack {
             LiquidBackgroundView(reduceMotion: reduceMotion)
                 .ignoresSafeArea()
-            TodayRootView(goals: goals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection, onSaveTuning: { tuning.save() })
+            TodayRootView(goals: goals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection)
         }
         .alert("无法保存今日选择", isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
             Button("知道了", role: .cancel) { databaseError = nil }
@@ -105,7 +105,6 @@ private struct TodayRootView: View {
     let reduceMotion: Bool
     let dashboard: HabitDashboardSnapshot?
     let onConfirm: () -> Void
-    let onSaveTuning: () -> Void
     @Namespace private var navMorphNamespace
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
@@ -136,7 +135,7 @@ private struct TodayRootView: View {
 
                             // 三个卡片下方提示
                             HomeSelectionHint()
-                                .offset(y: tuning.cardOffsetY + 10)
+                                .offset(y: tuning.cardOffsetY + 28)
                         }
                     case .browsingDeck:
                         VStack(spacing: 10) {
@@ -198,8 +197,6 @@ private struct TodayRootView: View {
                 // 仅点击「设置」时，从右下角圆形按钮流体展开为全屏浮层面板
                 FluidSettingsExpandedPanel(
                     tab: $state.tab,
-                    tuning: $tuning,
-                    onSaveTuning: onSaveTuning,
                     fluidMorphAnimation: fluidMorphAnimation,
                     namespace: navMorphNamespace
                 )
@@ -221,8 +218,6 @@ private struct TodayRootView: View {
 // MARK: - 设置专属流体形变展开面板 (Fluid Settings Panel with Interactive Pull-Down Dismiss)
 private struct FluidSettingsExpandedPanel: View {
     @Binding var tab: AppTab
-    @Binding var tuning: UITuningState
-    let onSaveTuning: () -> Void
     let fluidMorphAnimation: Animation
     let namespace: Namespace.ID
 
@@ -311,7 +306,6 @@ private struct FluidSettingsExpandedPanel: View {
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color(red: 0.26, green: 0.22, blue: 0.27))
 
-                LayoutTuningControls(tuning: $tuning)
 
                 Spacer()
             }
@@ -322,13 +316,12 @@ private struct FluidSettingsExpandedPanel: View {
 
             // 底部关闭返回胶囊（与原胶囊位置呼应）
             Button {
-                onSaveTuning()
                 withAnimation(fluidMorphAnimation) { tab = .today }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(systemName: "chevron.down.circle.fill")
                         .font(.system(size: 18, weight: .semibold))
-                    Text("保存页面调整")
+                    Text("收起设置")
                         .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundStyle(Color(red: 0.26, green: 0.22, blue: 0.27))
@@ -387,30 +380,6 @@ private struct FluidSettingsExpandedPanel: View {
                     }
                 }
         )
-    }
-}
-
-private struct LayoutTuningControls: View {
-    @Binding var tuning: UITuningState
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("首页布局调整").font(.system(size: 17, weight: .semibold))
-            tuningSlider("文字大小", value: $tuning.textScale, range: 0.8...1.25)
-            tuningSlider("整体左右", value: $tuning.contentOffsetX, range: -28...28)
-            tuningSlider("整体上下", value: $tuning.contentOffsetY, range: -36...36)
-            tuningSlider("卡片宽度", value: $tuning.cardWidth, range: 180...270)
-            tuningSlider("卡片高度", value: $tuning.cardHeight, range: 190...290)
-            tuningSlider("卡片上下", value: $tuning.cardOffsetY, range: -45...30)
-            tuningSlider("导航栏大小", value: $tuning.navigationScale, range: 0.88...1.12)
-        }
-        .padding(16)
-        .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 18))
-    }
-    private func tuningSlider(_ title: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>) -> some View {
-        HStack(spacing: 10) {
-            Text(title).font(.system(size: 13, weight: .medium)).frame(width: 74, alignment: .leading)
-            Slider(value: value, in: range)
-        }
     }
 }
 
@@ -763,11 +732,13 @@ private struct HomeSelectionHint: View {
             .foregroundStyle(
                 LinearGradient(
                     stops: [
-                        .init(color: ink.opacity(0.88), location: 0),
-                        .init(color: ink.opacity(0.88), location: 0.42),
-                        .init(color: ink, location: 0.5),
-                        .init(color: ink.opacity(0.88), location: 0.58),
-                        .init(color: ink.opacity(0.88), location: 1)
+                        .init(color: ink.opacity(0.62), location: 0),
+                        .init(color: ink.opacity(0.62), location: 0.39),
+                        .init(color: ink.opacity(0.95), location: 0.47),
+                        .init(color: ink, location: 0.50),
+                        .init(color: ink.opacity(0.95), location: 0.53),
+                        .init(color: ink.opacity(0.62), location: 0.61),
+                        .init(color: ink.opacity(0.62), location: 1)
                     ],
                     startPoint: UnitPoint(x: reduceMotion ? 0 : shimmerEnd - 1, y: 0),
                     endPoint: UnitPoint(x: reduceMotion ? 1 : shimmerEnd, y: 0)
@@ -775,7 +746,7 @@ private struct HomeSelectionHint: View {
             )
             .onAppear {
                 guard !reduceMotion else { return }
-                withAnimation(.linear(duration: 3.1).repeatForever(autoreverses: false)) {
+                withAnimation(.linear(duration: 2.45).repeatForever(autoreverses: false)) {
                     shimmerEnd = 2
                 }
             }
@@ -1142,33 +1113,32 @@ private struct FluidContinuousDropletView: View, Animatable {
         let scaleY = reduceMotion ? 1 : 1 - transitFactor * 0.42
 
         ZStack {
-            // 水滴通透主体（完全使用 Capsule，与外层导航栏胶囊曲率 100% 绝对一致）
+            // 选中态采用调节杆滑钮的高透液态玻璃：亮面、折射和内侧暗边都收在胶囊内。
             Capsule()
-                .fill(.white.opacity(0.08))
-                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: Capsule())
+                .fill(.ultraThinMaterial.opacity(0.92))
+                .overlay(Capsule().fill(.white.opacity(0.20)))
+                .glassEffect(.regular.tint(.white.opacity(0.26)).interactive(), in: Capsule())
 
-            // 水滴内部凸透镜光泽
             Capsule()
                 .fill(
                     RadialGradient(
-                        colors: [.white.opacity(0.42), .clear],
-                        center: .top,
-                        startRadius: 2,
-                        endRadius: 20
+                        colors: [.white.opacity(0.88), .white.opacity(0.26), .clear],
+                        center: .topLeading,
+                        startRadius: 1,
+                        endRadius: 34
                     )
                 )
 
-            // 边缘高光保持在形状内部，避免顶部出现悬空亮条。
             Capsule()
                 .strokeBorder(
                     LinearGradient(
                         colors: [
                             .white.opacity(0.98),
                             .white.opacity(0.50),
-                            .white.opacity(0.15)
+                            .black.opacity(0.14)
                         ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     ),
                     lineWidth: 1.1
                 )
@@ -1182,7 +1152,7 @@ private struct FluidContinuousDropletView: View, Animatable {
             radius: 7 + transitFactor * 3,
             y: 2.5 - transitFactor * 1.5
         )
-        .shadow(color: Color.black.opacity(0.05), radius: 8, y: 3)
+        .shadow(color: Color.black.opacity(0.13), radius: 8, y: 3)
     }
 }
 
