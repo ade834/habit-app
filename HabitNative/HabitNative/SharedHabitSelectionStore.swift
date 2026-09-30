@@ -5,7 +5,10 @@ struct HabitSelectionSnapshot {
     var activeIDs: Set<String> = []
     var starredIDs: Set<String> = []
     var quotaExemptIDs: Set<String> = []
+    var retainedPeriodicIDs: Set<String> = []
     var completedPeriodicIDs: Set<String> = []
+    var starLimit = 1
+    var isFirstSelection = false
 }
 
 struct HabitDashboardSnapshot {
@@ -17,6 +20,9 @@ enum HabitSelectionError: Error {
     case databaseUnavailable
     case databaseFailure(String)
     case quotaExceeded
+    case invalidStarredSelection
+    case starLimitExceeded(Int)
+    case firstSelectionRequiresGoal
 }
 
 struct SharedHabitSelectionStore {
@@ -52,6 +58,8 @@ struct SharedHabitSelectionStore {
         try withDatabase(readOnly: true) { db in
             let rows = try selections(in: db)
             var snapshot = HabitSelectionSnapshot()
+            snapshot.isFirstSelection = rows.isEmpty
+            snapshot.starLimit = try scalar("SELECT COUNT(*) FROM habit_logs", in: db) >= 6 ? 2 : 1
             for row in rows {
                 let periodic = Self.isPeriodic(row.id)
                 let periodKey = Self.periodKey(row.id, date)
@@ -60,7 +68,10 @@ struct SharedHabitSelectionStore {
                     snapshot.completedPeriodicIDs.insert(row.id)
                 }
                 if row.starred { snapshot.starredIDs.insert(row.id) }
-                if row.starred || (periodic && row.activeOn.map({ Self.periodKey(row.id, $0) == periodKey }) == true) {
+                if periodic && row.activeOn.map({ Self.periodKey(row.id, $0) == periodKey }) == true {
+                    snapshot.retainedPeriodicIDs.insert(row.id)
+                }
+                if row.starred || snapshot.retainedPeriodicIDs.contains(row.id) {
                     snapshot.quotaExemptIDs.insert(row.id)
                 }
                 let selected = row.starred || periodic || row.activeOn.map { Calendar.current.isDate($0, inSameDayAs: date) } == true
@@ -78,27 +89,31 @@ struct SharedHabitSelectionStore {
         }
     }
 
-    func save(_ ids: Set<String>, at date: Date) throws {
+    func save(_ ids: Set<String>, starredIDs: Set<String>, at date: Date) throws {
         try withDatabase(readOnly: false) { db in
             let rows = try selections(in: db)
             let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-            let starred = Set(rows.filter(\.starred).map(\.id)).intersection(ids)
+            guard starredIDs.isSubset(of: ids) else { throw HabitSelectionError.invalidStarredSelection }
+            let starLimit = try scalar("SELECT COUNT(*) FROM habit_logs", in: db) >= 6 ? 2 : 1
+            guard starredIDs.count <= starLimit else { throw HabitSelectionError.starLimitExceeded(starLimit) }
+            if rows.isEmpty && ids.isEmpty { throw HabitSelectionError.firstSelectionRequiresGoal }
+            if rows.isEmpty && !starredIDs.isEmpty { throw HabitSelectionError.invalidStarredSelection }
             let regularCount = ids.filter { id in
-                if starred.contains(id) { return false }
+                if starredIDs.contains(id) { return false }
                 guard Self.isPeriodic(id), let activeOn = byID[id]?.activeOn else { return true }
                 return Self.periodKey(id, activeOn) != Self.periodKey(id, date)
             }.count
             guard regularCount <= 3 else { throw HabitSelectionError.quotaExceeded }
             try execute("BEGIN IMMEDIATE", in: db)
             do {
-                for row in rows where !ids.contains(row.id) && !row.starred {
+                for row in rows where !ids.contains(row.id) {
                     try update(id: row.id, activeOn: nil, starred: false, in: db)
                 }
                 for id in ids {
                     if byID[id] != nil {
-                        try update(id: id, activeOn: date, starred: starred.contains(id), in: db)
+                        try update(id: id, activeOn: date, starred: starredIDs.contains(id), in: db)
                     } else {
-                        try insert(id: id, at: date, in: db)
+                        try insert(id: id, at: date, starred: starredIDs.contains(id), in: db)
                     }
                 }
                 try execute("COMMIT", in: db)
@@ -140,12 +155,13 @@ struct SharedHabitSelectionStore {
         guard sqlite3_step(statement) == SQLITE_DONE else { throw failure(in: db) }
     }
 
-    private func insert(id: String, at date: Date, in db: OpaquePointer) throws {
-        let statement = try prepare("INSERT INTO habit_selections (habit_id, commitment_note, enabled_at, is_starred, active_on) VALUES (?, '', ?, 0, ?)", in: db)
+    private func insert(id: String, at date: Date, starred: Bool, in db: OpaquePointer) throws {
+        let statement = try prepare("INSERT INTO habit_selections (habit_id, commitment_note, enabled_at, is_starred, active_on) VALUES (?, '', ?, ?, ?)", in: db)
         defer { sqlite3_finalize(statement) }
         bind(id, to: 1, in: statement)
         sqlite3_bind_int64(statement, 2, Int64(date.timeIntervalSince1970))
-        sqlite3_bind_int64(statement, 3, Int64(date.timeIntervalSince1970))
+        sqlite3_bind_int(statement, 3, starred ? 1 : 0)
+        sqlite3_bind_int64(statement, 4, Int64(date.timeIntervalSince1970))
         guard sqlite3_step(statement) == SQLITE_DONE else { throw failure(in: db) }
     }
 

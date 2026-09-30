@@ -7,17 +7,17 @@ private struct PerspectiveCardShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let topR = min(topRadius, min(rect.width, rect.height) / 2)
-        let bottomR = min(bottomRadius, min(rect.width - bottomInset * 2, rect.height) / 2)
         let inset = min(bottomInset, rect.width * 0.12)
+        let bottomR = min(bottomRadius, min(rect.width - inset * 2, rect.height) / 2)
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + topR, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY))
         path.addCurve(to: CGPoint(x: rect.maxX, y: rect.minY + topR), control1: CGPoint(x: rect.maxX - topR * 0.42, y: rect.minY), control2: CGPoint(x: rect.maxX, y: rect.minY + topR * 0.42))
-        path.addCurve(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR), control1: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.42), control2: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR * 2.1))
+        path.addCurve(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR), control1: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.44), control2: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR * 1.55))
         path.addQuadCurve(to: CGPoint(x: rect.maxX - inset - bottomR, y: rect.maxY), control: CGPoint(x: rect.maxX - inset, y: rect.maxY))
         path.addLine(to: CGPoint(x: rect.minX + inset + bottomR, y: rect.maxY))
         path.addQuadCurve(to: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR), control: CGPoint(x: rect.minX + inset, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + topR), control1: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR * 2.1), control2: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.42))
+        path.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + topR), control1: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR * 1.55), control2: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.44))
         path.addCurve(to: CGPoint(x: rect.minX + topR, y: rect.minY), control1: CGPoint(x: rect.minX, y: rect.minY + topR * 0.42), control2: CGPoint(x: rect.minX + topR * 0.42, y: rect.minY))
         path.closeSubpath()
         return path
@@ -45,14 +45,14 @@ struct TodayStackDeckView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(alignment: .center) {
-                Text("选择今天的目标")
-                    .font(.system(size: 27, weight: .medium))
+                Text("右滑/取消选择今天的目标")
+                    .font(.system(size: 23, weight: .semibold))
                     .tracking(-0.4)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                 Spacer(minLength: 8)
                 HStack(spacing: 5) {
-                    Text("\(goals.filter { state.selectedGoalIDs.contains($0.id) && $0.countsTowardQuota }.count)").fontWeight(.semibold)
+                    Text("\(goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count)").fontWeight(.semibold)
                     Text("/ 3").foregroundStyle(.secondary)
                 }
                 .font(.system(size: 17))
@@ -62,6 +62,15 @@ struct TodayStackDeckView: View {
             .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
             .padding(.horizontal, 4)
             .padding(.top, 20)
+
+            HStack(spacing: 12) {
+                legend("普通", color: Color(red: 0.769, green: 0.820, blue: 0.733))
+                legend("周期", color: Color(red: 0.725, green: 0.800, blue: 0.831))
+                legend("星标", color: Color(red: 0.878, green: 0.816, blue: 0.659))
+                Spacer(minLength: 0)
+                Text("上下滑动浏览").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 5)
 
             GeometryReader { geometry in
                 let cardHeight = min(geometry.size.height * 0.56, 390)
@@ -76,32 +85,35 @@ struct TodayStackDeckView: View {
                         goalCard(goal, index: index, isHero: isHero, selected: isSelected)
                             .frame(height: cardHeight, alignment: .top)
                             .frame(maxWidth: .infinity)
-                            .background {
-                                PerspectiveCardShape(topRadius: 28, bottomRadius: 22, bottomInset: 6)
-                                    .fill(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(isHero ? 0.82 : 0.69))
-                            }
+                            .background { cardSurface(goal, isHero: isHero) }
                             .overlay {
-                                PerspectiveCardShape(topRadius: 28, bottomRadius: 22, bottomInset: 6)
-                                    .stroke(.white.opacity(isHero ? 0.78 : 0.52), lineWidth: 1)
+                                PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35)
+                                    .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
+                                    .allowsHitTesting(false)
                             }
-                            .clipShape(PerspectiveCardShape(topRadius: 28, bottomRadius: 22, bottomInset: 6))
-                            .shadow(color: .black.opacity(0.22), radius: 12, y: -4)
-                            .shadow(color: Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(0.22), radius: 9, y: 4)
+                            .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35))
+                            .shadow(color: .black.opacity(isHero ? 0.24 : 0.28), radius: 15, y: -7)
+                            .shadow(color: Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(0.31), radius: 17, y: 13)
                             .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
                             .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                             .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
                             .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
                             .zIndex(Double(slot))
-                            .contentShape(PerspectiveCardShape(topRadius: 28, bottomRadius: 22, bottomInset: 6))
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("\(goal.previewTitle)，\(isSelected ? "已选择" : "未选择")")
-                            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-                            .accessibilityHint("轻点切换选择状态")
+                            .contentShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35))
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .clipped()
+                .mask(alignment: .top) {
+                    let limit = min(geometry.size.height, cardTop(slot: visibleSlots - 1, step: step, height: cardHeight) + 68)
+                    VStack(spacing: 0) {
+                        Rectangle().frame(height: max(0, limit - 18))
+                        LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 18)
+                        Spacer(minLength: 0)
+                    }
+                }
                 .contentShape(Rectangle())
                 .simultaneousGesture(DragGesture(minimumDistance: 12)
                     .onChanged { value in
@@ -130,9 +142,6 @@ struct TodayStackDeckView: View {
                         let next = (focus + (value.predictedEndTranslation.height < 0 ? 1 : -1) + goals.count) % goals.count
                         withAnimation(spring) { state.focusedGoalID = goals[next].id }
                     })
-                .simultaneousGesture(SpatialTapGesture().onEnded { value in
-                    if let goal = goalAt(value.location.y, step: step, height: cardHeight, count: visibleSlots) { toggle(goal) }
-                })
                 .animation(spring, value: drag == 0)
                 .animation(spring, value: horizontalDrag == 0)
             }
@@ -141,6 +150,28 @@ struct TodayStackDeckView: View {
         .padding(.horizontal, 24)
         .animation(spring, value: state.focusedGoalID)
         .animation(spring, value: state.selectedGoalIDs)
+    }
+
+    private func legend(_ title: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(title).font(.system(size: 11, weight: .medium))
+        }.foregroundStyle(Color(red: 0.31, green: 0.25, blue: 0.33))
+    }
+
+    private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
+        let tint = Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
+        let accent: Color = state.starredGoalIDs.contains(goal.id) ? Color(red: 0.878, green: 0.816, blue: 0.659) : goal.isPeriodic ? Color(red: 0.725, green: 0.800, blue: 0.831) : tint
+        return PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35)
+            .fill(LinearGradient(stops: [
+                .init(color: accent.opacity(0.99), location: 0),
+                .init(color: tint.opacity(0.98), location: 0.47),
+                .init(color: tint.opacity(0.94), location: 1)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(alignment: .top) {
+                PerspectiveCardShape(topRadius: 29, bottomRadius: 19, bottomInset: 35)
+                    .fill(LinearGradient(colors: [.white.opacity(0.28), .clear, .black.opacity(0.12)], startPoint: .top, endPoint: .bottom))
+            }
     }
 
     private func goalCard(_ goal: Goal, index: Int, isHero: Bool, selected: Bool) -> some View {
@@ -153,7 +184,12 @@ struct TodayStackDeckView: View {
                         .background(.white.opacity(0.16), in: Circle())
                     Text("\(goal.id) · \(goal.category)")
                         .font(.system(size: 14, weight: .medium))
+                    Text(state.starredGoalIDs.contains(goal.id) ? "星标" : goal.isPeriodic ? "周期" : "普通")
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 7).padding(.vertical, 4)
+                        .background(.white.opacity(0.19), in: Capsule())
                     Spacer()
+                    starButton(goal)
                     selectionMark(goal, selected: selected, size: 30)
                 }
                 .padding(.horizontal, 20).padding(.top, 9)
@@ -176,7 +212,7 @@ struct TodayStackDeckView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                Text(goal.summary)
+                Text(state.starredGoalIDs.contains(goal.id) ? "星标：完成不加积分，但增加养成进度" : goal.isPeriodic ? "周期习惯：次日起作为额外名额保留" : goal.summary)
                     .font(.system(size: 16, weight: .medium))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.94))
@@ -199,6 +235,8 @@ struct TodayStackDeckView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 4)
+                    if state.starredGoalIDs.contains(goal.id) { Image(systemName: "star.fill").font(.system(size: 13)) }
+                    else if goal.isPeriodic { Image(systemName: "calendar").font(.system(size: 13)) }
                     selectionMark(goal, selected: selected, size: 25)
                 }
                 .foregroundStyle(.white)
@@ -206,10 +244,29 @@ struct TodayStackDeckView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background {
-            Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
-                .opacity(isHero ? 0.78 : 0.58)
+    }
+
+    private func starButton(_ goal: Goal) -> some View {
+        let starred = state.starredGoalIDs.contains(goal.id)
+        let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
+        let canUnstar = !goal.countsTowardQuota || regularCount < 3
+        let canStar = state.selectedGoalIDs.contains(goal.id) && !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
+        return Button {
+            if starred {
+                state.starredGoalIDs.remove(goal.id)
+            } else if canStar {
+                state.starredGoalIDs.insert(goal.id)
+            }
+        } label: {
+            Image(systemName: starred ? "star.fill" : "star")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
+                .frame(width: 34, height: 34)
         }
+        .buttonStyle(.plain)
+        .disabled(starred ? !canUnstar : !canStar)
+        .accessibilityLabel(starred ? "取消星标" : "设为星标")
+        .accessibilityHint(starred && !canUnstar ? "先右滑取消一个普通习惯" : !starred && !canStar ? "先右滑选中卡片，再设置星标" : "点按切换星标")
     }
 
     private func selectionMark(_ goal: Goal, selected: Bool, size: CGFloat) -> some View {
@@ -254,10 +311,10 @@ struct TodayStackDeckView: View {
 
     private func toggle(_ goal: Goal) {
         let wasSelected = state.selectedGoalIDs.contains(goal.id)
-        let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
+        let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
         guard wasSelected || !goal.countsTowardQuota || regularCount < 3 else { return }
         withAnimation(spring) {
-            if wasSelected { state.selectedGoalIDs.remove(goal.id) }
+            if wasSelected { state.selectedGoalIDs.remove(goal.id); state.starredGoalIDs.remove(goal.id) }
             else { state.selectedGoalIDs.insert(goal.id) }
             bounceID = goal.id
         }

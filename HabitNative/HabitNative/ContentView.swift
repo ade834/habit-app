@@ -36,9 +36,15 @@ struct ContentView: View {
                 let refreshedGoals = (try? await repository.availableGoals(for: .now)) ?? goals
                 if refreshedGoals != goals { goals = refreshedGoals }
                 dashboard = try? SharedHabitSelectionStore().dashboard(at: .now)
+                let selectionSnapshot = try? SharedHabitSelectionStore().snapshot(at: .now)
+                if let selectionSnapshot {
+                    state.starLimit = selectionSnapshot.starLimit
+                    state.isFirstSelection = selectionSnapshot.isFirstSelection
+                }
                 if state.mode != .browsingDeck,
                    let selected = try? await repository.selectedGoalIDs(for: .now) {
                     state.selectedGoalIDs = selected
+                    if let selectionSnapshot { state.starredGoalIDs = selectionSnapshot.starredIDs }
                 }
                 if goals.isEmpty {
                     state.mode = .homeUnselected
@@ -53,12 +59,22 @@ struct ContentView: View {
     private func confirmSelection() {
         Task {
             do {
-                try await repository.saveSelectedGoalIDs(state.selectedGoalIDs, for: .now)
+                try await repository.saveSelectedGoalIDs(state.selectedGoalIDs, starredIDs: state.starredGoalIDs, for: .now)
                 goals = try await repository.availableGoals(for: .now)
                 state.selectedGoalIDs = try await repository.selectedGoalIDs(for: .now)
+                if let snapshot = try? SharedHabitSelectionStore().snapshot(at: .now) {
+                    state.starredGoalIDs = snapshot.starredIDs
+                    state.isFirstSelection = snapshot.isFirstSelection
+                }
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeSelected }
             } catch {
-                databaseError = "数据库未能保存这次选择：\(error.localizedDescription)"
+                switch error {
+                case HabitSelectionError.quotaExceeded: databaseError = "当天新建的普通和周期习惯最多 3 个。"
+                case HabitSelectionError.starLimitExceeded(let limit): databaseError = "当前阶段最多设置 \(limit) 个星标习惯。"
+                case HabitSelectionError.firstSelectionRequiresGoal: databaseError = "首次使用请至少选择一个目标。"
+                case HabitSelectionError.invalidStarredSelection: databaseError = "星标必须属于已选目标；首次选择暂不能设置星标。"
+                default: databaseError = "数据库未能保存这次选择：\(error.localizedDescription)"
+                }
             }
         }
     }
@@ -137,15 +153,6 @@ private struct TodayRootView: View {
                         ))
                 }
 
-                if state.mode == .browsingDeck {
-                    Button("返回") { withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeUnselected } }
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 28)
-                        .padding(.top, 2)
-                }
-
                 if state.mode != .browsingDeck { Spacer(minLength: 16) }
 
                 // 底部占位高度，确保主内容不被底部胶囊栏遮挡
@@ -155,7 +162,7 @@ private struct TodayRootView: View {
 
             // 底部确认栏（选卡片时）
             if state.mode == .browsingDeck && state.tab == .today {
-                ConfirmSelectionBar(action: onConfirm)
+                ConfirmSelectionBar(goals: goals, state: state, action: onConfirm)
                     .padding(.bottom, 94)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -495,12 +502,33 @@ private struct DeckCard: View {
 }
 
 private struct ConfirmSelectionBar: View {
+    let goals: [Goal]
+    let state: TodayGoalState
     let action: () -> Void
+    private var regularCount: Int {
+        goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
+    }
     var body: some View {
-        Button("确认选择") { action() }
-            .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-            .frame(maxWidth: .infinity).frame(height: 48).background(.black.opacity(0.7), in: Capsule())
-            .padding(.horizontal, 22).padding(.bottom, 6)
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("当天新建 \(regularCount)/3 · 星标 \(state.starredGoalIDs.count)/\(state.starLimit)")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(state.isFirstSelection ? "首日周期计名额 · 完成后可设星标" : "右滑后可设星标 · 周期次日保留")
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
+            Spacer(minLength: 4)
+            Button("确认选择") { action() }
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                .padding(.horizontal, 20).frame(height: 44)
+                .background(.black.opacity(0.72), in: Capsule())
+                .disabled(state.isFirstSelection && state.selectedGoalIDs.isEmpty)
+                .opacity(state.isFirstSelection && state.selectedGoalIDs.isEmpty ? 0.42 : 1)
+        }
+        .padding(.horizontal, 14).frame(height: 66)
+        .background(.white.opacity(0.32), in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.66), lineWidth: 1))
+        .padding(.horizontal, 22).padding(.bottom, 6)
     }
 }
 

@@ -23,6 +23,7 @@ struct Goal: Identifiable, Hashable, Sendable {
     var completionCount: Int = 0
     var growthStage: String = "种子"
     var countsTowardQuota: Bool = true
+    var isPeriodic: Bool = false
 }
 
 struct GoalEntry: Sendable {
@@ -34,7 +35,7 @@ struct GoalEntry: Sendable {
 protocol GoalRepository: Sendable {
     func availableGoals(for date: Date) async throws -> [Goal]
     func selectedGoalIDs(for date: Date) async throws -> Set<String>
-    func saveSelectedGoalIDs(_ ids: Set<String>, for date: Date) async throws
+    func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws
     func submit(_ entry: GoalEntry) async throws
 }
 
@@ -91,7 +92,8 @@ struct SharedHabitRepository: GoalRepository {
                         inputPrimary: goal.inputPrimary, inputSecondary: goal.inputSecondary,
                         completionLabel: goal.completionLabel, tint: goal.tint, order: index + 1,
                         completionCount: count, growthStage: stage,
-                        countsTowardQuota: !selection.quotaExemptIDs.contains(goal.id))
+                        countsTowardQuota: !selection.retainedPeriodicIDs.contains(goal.id),
+                        isPeriodic: SharedHabitSelectionStore.isPeriodic(goal.id))
         }
     }
 
@@ -99,8 +101,8 @@ struct SharedHabitRepository: GoalRepository {
         let snapshot = try SharedHabitSelectionStore().snapshot(at: date)
         return snapshot.activeIDs.union(snapshot.starredIDs)
     }
-    func saveSelectedGoalIDs(_ ids: Set<String>, for date: Date) async throws {
-        try SharedHabitSelectionStore().save(ids, at: date)
+    func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws {
+        try SharedHabitSelectionStore().save(ids, starredIDs: starredIDs, at: date)
     }
     func submit(_ entry: GoalEntry) async throws {}
 
@@ -128,7 +130,7 @@ struct SharedHabitRepository: GoalRepository {
 struct InMemoryGoalRepository: GoalRepository {
     func availableGoals(for date: Date) async throws -> [Goal] { Self.goals }
     func selectedGoalIDs(for date: Date) async throws -> Set<String> { [] }
-    func saveSelectedGoalIDs(_ ids: Set<String>, for date: Date) async throws {}
+    func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws {}
     func submit(_ entry: GoalEntry) async throws {}
 
     static let goals = [
@@ -170,5 +172,8 @@ struct TodayGoalState: Equatable {
     var mode: TodayMode = .homeUnselected
     var focusedGoalID = "H6"
     var selectedGoalIDs: Set<String> = []
+    var starredGoalIDs: Set<String> = []
+    var starLimit = 1
+    var isFirstSelection = false
     var homeSelectedIndex = 0
 }
