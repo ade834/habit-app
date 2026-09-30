@@ -716,7 +716,7 @@ private struct HomeSelectionHint: View {
     @State private var shimmerEnd: CGFloat = 0
 
     private let title = "轻触卡片，选择今日目标"
-    private let ink = Color(red: 0.28, green: 0.22, blue: 0.30)
+    private let ink = Color.white
 
     var body: some View {
         Text(title)
@@ -726,11 +726,11 @@ private struct HomeSelectionHint: View {
             .foregroundStyle(
                 LinearGradient(
                     stops: [
-                        .init(color: ink, location: 0),
-                        .init(color: ink, location: 0.42),
-                        .init(color: Color(red: 1, green: 0.92, blue: 0.81), location: 0.5),
-                        .init(color: ink, location: 0.58),
-                        .init(color: ink, location: 1)
+                        .init(color: ink.opacity(0.88), location: 0),
+                        .init(color: ink.opacity(0.88), location: 0.42),
+                        .init(color: ink, location: 0.5),
+                        .init(color: ink.opacity(0.88), location: 0.58),
+                        .init(color: ink.opacity(0.88), location: 1)
                     ],
                     startPoint: UnitPoint(x: reduceMotion ? 0 : shimmerEnd - 1, y: 0),
                     endPoint: UnitPoint(x: reduceMotion ? 1 : shimmerEnd, y: 0)

@@ -85,11 +85,19 @@ struct TodayStackDeckView: View {
                         goalCard(goal, index: index, isHero: isHero, selected: isSelected)
                             .frame(height: cardHeight, alignment: .top)
                             .frame(maxWidth: .infinity)
+                            .background { cardSurface(goal, isHero: isHero) }
                             .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
-                            .background {
-                                cardSurface(goal, isHero: isHero)
-                                    .shadow(color: .black.opacity(isHero ? 0.20 : 0.24), radius: 12, y: -5)
-                                    .shadow(color: Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(0.23), radius: 13, y: 8)
+                            .overlay(alignment: .top) {
+                                if slot > 0 {
+                                    LinearGradient(
+                                        colors: [.black.opacity(isHero ? 0.18 : 0.22), .black.opacity(0.06), .clear],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                    .frame(height: isHero ? 34 : 27)
+                                    .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
+                                    .allowsHitTesting(false)
+                                }
                             }
                             .overlay {
                                 PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
@@ -105,17 +113,9 @@ struct TodayStackDeckView: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, alignment: .top)
+                .frame(height: max(0, geometry.size.height - 15), alignment: .top)
                 .clipped()
-                .mask(alignment: .top) {
-                    let limit = max(0, geometry.size.height - 15)
-                    VStack(spacing: 0) {
-                        Rectangle().frame(height: max(0, limit - 18))
-                        LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 18)
-                        Spacer(minLength: 0)
-                    }
-                }
                 .contentShape(Rectangle())
                 .simultaneousGesture(DragGesture(minimumDistance: 12)
                     .onChanged { value in
@@ -152,6 +152,12 @@ struct TodayStackDeckView: View {
         .padding(.horizontal, 24)
         .animation(spring, value: state.focusedGoalID)
         .animation(spring, value: state.selectedGoalIDs)
+        .onAppear {
+            // 数据库排序第一张固定落在 slot 2（第三张、主展示位）。
+            if let firstGoal = goals.first {
+                state.focusedGoalID = firstGoal.id
+            }
+        }
     }
 
     private func legend(_ title: String, color: Color) -> some View {
@@ -295,8 +301,8 @@ struct TodayStackDeckView: View {
     private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
         switch slot {
         case 0...2: CGFloat(slot) * step
-        case 3: 2 * step + height * 0.77
-        default: 2 * step + height * 0.77 + CGFloat(slot - 3) * max(60, height * 0.24)
+        case 3: 2 * step + height * 0.80
+        default: 2 * step + height * 0.80 + CGFloat(slot - 3) * max(64, height * 0.27)
         }
     }
 
