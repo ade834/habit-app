@@ -122,13 +122,7 @@ private struct TodayRootView: View {
                                 }
 
                             // 三个卡片下方提示
-                            Text("轻触卡片\n进行今日目标选择")
-                                .font(.system(size: 16.25, weight: .bold))
-                                .multilineTextAlignment(.center)
-                                .lineSpacing(3)
-                                .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.29))
-                                .shadow(color: .white.opacity(0.95), radius: 8)
-                                .shadow(color: .white.opacity(0.8), radius: 2)
+                            HomeSelectionHint()
                                 .offset(y: tuning.cardOffsetY + 10)
                         }
                     case .browsingDeck:
@@ -678,6 +672,40 @@ private struct YesterdayReviewBanner: View {
     }
 }
 
+private struct HomeSelectionHint: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shimmerEnd: CGFloat = 0
+
+    private let title = "轻触卡片，选择今日目标"
+    private let ink = Color(red: 0.28, green: 0.22, blue: 0.30)
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 18.7, weight: .heavy))
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
+            .foregroundStyle(
+                LinearGradient(
+                    stops: [
+                        .init(color: ink, location: 0),
+                        .init(color: ink, location: 0.42),
+                        .init(color: Color(red: 1, green: 0.92, blue: 0.81), location: 0.5),
+                        .init(color: ink, location: 0.58),
+                        .init(color: ink, location: 1)
+                    ],
+                    startPoint: UnitPoint(x: reduceMotion ? 0 : shimmerEnd - 1, y: 0),
+                    endPoint: UnitPoint(x: reduceMotion ? 1 : shimmerEnd, y: 0)
+                )
+            )
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 3.1).repeatForever(autoreverses: false)) {
+                    shimmerEnd = 2
+                }
+            }
+    }
+}
+
 private struct HomePreviewDeckView: View {
     let goals: [Goal]
     var tuning: UITuningState = UITuningState()
@@ -687,9 +715,9 @@ private struct HomePreviewDeckView: View {
 
     private var poses: [PreviewPose] {
         [
-            PreviewPose(x: -tuning.cardWidth * 0.32, y: 20, width: tuning.cardWidth * 0.94, rotation: -7, opacity: 0.55),
-            PreviewPose(x: 0, y: 0, width: tuning.cardWidth, rotation: 0, opacity: 0.78),
-            PreviewPose(x: tuning.cardWidth * 0.32, y: 18, width: tuning.cardWidth * 0.94, rotation: 7, opacity: 0.62)
+            PreviewPose(x: -tuning.cardWidth * 0.32, y: 20, width: tuning.cardWidth * 0.94, rotation: -7, opacity: 0.25),
+            PreviewPose(x: 0, y: 0, width: tuning.cardWidth, rotation: 0, opacity: 0.30),
+            PreviewPose(x: tuning.cardWidth * 0.32, y: 18, width: tuning.cardWidth * 0.94, rotation: 7, opacity: 0.27)
         ]
     }
 
@@ -699,11 +727,10 @@ private struct HomePreviewDeckView: View {
                 let pose = poses[index]
                 let dynamicFloat: CGFloat = animateBreathing ? (index == 1 ? -11 : (index == 0 ? 8 : -7)) : 0
 
-                PreviewGoalCard(goal: goal, index: index + 1)
+                PreviewGoalCard(goal: goal, index: index + 1, surfaceOpacity: pose.opacity, isPrimary: index == 1)
                     .frame(width: pose.width, height: tuning.cardHeight)
                     .rotationEffect(.degrees(pose.rotation))
                     .offset(x: pose.x, y: pose.y + dynamicFloat)
-                    .opacity(pose.opacity)
                     .zIndex(Double(index == 1 ? 3 : (index == 2 ? 2 : 1)))
             }
         }
@@ -730,20 +757,28 @@ private struct PreviewPose {
 private struct PreviewGoalCard: View {
     let goal: Goal
     let index: Int
+    var surfaceOpacity: Double = 0.9
+    var isPrimary = true
+
+    private var textColor: Color {
+        surfaceOpacity < 0.5 ? Color(red: 0.27, green: 0.19, blue: 0.29) : .white
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(String(format: "%02d", index))
                 .font(.system(size: 11, weight: .medium))
                 .tracking(1.32)
-                .foregroundStyle(.white.opacity(0.80))
-            Text(goal.previewTitle)
-                .font(.system(size: 25, weight: .medium))
-                .tracking(-0.77)
-                .foregroundStyle(.white)
-            Text(goal.previewSummary)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.84))
+                .foregroundStyle(textColor.opacity(isPrimary ? 0.85 : 0.45))
+            if isPrimary {
+                Text(goal.previewTitle)
+                    .font(.system(size: 25, weight: .semibold))
+                    .tracking(-0.77)
+                    .foregroundStyle(textColor)
+                Text(goal.previewSummary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(textColor.opacity(0.86))
+            }
             Spacer()
         }
         .padding(.horizontal, 20)
@@ -751,7 +786,7 @@ private struct PreviewGoalCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(max(goal.tint.opacity + 0.55, 0.85)))
+                .fill(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(surfaceOpacity))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
