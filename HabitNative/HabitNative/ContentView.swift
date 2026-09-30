@@ -849,17 +849,49 @@ private struct PreviewGoalCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(.ultraThinMaterial)
+                // 75% 的材质层保留背景透出，色彩只作为玻璃染色而非实心底。
+                .fill(.ultraThinMaterial.opacity(0.75))
                 .overlay {
                     RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .fill(Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(surfaceOpacity))
+                        .fill(Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(0.30))
+                }
+                // 右上角主光，沿对角线衰减，不将卡面照成一整片白色。
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(
+                            RadialGradient(
+                                colors: [.white.opacity(0.56), .white.opacity(0.17), .clear],
+                                center: .topTrailing,
+                                startRadius: 2,
+                                endRadius: 155
+                            )
+                        )
+                        .blendMode(.screen)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [.white.opacity(0.26), .clear, .black.opacity(0.08)],
+                                startPoint: .topTrailing,
+                                endPoint: .bottomLeading
+                            )
+                        )
                 }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(.white.opacity(0.68), lineWidth: 1.2)
+                .stroke(
+                    LinearGradient(
+                        colors: [.white.opacity(0.90), .white.opacity(0.32), .white.opacity(0.58)],
+                        startPoint: .topTrailing,
+                        endPoint: .bottomLeading
+                    ),
+                    lineWidth: 1.2
+                )
         }
-        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 12)
+        .shadow(color: Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(0.20), radius: 16, y: 10)
+        .shadow(color: Color.black.opacity(0.12), radius: 18, y: 12)
     }
 
 }
