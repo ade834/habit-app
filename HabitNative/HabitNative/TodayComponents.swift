@@ -82,14 +82,14 @@ struct TodayStackDeckView: View {
 
             GeometryReader { geometry in
                 let cardHeight = min(geometry.size.height * 0.56, 390)
-                // 让前两张的露出高度增加约 1.25 倍，同时整体把后续卡片下移。
+                // 第二张作为主展示位；第三张从 40% 露出量开始逐级递减。
                 let step = max(45, geometry.size.height * 0.094)
                 let visibleSlots = min(goals.count, 5)
                 ZStack(alignment: .top) {
                     ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
-                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
+                        let slot = (index - focus + 1 + goals.count) % max(1, goals.count)
                         if slot < visibleSlots {
-                        let isHero = slot == min(2, visibleSlots - 1)
+                        let isHero = slot == min(1, visibleSlots - 1)
                         let isSelected = state.selectedGoalIDs.contains(goal.id)
                         let reveal = contentReveal(
                             slot: slot,
@@ -119,7 +119,7 @@ struct TodayStackDeckView: View {
 
                     // 交互层独立置于所有卡片之上，避免相邻卡片的大画布遮住星标命中区。
                     ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
-                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
+                        let slot = (index - focus + 1 + goals.count) % max(1, goals.count)
                         if slot < visibleSlots {
                             starButton(goal)
                                 .position(
@@ -190,12 +190,13 @@ struct TodayStackDeckView: View {
                 RuleNoticeBanner(message: ruleNotice)
                     .matchedGeometryEffect(id: "rule-notice", in: noticeMorph)
                     .padding(.top, 84)
+                    .padding(.horizontal, 24)
                     .transition(.opacity)
                     .zIndex(500)
             }
         }
         .onAppear {
-            // 数据库排序第一张固定落在 slot 2（第三张、主展示位）。
+            // 数据库排序第一张固定落在 slot 1（第二张、主展示位）。
             if let firstGoal = goals.first {
                 state.focusedGoalID = firstGoal.id
             }
@@ -393,10 +394,14 @@ struct TodayStackDeckView: View {
     }
 
     private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
-        switch slot {
-        case 0...2: CGFloat(slot) * step
-        case 3: 2 * step + height * 0.80
-        default: 2 * step + height * 0.80 + CGFloat(slot - 3) * max(64, height * 0.27)
+        let thirdTop = step + height * 0.58
+        let fourthTop = thirdTop + height * 0.40
+        return switch slot {
+        case 0: 0
+        case 1: step
+        case 2: thirdTop
+        case 3: fourthTop
+        default: fourthTop + CGFloat(slot - 3) * max(64, height * 0.28)
         }
     }
 
@@ -405,7 +410,7 @@ struct TodayStackDeckView: View {
         for slot in (0..<count).reversed() {
             let top = cardTop(slot: slot, step: step, height: height)
             if y >= top && y <= top + height {
-                let index = (focus - 2 + slot + goals.count) % goals.count
+                let index = (focus - 1 + slot + goals.count) % goals.count
                 return goals[index]
             }
         }
@@ -434,13 +439,13 @@ struct TodayStackDeckView: View {
     private func showRuleNotice(_ message: String) {
         let id = UUID()
         ruleNoticeID = id
-        withAnimation(.spring(response: 0.52, dampingFraction: 0.90, blendDuration: 0.16)) {
+        withAnimation(.spring(response: 1.04, dampingFraction: 0.90, blendDuration: 0.32)) {
             ruleNotice = message
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(5))
             guard ruleNoticeID == id else { return }
-            withAnimation(.spring(response: 0.46, dampingFraction: 0.92)) { ruleNotice = nil }
+            withAnimation(.spring(response: 0.92, dampingFraction: 0.92)) { ruleNotice = nil }
         }
     }
 }
