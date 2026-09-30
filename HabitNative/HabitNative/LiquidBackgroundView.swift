@@ -20,7 +20,7 @@ private struct CanvasLiquidBackground: View {
             GeometryReader { proxy in
                 ZStack {
                     // 底层淡雅米桃暖光底色
-                    Color(red: 247 / 255, green: 240 / 255, blue: 244 / 255)
+                    Color(red: 0.85, green: 0.85, blue: 0.87)
 
                     // 动态光球流体层
                     Canvas { context, size in
@@ -44,30 +44,22 @@ private struct CanvasLiquidBackground: View {
         let minDim = min(width, height)
 
         // ----------------------------------------------------
-        // 1. 底部两主光球体量更饱满（更满一点），动态速度与振幅明显加快，强烈挤压形变融合
-        // 主光球1 (6成体量，深洋红/紫粉色，覆盖底部大面积)
-        // 主光球2 (4成体量，亮暖橙/蜜桃金黄色，在右侧与紫红球剧烈相互挤压流动)
+        // 1. 两个主光球沿左下—右上对角线相向运动：靠近、碰撞融合、再分离。
         // ----------------------------------------------------
+        let morph1 = sin(time * 0.72) * 0.10 + cos(time * 0.48) * 0.05
+        let morph2 = cos(time * 0.65) * 0.08 + sin(time * 0.82) * 0.05
+        let collision = reduceMotion ? 0.72 : (sin(time * 0.42) + 1) * 0.5
 
-        // 提高动态流动速率与形变幅度，使得肉眼清晰可感
-        let morph1 = sin(time * 0.75) * 0.14 + cos(time * 0.52) * 0.08
-        let morph2 = cos(time * 0.68) * 0.12 + sin(time * 0.90) * 0.07
-
-        // 两球相互靠近与挤压的融合位移（频率提升）
-        let mergeFactor = sin(time * 0.62) // -1.0 到 1.0
-
-        // 底部 6成 主光球1（左下偏中，整体半径扩大至 0.85，几乎铺满下半区，色彩浓郁饱和）
-        let pinkRadius = minDim * (0.85 + morph1)
+        // 玫红球从左下向画面中心上移；橙色球从右上向中心下移。
+        let pinkRadius = minDim * (0.62 + morph1)
         let pinkCenter = CGPoint(
-            x: width * 0.35 + sin(time * 0.45) * 45 + mergeFactor * 36,
-            y: height * 0.82 + cos(time * 0.38) * 32
+            x: width * (0.20 + 0.31 * collision),
+            y: height * (0.80 - 0.30 * collision)
         )
-
-        // 底部 4成 主光球2（右下偏中，整体半径扩大至 0.68，与 6成主球 6:4 碰撞融合挤压）
-        let peachRadius = minDim * (0.68 + morph2)
+        let peachRadius = minDim * (0.52 + morph2)
         let peachCenter = CGPoint(
-            x: width * 0.74 + cos(time * 0.48) * 40 - mergeFactor * 32,
-            y: height * 0.77 + sin(time * 0.42) * 34
+            x: width * (0.84 - 0.31 * collision),
+            y: height * (0.20 + 0.32 * collision)
         )
 
         // ----------------------------------------------------
@@ -150,7 +142,7 @@ private struct CanvasLiquidBackground: View {
 
         // 3. 两主光球碰撞挤压产生的混合熔融过渡发光（Melting Core）
         let dist = hypot(peachCenter.x - pinkCenter.x, peachCenter.y - pinkCenter.y)
-        if dist < (pinkRadius + peachRadius) * 1.1 {
+        if dist < (pinkRadius + peachRadius) * 1.18 {
             let midPoint = CGPoint(
                 x: pinkCenter.x * 0.40 + peachCenter.x * 0.60,
                 y: pinkCenter.y * 0.45 + peachCenter.y * 0.55
