@@ -111,21 +111,25 @@ struct BloomStageParams: Sendable {
     let desaturation: Double      // 0.0 ... 1.0
     let droopAngle: Double        // degrees 0 ... 55
     let petalDropRatio: Double    // 0.0 ... 1.0
-    let budWrapRatio: Double      // 1.0 when level 2, 0.0 at level 3
+    let budWrapRatio: Double      // 1.0 when tight bud, 0.0 at full bloom
+    let openRatio: Double         // 0.0 closed sprout, 0.55 half-open, 1.0 full bloom
+    let foliageScale: Double      // 0.0 none, 0.4 young leaves, 0.75 lush, 1.0 full
     let sproutLeafSpread: Double  // 0.0 ... 1.0
     let soilDisturbance: Double   // 0.0 ... 1.0
     let particleBurstActive: Bool
 
     static func evaluate(renderLevel: Double) -> BloomStageParams {
         if renderLevel >= 2.0 {
-            // Budding (2.0) -> Blooming (3.0)
+            // Budding/Half-Bloom (2.0) -> Full Bloom (3.0)
             let t = min(max(renderLevel - 2.0, 0.0), 1.0)
-            let stem = 0.70 + (1.00 - 0.70) * t
-            let head = 0.55 + (1.00 - 0.55) * t
+            let stem = 0.72 + (1.00 - 0.72) * t
+            let head = 0.65 + (1.00 - 0.65) * t
+            let open = 0.55 + (1.00 - 0.55) * t
+            let foliage = 0.75 + (1.00 - 0.75) * t
             let desat = 0.05 * (1.0 - t)
             let droop = 0.0
             let petalDrop = 0.0
-            let budWrap = 1.0 - t
+            let budWrap = (1.0 - t) * 0.35
             return BloomStageParams(
                 stemHeightRatio: stem,
                 headScale: head,
@@ -133,19 +137,23 @@ struct BloomStageParams: Sendable {
                 droopAngle: droop,
                 petalDropRatio: petalDrop,
                 budWrapRatio: budWrap,
+                openRatio: open,
+                foliageScale: foliage,
                 sproutLeafSpread: 0.0,
                 soilDisturbance: 0.0,
                 particleBurstActive: t >= 0.85
             )
         } else if renderLevel >= 1.0 {
-            // Sprouting (1.0) -> Budding (2.0)
+            // Sprouting (1.0) -> Budding/Half-Bloom (2.0)
             let t = renderLevel - 1.0
-            let stem = 0.30 + (0.70 - 0.30) * t
-            let head = 0.25 + (0.55 - 0.25) * t
+            let stem = 0.38 + (0.72 - 0.38) * t
+            let head = 0.35 + (0.65 - 0.35) * t
+            let open = 0.15 + (0.55 - 0.15) * t
+            let foliage = 0.40 + (0.75 - 0.40) * t
             let desat = 0.0
             let droop = 0.0
             let petalDrop = 0.0
-            let budWrap = t
+            let budWrap = 0.90 - 0.55 * t
             let sproutSpread = 1.0 - t
             return BloomStageParams(
                 stemHeightRatio: stem,
@@ -154,21 +162,25 @@ struct BloomStageParams: Sendable {
                 droopAngle: droop,
                 petalDropRatio: petalDrop,
                 budWrapRatio: budWrap,
+                openRatio: open,
+                foliageScale: foliage,
                 sproutLeafSpread: sproutSpread,
-                soilDisturbance: max(0.0, 0.5 - t * 0.5),
+                soilDisturbance: max(0.0, 0.45 - t * 0.45),
                 particleBurstActive: false
             )
         } else if renderLevel >= 0.0 {
-            // Seeded (0.0) -> Sprouting (1.0)
+            // Seeded/Sprout (0.0) -> Sprouting (1.0)
             let t = renderLevel
-            let stem = 0.06 + (0.30 - 0.06) * t
-            let head = 0.0 + 0.25 * t
+            let stem = 0.12 + (0.38 - 0.12) * t
+            let head = 0.18 + (0.35 - 0.18) * t
+            let open = 0.00 + 0.15 * t
+            let foliage = 0.00 + 0.40 * t
             let desat = 0.0
             let droop = 0.0
             let petalDrop = 0.0
-            let budWrap = 0.0
+            let budWrap = 1.0
             let sproutSpread = t
-            let soil = 1.0 - t * 0.4
+            let soil = 1.0 - t * 0.5
             return BloomStageParams(
                 stemHeightRatio: stem,
                 headScale: head,
@@ -176,15 +188,19 @@ struct BloomStageParams: Sendable {
                 droopAngle: droop,
                 petalDropRatio: petalDrop,
                 budWrapRatio: budWrap,
+                openRatio: open,
+                foliageScale: foliage,
                 sproutLeafSpread: sproutSpread,
                 soilDisturbance: soil,
                 particleBurstActive: false
             )
         } else if renderLevel >= -1.0 {
-            // Wilting (-1.0) -> Seeded (0.0 boundary handled with dissolve, but piecewise is safe)
+            // Wilting (-1.0) -> Seeded (0.0)
             let t = renderLevel + 1.0 // 0.0 at -1, 1.0 at 0
-            let stem = 0.88 * (1.0 - t) + 0.06 * t
+            let stem = 0.88 * (1.0 - t) + 0.12 * t
             let head = 0.78 * (1.0 - t)
+            let open = 0.55 * (1.0 - t)
+            let foliage = 0.50 * (1.0 - t)
             let desat = 0.45 * (1.0 - t)
             let droop = 28.0 * (1.0 - t)
             let petalDrop = 0.25 * (1.0 - t)
@@ -195,6 +211,8 @@ struct BloomStageParams: Sendable {
                 droopAngle: droop,
                 petalDropRatio: petalDrop,
                 budWrapRatio: 0.0,
+                openRatio: open,
+                foliageScale: foliage,
                 sproutLeafSpread: 0.0,
                 soilDisturbance: t * 0.8,
                 particleBurstActive: false
@@ -204,6 +222,8 @@ struct BloomStageParams: Sendable {
             let t = renderLevel + 2.0 // 0.0 at -2, 1.0 at -1
             let stem = 0.70 + (0.88 - 0.70) * t
             let head = 0.25 + (0.78 - 0.25) * t
+            let open = 0.25 * t
+            let foliage = 0.20 * t
             let desat = 0.80 - (0.80 - 0.45) * t
             let droop = 55.0 - (55.0 - 28.0) * t
             let petalDrop = 1.0 - (1.0 - 0.25) * t
@@ -214,6 +234,8 @@ struct BloomStageParams: Sendable {
                 droopAngle: droop,
                 petalDropRatio: petalDrop,
                 budWrapRatio: 0.0,
+                openRatio: open,
+                foliageScale: foliage,
                 sproutLeafSpread: 0.0,
                 soilDisturbance: 0.0,
                 particleBurstActive: false
@@ -232,6 +254,8 @@ struct BloomStageParams: Sendable {
                 droopAngle: droop,
                 petalDropRatio: 1.0,
                 budWrapRatio: 0.0,
+                openRatio: 0.0,
+                foliageScale: 0.0,
                 sproutLeafSpread: 0.0,
                 soilDisturbance: 0.0,
                 particleBurstActive: false

@@ -53,6 +53,7 @@ struct FlowerProceduralView: View {
     let windAngle: Double // sway offset in radians
     let breathingPhase: Double
     let isDissolving: Bool
+    var dragLeanAngle: Double = 0
 
     init(
         record: BloomRecord,
@@ -61,7 +62,8 @@ struct FlowerProceduralView: View {
         renderLevel: Double,
         windAngle: Double = 0,
         breathingPhase: Double = 0,
-        isDissolving: Bool = false
+        isDissolving: Bool = false,
+        dragLeanAngle: Double = 0
     ) {
         self.record = record
         self.recipe = recipe
@@ -70,6 +72,7 @@ struct FlowerProceduralView: View {
         self.windAngle = windAngle
         self.breathingPhase = breathingPhase
         self.isDissolving = isDissolving
+        self.dragLeanAngle = dragLeanAngle
     }
 
     private var params: BloomStageParams {
@@ -95,7 +98,7 @@ struct FlowerProceduralView: View {
 
     var body: some View {
         let baseHeight: CGFloat = 210 * CGFloat(traits.individualScale)
-        let stemHeight = max(baseHeight * CGFloat(params.stemHeightRatio), 10)
+        let stemHeight = max(baseHeight * CGFloat(params.stemHeightRatio), 14)
         let primaryColor = Color(hexString: recipe.palette[traits.paletteIndex % recipe.palette.count])
         let secondaryColor = Color(hexString: recipe.palette[(traits.paletteIndex + 1) % recipe.palette.count])
 
@@ -124,51 +127,56 @@ struct FlowerProceduralView: View {
                         .offset(y: 4)
                 }
 
-                // 2. Stem
-                if params.stemHeightRatio > 0.05 {
+                // 2. Stage 0: 破土 (renderLevel < 0.75)
+                if renderLevel < 0.75 {
+                    NascentSproutTipView(recipe: recipe, primaryColor: primaryColor)
+                } else {
+                    // 3. Stem (Levels 1, 2, 3)
                     ProceduralStemView(
                         stemHeight: stemHeight,
-                        leanAngle: traits.stemLeanAngle + windAngle * 10,
+                        leanAngle: traits.stemLeanAngle + windAngle * 10 + dragLeanAngle,
                         curveFactor: traits.stemCurveFactor,
                         droopAngle: params.droopAngle,
                         desaturation: params.desaturation,
-                        hasSprigs: recipe.foliage != "none",
+                        hasSprigs: false,
                         stemBaseColor: customStemColor
                     )
-                }
 
-                // 3. Sprout twin leaves (Level 1)
-                if params.sproutLeafSpread > 0.05 && renderLevel < 1.9 {
-                    SproutTwinLeaves(spread: params.sproutLeafSpread)
-                        .offset(y: -stemHeight)
-                }
+                    // 4. Species Foliage
+                    SpeciesFoliageView(
+                        recipe: recipe,
+                        maturity: params.foliageScale,
+                        stemHeight: stemHeight,
+                        stemColor: customStemColor
+                    )
 
-                // 4. Bud or Bloom Head (Level 2 & 3 & wilting)
-                if params.headScale > 0.05 && renderLevel >= 1.2 {
+                    // 5. Flower Apex: Stage 1 (Young Bud) vs Stage 2/3 (Bloom Head)
                     Group {
-                        if params.budWrapRatio > 0.3 {
-                            // Bud Casing
-                            BudCasingView(
-                                scale: params.headScale * (1.0 + sin(breathingPhase) * 0.05),
+                        if renderLevel < 1.75 {
+                            // Stage 1: 发芽/抽茎生叶 (Species-Colored Young Bud)
+                            SpeciesYoungBudView(
+                                recipe: recipe,
                                 primaryColor: primaryColor,
-                                budWrap: params.budWrapRatio
+                                secondaryColor: secondaryColor,
+                                scale: params.headScale * (1.0 + sin(breathingPhase) * 0.04)
                             )
                         } else {
-                            // Full Procedural Bloom Head
+                            // Stage 2 (初绽, openRatio ~ 0.55) & Stage 3 (繁盛, openRatio = 1.0)
                             ProceduralBloomHeadView(
                                 recipe: recipe,
                                 traits: traits,
                                 primaryColor: primaryColor,
                                 secondaryColor: secondaryColor,
-                                scale: params.headScale,
+                                scale: params.headScale * (1.0 + sin(breathingPhase) * 0.03),
                                 desaturation: params.desaturation,
                                 droopAngle: params.droopAngle,
-                                petalDropRatio: params.petalDropRatio
+                                petalDropRatio: params.petalDropRatio,
+                                openRatio: params.openRatio
                             )
                         }
                     }
                     .offset(y: -stemHeight)
-                    .rotationEffect(.degrees(params.droopAngle), anchor: .bottom)
+                    .rotationEffect(.degrees(params.droopAngle + dragLeanAngle * 0.35), anchor: .bottom)
                 }
             }
         }
@@ -250,53 +258,215 @@ private struct SoilMoundShape: Shape {
     }
 }
 
-// MARK: - Sprout Twin Leaves
-private struct SproutTwinLeaves: View {
-    let spread: Double
-
-    var body: some View {
-        HStack(spacing: 2) {
-            // Left cotyledon
-            Capsule()
-                .fill(Color(red: 0.42, green: 0.72, blue: 0.46))
-                .frame(width: 8, height: 14)
-                .rotationEffect(.degrees(-35 * spread), anchor: .bottomTrailing)
-            // Right cotyledon
-            Capsule()
-                .fill(Color(red: 0.36, green: 0.68, blue: 0.40))
-                .frame(width: 8, height: 14)
-                .rotationEffect(.degrees(35 * spread), anchor: .bottomLeading)
-        }
-    }
-}
-
-// MARK: - Bud Casing View
-private struct BudCasingView: View {
-    let scale: Double
+// MARK: - Stage 0: Nascent Sprout Tip (破土新萌)
+private struct NascentSproutTipView: View {
+    let recipe: SpeciesRecipe
     let primaryColor: Color
-    let budWrap: Double
 
     var body: some View {
         ZStack {
-            // Peeking petal tip
-            Circle()
-                .fill(primaryColor.opacity(0.85))
-                .frame(width: 14, height: 16)
-                .offset(y: -4)
+            Canvas { context, size in
+                let w = size.width
+                let h = size.height
 
-            // Green enclosing sepals
-            HStack(spacing: -3) {
-                Capsule()
-                    .fill(Color(red: 0.32, green: 0.58, blue: 0.38))
-                    .frame(width: 11, height: 22)
-                    .rotationEffect(.degrees(-15))
-                Capsule()
-                    .fill(Color(red: 0.28, green: 0.52, blue: 0.34))
-                    .frame(width: 11, height: 22)
-                    .rotationEffect(.degrees(15))
+                // Curved emergent tender shoot
+                var shoot = Path()
+                shoot.move(to: CGPoint(x: w / 2 - 2, y: h))
+                shoot.addQuadCurve(to: CGPoint(x: w / 2 + 5, y: h - 18), control: CGPoint(x: w / 2 - 5, y: h - 9))
+                shoot.addQuadCurve(to: CGPoint(x: w / 2, y: h), control: CGPoint(x: w / 2 + 1, y: h - 8))
+                context.fill(shoot, with: .color(Color(red: 0.35, green: 0.72, blue: 0.42)))
+
+                // Tender nascent leaf
+                var leaf = Path()
+                leaf.addEllipse(in: CGRect(x: w / 2 + 1, y: h - 22, width: 8, height: 6))
+                context.fill(leaf, with: .color(Color(red: 0.42, green: 0.78, blue: 0.48)))
+
+                // Species-tinted seed coat / sprout tip (Lotus cyan, Rose crimson, etc.)
+                var tip = Path()
+                tip.addEllipse(in: CGRect(x: w / 2 + 4, y: h - 23, width: 5, height: 5))
+                context.fill(tip, with: .color(primaryColor))
             }
         }
-        .scaleEffect(CGFloat(scale))
+        .frame(width: 32, height: 28)
+        .offset(y: -4)
+    }
+}
+
+// MARK: - Stage 1: Species-Colored Young Bud (发芽生叶幼苞)
+private struct SpeciesYoungBudView: View {
+    let recipe: SpeciesRecipe
+    let primaryColor: Color
+    let secondaryColor: Color
+    let scale: Double
+
+    var body: some View {
+        ZStack {
+            switch recipe.id {
+            case "lotus":
+                // Lotus: Pointed flame torch bud with vibrant cyan tip emerging from jade sepals
+                ZStack {
+                    Capsule()
+                        .fill(Color(red: 0.20, green: 0.55, blue: 0.40))
+                        .frame(width: 14, height: 28)
+                        .rotationEffect(.degrees(-14), anchor: .bottom)
+                    Capsule()
+                        .fill(Color(red: 0.22, green: 0.58, blue: 0.44))
+                        .frame(width: 14, height: 28)
+                        .rotationEffect(.degrees(14), anchor: .bottom)
+                    // Pointed cyan/turquoise petal tip
+                    Circle()
+                        .fill(primaryColor)
+                        .frame(width: 13, height: 19)
+                        .offset(y: -8)
+                }
+            case "rose", "poppy":
+                // Rose: Spiral conical bud with crimson/ruby petals peeking out
+                ZStack {
+                    Capsule()
+                        .fill(Color(red: 0.28, green: 0.52, blue: 0.34))
+                        .frame(width: 13, height: 26)
+                        .rotationEffect(.degrees(-15), anchor: .bottom)
+                    Capsule()
+                        .fill(Color(red: 0.30, green: 0.55, blue: 0.36))
+                        .frame(width: 13, height: 26)
+                        .rotationEffect(.degrees(15), anchor: .bottom)
+                    Circle()
+                        .fill(primaryColor)
+                        .frame(width: 14, height: 18)
+                        .offset(y: -7)
+                }
+            case "peony":
+                // Peony: Plump round globe bud wrapped in deep pink scales
+                ZStack {
+                    Circle()
+                        .fill(primaryColor)
+                        .frame(width: 20, height: 20)
+                    Circle()
+                        .stroke(Color(red: 0.25, green: 0.50, blue: 0.34), lineWidth: 2.2)
+                        .frame(width: 20, height: 20)
+                    Circle()
+                        .fill(secondaryColor.opacity(0.8))
+                        .frame(width: 10, height: 10)
+                        .offset(y: -2)
+                }
+            case "sunflower":
+                // Sunflower: Compact green calyx button with golden ray tips peeking
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.25, green: 0.52, blue: 0.32))
+                        .frame(width: 20, height: 20)
+                    Circle()
+                        .fill(primaryColor)
+                        .frame(width: 11, height: 11)
+                }
+            case "dandelion":
+                // Dandelion: Clustered azure button with fine silky tips
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.20, green: 0.46, blue: 0.38))
+                        .frame(width: 16, height: 16)
+                    Circle()
+                        .fill(primaryColor.opacity(0.9))
+                        .frame(width: 10, height: 10)
+                        .offset(y: -4)
+                }
+            default:
+                // Universal species bud
+                ZStack {
+                    Capsule()
+                        .fill(Color(red: 0.30, green: 0.54, blue: 0.36))
+                        .frame(width: 12, height: 24)
+                        .rotationEffect(.degrees(-15), anchor: .bottom)
+                    Capsule()
+                        .fill(Color(red: 0.30, green: 0.54, blue: 0.36))
+                        .frame(width: 12, height: 24)
+                        .rotationEffect(.degrees(15), anchor: .bottom)
+                    Circle()
+                        .fill(primaryColor)
+                        .frame(width: 13, height: 17)
+                        .offset(y: -6)
+                }
+            }
+        }
+        .scaleEffect(CGFloat(scale * 1.05))
+    }
+}
+
+// MARK: - Species-Specific Foliage View (特征叶片系统)
+private struct SpeciesFoliageView: View {
+    let recipe: SpeciesRecipe
+    let maturity: Double // 0.0 ... 1.0
+    let stemHeight: CGFloat
+    let stemColor: Color
+
+    var body: some View {
+        Canvas { context, size in
+            guard maturity > 0.08 && stemHeight > 25 else { return }
+            let base = CGPoint(x: size.width / 2, y: size.height)
+            let midY = base.y - stemHeight * 0.42
+            let scale = CGFloat(maturity)
+
+            switch recipe.id {
+            case "lotus":
+                // Lotus: Circular floating lily pad (荷叶 / 荷钱叶)
+                let padCenter = CGPoint(x: base.x + 24 * scale, y: midY)
+                var pad = Path()
+                pad.addEllipse(in: CGRect(x: padCenter.x - 17 * scale, y: padCenter.y - 13 * scale, width: 34 * scale, height: 26 * scale))
+                context.fill(pad, with: .color(Color(red: 0.18, green: 0.62, blue: 0.45).opacity(0.92)))
+                context.stroke(pad, with: .color(Color.white.opacity(0.35)), lineWidth: 0.8)
+
+                var petiole = Path()
+                petiole.move(to: CGPoint(x: base.x, y: midY + 12))
+                petiole.addQuadCurve(to: padCenter, control: CGPoint(x: base.x + 12 * scale, y: midY + 14))
+                context.stroke(petiole, with: .color(stemColor), lineWidth: 1.5)
+
+            case "rose":
+                // Rose: Pinnate compound serrated leaflets
+                let leafX = base.x - 18 * scale
+                var leaf1 = Path()
+                leaf1.addEllipse(in: CGRect(x: leafX - 9 * scale, y: midY - 6 * scale, width: 18 * scale, height: 12 * scale))
+                context.fill(leaf1, with: .color(Color(red: 0.16, green: 0.42, blue: 0.26).opacity(0.92)))
+
+                let leafX2 = base.x + 18 * scale
+                var leaf2 = Path()
+                leaf2.addEllipse(in: CGRect(x: leafX2 - 9 * scale, y: midY - 14 * scale, width: 18 * scale, height: 12 * scale))
+                context.fill(leaf2, with: .color(Color(red: 0.16, green: 0.42, blue: 0.26).opacity(0.92)))
+
+            case "sunflower":
+                // Sunflower: Broad heart-shaped opposite leaves
+                let w: CGFloat = 22 * scale
+                let h: CGFloat = 17 * scale
+                var leftLeaf = Path()
+                leftLeaf.addEllipse(in: CGRect(x: base.x - w - 4, y: midY - h / 2, width: w, height: h))
+                context.fill(leftLeaf, with: .color(Color(red: 0.24, green: 0.58, blue: 0.30).opacity(0.9)))
+
+                var rightLeaf = Path()
+                rightLeaf.addEllipse(in: CGRect(x: base.x + 4, y: midY - h / 2 - 4, width: w, height: h))
+                context.fill(rightLeaf, with: .color(Color(red: 0.24, green: 0.58, blue: 0.30).opacity(0.9)))
+
+            case "dandelion":
+                // Dandelion: Toothed jagged rosette leaves near base
+                let leafW: CGFloat = 24 * scale
+                var tooth = Path()
+                tooth.move(to: CGPoint(x: base.x, y: base.y - 6))
+                tooth.addLine(to: CGPoint(x: base.x - leafW, y: base.y - 18))
+                tooth.addLine(to: CGPoint(x: base.x - leafW * 0.7, y: base.y - 12))
+                tooth.addLine(to: CGPoint(x: base.x - leafW * 1.2, y: base.y - 24))
+                tooth.addLine(to: CGPoint(x: base.x, y: base.y - 12))
+                tooth.closeSubpath()
+                context.fill(tooth, with: .color(Color(red: 0.22, green: 0.50, blue: 0.32).opacity(0.88)))
+
+            default:
+                // Universal sprig leaves
+                var sprig = Path()
+                sprig.addEllipse(in: CGRect(x: base.x - 14 * scale, y: midY - 6 * scale, width: 14 * scale, height: 10 * scale))
+                context.fill(sprig, with: .color(stemColor.opacity(0.85)))
+                var sprig2 = Path()
+                sprig2.addEllipse(in: CGRect(x: base.x + 2, y: midY - 12 * scale, width: 14 * scale, height: 10 * scale))
+                context.fill(sprig2, with: .color(stemColor.opacity(0.85)))
+            }
+        }
+        .frame(height: stemHeight + 10)
     }
 }
 
@@ -310,6 +480,7 @@ private struct ProceduralBloomHeadView: View {
     let desaturation: Double
     let droopAngle: Double
     let petalDropRatio: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Group {
@@ -321,7 +492,8 @@ private struct ProceduralBloomHeadView: View {
                     primaryColor: primaryColor,
                     secondaryColor: secondaryColor,
                     desaturation: desaturation,
-                    petalDropRatio: petalDropRatio
+                    petalDropRatio: petalDropRatio,
+                    openRatio: openRatio
                 )
             case .radialMulti:
                 RadialMultiHead(
@@ -330,7 +502,8 @@ private struct ProceduralBloomHeadView: View {
                     primaryColor: primaryColor,
                     secondaryColor: secondaryColor,
                     desaturation: desaturation,
-                    petalDropRatio: petalDropRatio
+                    petalDropRatio: petalDropRatio,
+                    openRatio: openRatio
                 )
             case .asymmetricSpecial:
                 AsymmetricSpecialHead(
@@ -338,7 +511,8 @@ private struct ProceduralBloomHeadView: View {
                     traits: traits,
                     primaryColor: primaryColor,
                     secondaryColor: secondaryColor,
-                    desaturation: desaturation
+                    desaturation: desaturation,
+                    openRatio: openRatio
                 )
             case .orbSeedhead:
                 OrbSeedheadDandelion(
@@ -346,7 +520,8 @@ private struct ProceduralBloomHeadView: View {
                     traits: traits,
                     primaryColor: primaryColor,
                     desaturation: desaturation,
-                    petalDropRatio: petalDropRatio
+                    petalDropRatio: petalDropRatio,
+                    openRatio: openRatio
                 )
             case .simpleBowl:
                 SimpleBowlHead(
@@ -355,7 +530,8 @@ private struct ProceduralBloomHeadView: View {
                     primaryColor: primaryColor,
                     secondaryColor: secondaryColor,
                     desaturation: desaturation,
-                    petalDropRatio: petalDropRatio
+                    petalDropRatio: petalDropRatio,
+                    openRatio: openRatio
                 )
             case .discRay:
                 DiscRaySunflower(
@@ -363,14 +539,16 @@ private struct ProceduralBloomHeadView: View {
                     traits: traits,
                     primaryColor: primaryColor,
                     secondaryColor: secondaryColor,
-                    desaturation: desaturation
+                    desaturation: desaturation,
+                    openRatio: openRatio
                 )
             case .bellRaceme:
                 BellRacemeLily(
                     recipe: recipe,
                     traits: traits,
                     primaryColor: primaryColor,
-                    desaturation: desaturation
+                    desaturation: desaturation,
+                    openRatio: openRatio
                 )
             case .clusterWild:
                 ClusterWildClover(
@@ -378,7 +556,8 @@ private struct ProceduralBloomHeadView: View {
                     traits: traits,
                     primaryColor: primaryColor,
                     secondaryColor: secondaryColor,
-                    desaturation: desaturation
+                    desaturation: desaturation,
+                    openRatio: openRatio
                 )
             }
         }
@@ -394,6 +573,7 @@ private struct SpiralRoseHead: View {
     let secondaryColor: Color
     let desaturation: Double
     let petalDropRatio: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
@@ -407,7 +587,7 @@ private struct SpiralRoseHead: View {
 
             for layer in (0..<totalLayers).reversed() {
                 let layerProgress = Double(layer) / Double(max(1, totalLayers - 1))
-                let layerRadius = 14.0 + layerProgress * 26.0
+                let layerRadius = (12.0 + layerProgress * 26.0) * (0.45 + 0.55 * openRatio)
 
                 for i in 0..<petalsPerLayer {
                     let index = layer * petalsPerLayer + i
@@ -415,8 +595,8 @@ private struct SpiralRoseHead: View {
                     let jitter = traits.perPetalJitter[index]
                     let angle = Double(index) * goldenAngle + jitter.angleOffset
 
-                    let petalW = (18.0 + layerProgress * 12.0) * jitter.widthScale
-                    let petalH = (22.0 + layerProgress * 16.0) * jitter.lengthScale
+                    let petalW = (18.0 + layerProgress * 12.0) * jitter.widthScale * (0.6 + 0.4 * openRatio)
+                    let petalH = (22.0 + layerProgress * 16.0) * jitter.lengthScale * (0.7 + 0.3 * openRatio)
 
                     let x = center.x + cos(angle) * (layerRadius * 0.4)
                     let y = center.y + sin(angle) * (layerRadius * 0.4)
@@ -459,6 +639,7 @@ private struct RadialMultiHead: View {
     let secondaryColor: Color
     let desaturation: Double
     let petalDropRatio: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
@@ -466,10 +647,11 @@ private struct RadialMultiHead: View {
             let petals = max(8, Int(Double(traits.petalCount) * (1.0 - petalDropRatio)))
             let step = (Double.pi * 2) / Double(petals)
 
+            let petalLen: CGFloat = 34 * CGFloat(0.55 + 0.45 * openRatio)
+            let petalWidth: CGFloat = 11 * CGFloat(0.55 + 0.45 * openRatio)
+
             for i in 0..<petals {
                 let angle = Double(i) * step
-                let petalLen: CGFloat = 34
-                let petalWidth: CGFloat = 11
 
                 var path = Path()
                 path.move(to: .zero)
@@ -501,15 +683,18 @@ private struct AsymmetricSpecialHead: View {
     let primaryColor: Color
     let secondaryColor: Color
     let desaturation: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let wingW: CGFloat = 32 * CGFloat(0.6 + 0.4 * openRatio)
+            let wingH: CGFloat = 42 * CGFloat(0.65 + 0.35 * openRatio)
 
             // Winged upper petals
             for angle in [-0.55, 0.55] {
                 var wing = Path()
-                wing.addEllipse(in: CGRect(x: -16, y: -38, width: 32, height: 42))
+                wing.addEllipse(in: CGRect(x: -wingW / 2, y: -wingH * 0.9, width: wingW, height: wingH))
                 let transform = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: CGFloat(angle))
                 context.fill(wing.applying(transform), with: .color(primaryColor.opacity(0.85).adjustedForWilt(desaturation: desaturation)))
             }
@@ -544,6 +729,7 @@ private struct OrbSeedheadDandelion: View {
     let primaryColor: Color
     let desaturation: Double
     let petalDropRatio: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
@@ -568,7 +754,7 @@ private struct OrbSeedheadDandelion: View {
                 // Staggered radii: inner layer, middle layer, outer layer
                 let tierMod = i % 3
                 let baseRadius: CGFloat = tierMod == 0 ? 38 : (tierMod == 1 ? 28 : 20)
-                let length = baseRadius * CGFloat(jitter.lengthScale)
+                let length = baseRadius * CGFloat(jitter.lengthScale) * CGFloat(0.5 + 0.5 * openRatio)
 
                 let tipX = center.x + cos(angle) * length
                 let tipY = center.y + sin(angle) * length
@@ -619,6 +805,7 @@ private struct SimpleBowlHead: View {
     let secondaryColor: Color
     let desaturation: Double
     let petalDropRatio: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
@@ -626,10 +813,13 @@ private struct SimpleBowlHead: View {
             let petalCount = max(4, Int(Double(traits.petalCount) * (1.0 - petalDropRatio)))
             let step = (Double.pi * 2) / Double(petalCount)
 
+            let pW: CGFloat = 28 * CGFloat(0.6 + 0.4 * openRatio)
+            let pH: CGFloat = 36 * CGFloat(0.6 + 0.4 * openRatio)
+
             for i in 0..<petalCount {
                 let angle = Double(i) * step
                 var petal = Path()
-                petal.addEllipse(in: CGRect(x: -14, y: -34, width: 28, height: 36))
+                petal.addEllipse(in: CGRect(x: -pW / 2, y: -pH, width: pW, height: pH))
 
                 let transform = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: CGFloat(angle))
                 context.fill(petal.applying(transform), with: .color(primaryColor.opacity(0.85).adjustedForWilt(desaturation: desaturation)))
@@ -651,6 +841,7 @@ private struct DiscRaySunflower: View {
     let primaryColor: Color
     let secondaryColor: Color
     let desaturation: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
@@ -658,23 +849,27 @@ private struct DiscRaySunflower: View {
             let count = traits.petalCount
             let step = (Double.pi * 2) / Double(count)
 
+            let rayW: CGFloat = 12 * CGFloat(0.6 + 0.4 * openRatio)
+            let rayH: CGFloat = 38 * CGFloat(0.55 + 0.45 * openRatio)
+
             // Ray petals
             for i in 0..<count {
                 let angle = Double(i) * step
                 var ray = Path()
-                ray.addEllipse(in: CGRect(x: -6, y: -38, width: 12, height: 38))
+                ray.addEllipse(in: CGRect(x: -rayW / 2, y: -rayH, width: rayW, height: rayH))
                 let transform = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: CGFloat(angle))
                 context.fill(ray.applying(transform), with: .color(primaryColor.adjustedForWilt(desaturation: desaturation)))
             }
 
             // Large Fibonacci center disc
+            let discR: CGFloat = 16 * CGFloat(0.75 + 0.25 * openRatio)
             var disc = Path()
-            disc.addEllipse(in: CGRect(x: center.x - 16, y: center.y - 16, width: 32, height: 32))
+            disc.addEllipse(in: CGRect(x: center.x - discR, y: center.y - discR, width: discR * 2, height: discR * 2))
             context.fill(disc, with: .color(Color(red: 0.36, green: 0.22, blue: 0.15)))
 
             // Inner golden speckles
             var innerDisc = Path()
-            innerDisc.addEllipse(in: CGRect(x: center.x - 12, y: center.y - 12, width: 24, height: 24))
+            innerDisc.addEllipse(in: CGRect(x: center.x - discR * 0.75, y: center.y - discR * 0.75, width: discR * 1.5, height: discR * 1.5))
             context.stroke(innerDisc, with: .color(Color(red: 0.88, green: 0.65, blue: 0.25).opacity(0.7)), lineWidth: 1.5)
         }
         .frame(width: 90, height: 90)
@@ -687,6 +882,7 @@ private struct BellRacemeLily: View {
     let traits: SampledFlowerTraits
     let primaryColor: Color
     let desaturation: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
@@ -708,8 +904,10 @@ private struct BellRacemeLily: View {
                 context.stroke(stalk, with: .color(Color(red: 0.38, green: 0.62, blue: 0.42)), lineWidth: 1.0)
 
                 // Bell floret
+                let bW: CGFloat = 12 * CGFloat(0.6 + 0.4 * openRatio)
+                let bH: CGFloat = 10 * CGFloat(0.6 + 0.4 * openRatio)
                 var bell = Path()
-                bell.addEllipse(in: CGRect(x: center.x + CGFloat(xOffset) - 6, y: center.y + yOffset + 5, width: 12, height: 10))
+                bell.addEllipse(in: CGRect(x: center.x + CGFloat(xOffset) - bW / 2, y: center.y + yOffset + 5, width: bW, height: bH))
                 context.fill(bell, with: .color(primaryColor.adjustedForWilt(desaturation: desaturation)))
             }
         }
@@ -724,6 +922,7 @@ private struct ClusterWildClover: View {
     let primaryColor: Color
     let secondaryColor: Color
     let desaturation: Double
+    var openRatio: Double = 1.0
 
     var body: some View {
         Canvas { context, size in
@@ -732,7 +931,7 @@ private struct ClusterWildClover: View {
 
             for i in 0..<count {
                 let angle = Double(i) * 1.3
-                let radius = Double(i * 3 + 4)
+                let radius = Double(i * 3 + 4) * (0.6 + 0.4 * openRatio)
                 let x = center.x + cos(angle) * radius
                 let y = center.y + sin(angle) * radius
 

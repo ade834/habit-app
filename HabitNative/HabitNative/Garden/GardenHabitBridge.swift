@@ -302,14 +302,8 @@ final class GardenHabitViewModel: ObservableObject {
         // Optimistic update locally
         items[index].record.position = newPosition
         lastTouchedId = habitId
-
-        // Debounce ~600ms to persist
-        debounceCancellable?.cancel()
-        debounceCancellable = Just(())
-            .delay(for: .milliseconds(600), scheduler: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.persistPositions()
-            }
+        // Persist immediately to UserDefaults so it is never lost
+        persistPositions()
     }
 
     private func persistPositions() {

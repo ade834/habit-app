@@ -23,6 +23,20 @@ struct GardenStageView: View {
             let sway = sin(elapsed * 1.4 + Double(viewModel.windOffset)) * 0.08
 
             ZStack(alignment: .bottom) {
+                // 0. Background Tap Area for Wind (Non-interfering behind flowers)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.interpolatingSpring(stiffness: 100, damping: 9)) {
+                            viewModel.windOffset = 5.0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.spring()) {
+                                viewModel.windOffset = 0
+                            }
+                        }
+                    }
+
                 // 1. Glowing Translucent Glass Vessel (Saucer / Plate Rim)
                 GlowingVesselSaucerView()
                     .frame(width: stageSize.width * 0.90, height: 95)
@@ -33,7 +47,7 @@ struct GardenStageView: View {
                     .frame(width: stageSize.width * 0.82, height: 90)
                     .offset(y: -stageSize.height * 0.19)
 
-                // 3. Procedural Flowers (Sorted by Stem Base Y, Spec Section 6)
+                // 3. Interactive Procedural Flowers (Sorted by Stem Base Y, Spec Section 6)
                 let sortedItems = viewModel.items.sorted { item1, item2 in
                     if item1.id == viewModel.lastTouchedId { return false }
                     if item2.id == viewModel.lastTouchedId { return true }
@@ -41,70 +55,42 @@ struct GardenStageView: View {
                 }
 
                 ForEach(sortedItems) { item in
-                    let recipe = GardenRecipeRegistry.shared.recipe(for: item.record.species)
-                    let traits = SampledFlowerTraits.sample(from: recipe, recordId: item.id)
-
-                    let normX = item.record.position.x
-                    let normY = item.record.position.y
-                    let currentDrag = dragOffsets[item.id] ?? .zero
-
-                    let posX = normX * stageSize.width + currentDrag.width
-                    let posY = stageSize.height * (1.0 - normY) + currentDrag.height
-
-                    ZStack {
-                        if viewModel.focusedHabitId == item.id {
-                            Circle()
-                                .fill(
-                                    RadialGradient(
-                                        colors: [Color.white.opacity(0.35), Color(red: 1.0, green: 0.85, blue: 0.70).opacity(0.18), Color.clear],
-                                        center: .center,
-                                        startRadius: 8,
-                                        endRadius: 52
-                                    )
-                                )
-                                .frame(width: 104, height: 104)
-                                .offset(y: 10)
-                                .transition(.scale.combined(with: .opacity))
-                        }
-
-                        FlowerProceduralView(
-                            record: item.record,
-                            recipe: recipe,
-                            traits: traits,
-                            renderLevel: item.renderLevel,
-                            windAngle: sway + Double(viewModel.windOffset * 0.03),
-                            breathingPhase: breathing + traits.wobblePhase,
-                            isDissolving: item.isDissolving
-                        )
-                    }
-                    .position(x: posX, y: posY)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            viewModel.selectedItem = item
-                        }
-                    }
-                    .simultaneousGesture(
-                        TapGesture(count: 2).onEnded {
+                    InteractiveFlowerItemView(
+                        item: item,
+                        stageSize: stageSize,
+                        currentDrag: dragOffsets[item.id] ?? .zero,
+                        isDragging: draggingId == item.id,
+                        isFocused: viewModel.focusedHabitId == item.id,
+                        windSway: sway + Double(viewModel.windOffset * 0.03),
+                        breathingPhase: breathing,
+                        onTap: {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                viewModel.selectedItem = item
+                                viewModel.focusedHabitId = item.id
+                            }
+                        },
+                        onDoubleTap: {
                             viewModel.triggerBurst(for: item.id)
-                        }
-                    )
-                    .gesture(
-                        DragGesture(minimumDistance: 4)
-                            .onChanged { gesture in
-                                draggingId = item.id
-                                dragOffsets[item.id] = gesture.translation
-                                viewModel.lastTouchedId = item.id
-                            }
-                            .onEnded { gesture in
-                                draggingId = nil
-                                let newX = min(max((normX * stageSize.width + gesture.translation.width) / stageSize.width, 0.08), 0.92)
-                                let newY = min(max((stageSize.height * (1.0 - normY) + gesture.translation.height) / stageSize.height, 0.06), 0.90)
-                                let actualNormY = 1.0 - newY
+                        },
+                        onDragChanged: { translation in
+                            draggingId = item.id
+                            dragOffsets[item.id] = translation
+                            viewModel.lastTouchedId = item.id
+                            viewModel.focusedHabitId = item.id
+                        },
+                        onDragEnded: { translation in
+                            draggingId = nil
+                            let normX = item.record.position.x
+                            let normY = item.record.position.y
+                            let newX = min(max((normX * stageSize.width + translation.width) / stageSize.width, 0.12), 0.88)
+                            let newNormYFromTop = (stageSize.height * (1.0 - normY) + translation.height) / stageSize.height
+                            let actualNormY = min(max(1.0 - newNormYFromTop, 0.08), 0.45)
 
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
                                 dragOffsets[item.id] = .zero
-                                viewModel.updatePosition(for: item.id, newPosition: CGPoint(x: newX, y: actualNormY))
                             }
+                            viewModel.updatePosition(for: item.id, newPosition: CGPoint(x: newX, y: actualNormY))
+                        }
                     )
                 }
 
@@ -123,19 +109,93 @@ struct GardenStageView: View {
                 FloatingBokehParticles(elapsed: elapsed)
             }
             .frame(width: stageSize.width, height: stageSize.height)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                // Gust of wind on empty space tap
-                withAnimation(.interpolatingSpring(stiffness: 100, damping: 9)) {
-                    viewModel.windOffset = 5.0
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation(.spring()) {
-                        viewModel.windOffset = 0
-                    }
-                }
-            }
+            .coordinateSpace(name: "GardenStageCanvas")
         }
+    }
+}
+
+// MARK: - Interactive Single Flower Item View (Interactive Dragging & Tilt)
+private struct InteractiveFlowerItemView: View {
+    let item: HabitGardenItem
+    let stageSize: CGSize
+    let currentDrag: CGSize
+    let isDragging: Bool
+    let isFocused: Bool
+    let windSway: Double
+    let breathingPhase: Double
+    let onTap: () -> Void
+    let onDoubleTap: () -> Void
+    let onDragChanged: (CGSize) -> Void
+    let onDragEnded: (CGSize) -> Void
+
+    var body: some View {
+        let recipe = GardenRecipeRegistry.shared.recipe(for: item.record.species)
+        let traits = SampledFlowerTraits.sample(from: recipe, recordId: item.id)
+
+        let normX = item.record.position.x
+        let normY = item.record.position.y
+        let posX = normX * stageSize.width + currentDrag.width
+        let posY = stageSize.height * (1.0 - normY) + currentDrag.height
+
+        // Dynamic interactive stem tilt according to finger drag vector (随着手指方向产生互动)
+        let dragTilt = isDragging ? min(max(Double(currentDrag.width) * 0.24, -30.0), 30.0) : 0.0
+
+        ZStack(alignment: .bottom) {
+            // Focus or drag glowing aura
+            if isFocused || isDragging {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                isDragging ? Color(red: 1.0, green: 0.90, blue: 0.65).opacity(0.60) : Color.white.opacity(0.38),
+                                Color(red: 1.0, green: 0.85, blue: 0.70).opacity(0.20),
+                                Color.clear
+                            ],
+                            center: .center,
+                            startRadius: 8,
+                            endRadius: isDragging ? 64 : 52
+                        )
+                    )
+                    .frame(width: isDragging ? 128 : 104, height: isDragging ? 128 : 104)
+                    .offset(y: 10)
+                    .transition(.scale.combined(with: .opacity))
+            }
+
+            FlowerProceduralView(
+                record: item.record,
+                recipe: recipe,
+                traits: traits,
+                renderLevel: item.renderLevel,
+                windAngle: windSway,
+                breathingPhase: breathingPhase + traits.wobblePhase,
+                isDissolving: item.isDissolving,
+                dragLeanAngle: dragTilt
+            )
+            .scaleEffect(isDragging ? 1.08 : 1.0, anchor: .bottom)
+            .shadow(color: isDragging ? Color.black.opacity(0.20) : Color.clear, radius: 10, x: 0, y: 8)
+        }
+        .frame(width: 82, height: 260, alignment: .bottom)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 3, coordinateSpace: .named("GardenStageCanvas"))
+                .onChanged { gesture in
+                    onDragChanged(gesture.translation)
+                }
+                .onEnded { gesture in
+                    onDragEnded(gesture.translation)
+                }
+        )
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                onDoubleTap()
+            }
+        )
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                onTap()
+            }
+        )
+        .position(x: posX, y: posY - 130)
     }
 }
 
