@@ -35,6 +35,7 @@ struct TodayStackDeckView: View {
     @State private var bounceID: String?
     @State private var ruleNotice: String?
     @State private var ruleNoticeID = UUID()
+    @Namespace private var noticeMorph
 
     private var focus: Int {
         goals.firstIndex { $0.id == state.focusedGoalID } ?? 0
@@ -53,22 +54,27 @@ struct TodayStackDeckView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                 Spacer(minLength: 8)
-                HStack(spacing: 5) {
-                    Text("\(goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count)").fontWeight(.semibold)
-                    Text("/ 3").foregroundStyle(.secondary)
+                if ruleNotice == nil {
+                    HStack(spacing: 5) {
+                        Text("\(goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count)").fontWeight(.semibold)
+                        Text("/ 3").foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 17))
+                    .padding(.horizontal, 15).padding(.vertical, 9)
+                    .background(.white.opacity(0.78), in: Capsule())
+                    .matchedGeometryEffect(id: "rule-notice", in: noticeMorph)
+                } else {
+                    Color.clear.frame(width: 68, height: 40)
                 }
-                .font(.system(size: 17))
-                .padding(.horizontal, 15).padding(.vertical, 9)
-                .background(.white.opacity(0.78), in: Capsule())
             }
             .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
             .padding(.horizontal, 4)
             .padding(.top, 20)
 
             HStack(spacing: 12) {
-                legend("普通", color: Color(red: 0.31, green: 0.72, blue: 0.53))
-                legend("周期", color: Color(red: 0.30, green: 0.61, blue: 0.88))
-                legend("星标", color: Color(red: 0.97, green: 0.70, blue: 0.22))
+                legend("普通", color: normalColor)
+                legend("周期", color: periodicColor)
+                legend("星标", color: starredColor)
                 Spacer(minLength: 0)
                 Text("上下滑动浏览").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
             }
@@ -123,6 +129,18 @@ struct TodayStackDeckView: View {
                                 .offset(y: dragOffset(slot: slot))
                                 .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                                 .zIndex(100 + Double(slot))
+
+                            if state.selectedGoalIDs.contains(goal.id) {
+                                selectedBadge
+                                    .position(
+                                        x: geometry.size.width - 72,
+                                        y: cardTop(slot: slot, step: step, height: cardHeight) + 31
+                                    )
+                                    .offset(y: dragOffset(slot: slot))
+                                    .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
+                                    .transition(.scale(scale: 0.72).combined(with: .opacity))
+                                    .zIndex(100 + Double(slot))
+                            }
                         }
                     }
                 }
@@ -170,9 +188,9 @@ struct TodayStackDeckView: View {
         .overlay(alignment: .topTrailing) {
             if let ruleNotice {
                 RuleNoticeBanner(message: ruleNotice)
-                    .padding(.top, 78)
-                    .padding(.trailing, 4)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .matchedGeometryEffect(id: "rule-notice", in: noticeMorph)
+                    .padding(.top, 84)
+                    .transition(.opacity)
                     .zIndex(500)
             }
         }
@@ -189,6 +207,20 @@ struct TodayStackDeckView: View {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(title).font(.system(size: 11, weight: .medium))
         }.foregroundStyle(Color(red: 0.31, green: 0.25, blue: 0.33))
+    }
+
+    private var selectedBadge: some View {
+        ZStack {
+            Circle().fill(.ultraThinMaterial)
+            Circle().stroke(.white.opacity(0.88), lineWidth: 1.2)
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 25, height: 25)
+        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
@@ -320,13 +352,17 @@ struct TodayStackDeckView: View {
 
     private func taskTypeColor(for goal: Goal) -> Color {
         if state.starredGoalIDs.contains(goal.id) {
-            return Color(red: 0.97, green: 0.70, blue: 0.22)
+            return starredColor
         }
         if goal.isPeriodic {
-            return Color(red: 0.30, green: 0.61, blue: 0.88)
+            return periodicColor
         }
-        return Color(red: 0.31, green: 0.72, blue: 0.53)
+        return normalColor
     }
+
+    private var normalColor: Color { Color(red: 0.17, green: 0.72, blue: 0.67) }
+    private var periodicColor: Color { Color(red: 0.70, green: 0.58, blue: 0.91) }
+    private var starredColor: Color { Color(red: 0.96, green: 0.36, blue: 0.24) }
 
     private var deckBottomFadeMask: LinearGradient {
         LinearGradient(
@@ -398,13 +434,13 @@ struct TodayStackDeckView: View {
     private func showRuleNotice(_ message: String) {
         let id = UUID()
         ruleNoticeID = id
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) {
+        withAnimation(.spring(response: 0.52, dampingFraction: 0.90, blendDuration: 0.16)) {
             ruleNotice = message
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(5))
             guard ruleNoticeID == id else { return }
-            withAnimation(.easeOut(duration: 0.22)) { ruleNotice = nil }
+            withAnimation(.spring(response: 0.46, dampingFraction: 0.92)) { ruleNotice = nil }
         }
     }
 }
@@ -474,12 +510,20 @@ private struct RuleNoticeBanner: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(Color(red: 0.28, green: 0.20, blue: 0.24))
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .frame(maxWidth: 250, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 94, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(
+            LinearGradient(
+                colors: [.white.opacity(0.34), .white.opacity(0.10)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .stroke(.white.opacity(0.72), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.14), radius: 14, y: 7)
