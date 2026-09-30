@@ -22,7 +22,7 @@
 
 ### 3.3 唯一集成契约
 - 当 `ContentView.swift` 切换到“养成物” Tab 时，仅通过 `GrowthView(goals: goals)` 包装组件接入养成物页面。
-- 由 `ContentView.swift` 在外层负责 `.padding(.bottom, 78)`，为底部液态导航栏留出避让高度。
+- 由 `ContentView.swift` 在外层负责 `.padding(.bottom, 84)`，为底部液态导航栏留出避让高度。
 - `GrowthView` 不得反向修改、复制或接管底部导航；`ContentView` 不得内联养成物页面的具体 UI。
 - 在 `GrowthView.swift` 存在并且公开初始化接口可编译前，Codex 不得提前写入对 `GrowthView` 的调用。
 
