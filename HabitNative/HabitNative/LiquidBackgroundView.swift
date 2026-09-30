@@ -20,7 +20,7 @@ private struct CanvasLiquidBackground: View {
             GeometryReader { proxy in
                 ZStack {
                     // 底层淡雅米桃暖光底色
-                    Color(red: 0.85, green: 0.85, blue: 0.87)
+                    Color(red: 0.70, green: 0.70, blue: 0.73)
 
                     // 动态光球流体层
                     Canvas { context, size in

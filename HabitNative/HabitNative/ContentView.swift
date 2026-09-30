@@ -1,13 +1,24 @@
 import SwiftUI
 
 // MARK: - 页面视觉固定布局配置
-struct UITuningState {
-    var titleSize: CGFloat = 46         // 标题字号
-    var dateSize: CGFloat = 75          // 26 AUG 日期字号
-    var cardOffsetY: CGFloat = -13      // 中间卡片上下偏移
-    var cardHeight: CGFloat = 232       // 卡片高度
-    var cardWidth: CGFloat = 216        // 卡片基准宽度
-    var bannerPaddingTop: CGFloat = 6   // 昨日回顾提示位上边距
+struct UITuningState: Codable, Equatable {
+    var titleSize: CGFloat = 46
+    var dateSize: CGFloat = 75
+    var cardOffsetY: CGFloat = -13
+    var cardHeight: CGFloat = 232
+    var cardWidth: CGFloat = 216
+    var bannerPaddingTop: CGFloat = 6
+    var textScale: CGFloat = 1
+    var contentOffsetX: CGFloat = 0
+    var contentOffsetY: CGFloat = 0
+    var navigationScale: CGFloat = 1
+
+    static func load() -> UITuningState {
+        guard let data = UserDefaults.standard.data(forKey: "today.ui.tuning"),
+              let saved = try? JSONDecoder().decode(UITuningState.self, from: data) else { return UITuningState() }
+        return saved
+    }
+    func save() { UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: "today.ui.tuning") }
 }
 
 struct ContentView: View {
@@ -16,7 +27,7 @@ struct ContentView: View {
     @State private var goals: [Goal] = []
     @State private var databaseError: String?
     @State private var dashboard: HabitDashboardSnapshot?
-    private let tuning = UITuningState()
+    @State private var tuning = UITuningState.load()
 
     private let repository: any GoalRepository = SharedHabitRepository()
 
@@ -24,7 +35,7 @@ struct ContentView: View {
         ZStack {
             LiquidBackgroundView(reduceMotion: reduceMotion)
                 .ignoresSafeArea()
-            TodayRootView(goals: goals, state: $state, tuning: tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection)
+            TodayRootView(goals: goals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection, onSaveTuning: { tuning.save() })
         }
         .alert("无法保存今日选择", isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
             Button("知道了", role: .cancel) { databaseError = nil }
@@ -90,10 +101,11 @@ struct ContentView: View {
 private struct TodayRootView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
-    let tuning: UITuningState
+    @Binding var tuning: UITuningState
     let reduceMotion: Bool
     let dashboard: HabitDashboardSnapshot?
     let onConfirm: () -> Void
+    let onSaveTuning: () -> Void
     @Namespace private var navMorphNamespace
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
@@ -161,6 +173,7 @@ private struct TodayRootView: View {
                 Color.clear.frame(height: state.mode == .browsingDeck ? 154 : 94)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(x: tuning.contentOffsetX, y: tuning.contentOffsetY)
 
             // 底部确认栏（选卡片时）
             if state.mode == .browsingDeck && state.tab == .today {
@@ -176,6 +189,7 @@ private struct TodayRootView: View {
                     fluidMorphAnimation: fluidMorphAnimation,
                     namespace: navMorphNamespace
                 )
+                .scaleEffect(tuning.navigationScale, anchor: .bottom)
                 .transition(.asymmetric(
                     insertion: .scale(scale: 0.96).combined(with: .opacity),
                     removal: .opacity
@@ -184,6 +198,8 @@ private struct TodayRootView: View {
                 // 仅点击「设置」时，从右下角圆形按钮流体展开为全屏浮层面板
                 FluidSettingsExpandedPanel(
                     tab: $state.tab,
+                    tuning: $tuning,
+                    onSaveTuning: onSaveTuning,
                     fluidMorphAnimation: fluidMorphAnimation,
                     namespace: navMorphNamespace
                 )
@@ -205,6 +221,8 @@ private struct TodayRootView: View {
 // MARK: - 设置专属流体形变展开面板 (Fluid Settings Panel with Interactive Pull-Down Dismiss)
 private struct FluidSettingsExpandedPanel: View {
     @Binding var tab: AppTab
+    @Binding var tuning: UITuningState
+    let onSaveTuning: () -> Void
     let fluidMorphAnimation: Animation
     let namespace: Namespace.ID
 
@@ -293,6 +311,8 @@ private struct FluidSettingsExpandedPanel: View {
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color(red: 0.26, green: 0.22, blue: 0.27))
 
+                LayoutTuningControls(tuning: $tuning)
+
                 Spacer()
             }
             .padding(.horizontal, 24)
@@ -302,14 +322,13 @@ private struct FluidSettingsExpandedPanel: View {
 
             // 底部关闭返回胶囊（与原胶囊位置呼应）
             Button {
-                withAnimation(fluidMorphAnimation) {
-                    tab = .today
-                }
+                onSaveTuning()
+                withAnimation(fluidMorphAnimation) { tab = .today }
             } label: {
                 HStack(spacing: 8) {
-                    PrototypeIcon(kind: .settings)
-                        .frame(width: 18, height: 18)
-                    Text("收起设置")
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("保存页面调整")
                         .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundStyle(Color(red: 0.26, green: 0.22, blue: 0.27))
@@ -368,6 +387,30 @@ private struct FluidSettingsExpandedPanel: View {
                     }
                 }
         )
+    }
+}
+
+private struct LayoutTuningControls: View {
+    @Binding var tuning: UITuningState
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("首页布局调整").font(.system(size: 17, weight: .semibold))
+            tuningSlider("文字大小", value: $tuning.textScale, range: 0.8...1.25)
+            tuningSlider("整体左右", value: $tuning.contentOffsetX, range: -28...28)
+            tuningSlider("整体上下", value: $tuning.contentOffsetY, range: -36...36)
+            tuningSlider("卡片宽度", value: $tuning.cardWidth, range: 180...270)
+            tuningSlider("卡片高度", value: $tuning.cardHeight, range: 190...290)
+            tuningSlider("卡片上下", value: $tuning.cardOffsetY, range: -45...30)
+            tuningSlider("导航栏大小", value: $tuning.navigationScale, range: 0.88...1.12)
+        }
+        .padding(16)
+        .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 18))
+    }
+    private func tuningSlider(_ title: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>) -> some View {
+        HStack(spacing: 10) {
+            Text(title).font(.system(size: 13, weight: .medium)).frame(width: 74, alignment: .leading)
+            Slider(value: value, in: range)
+        }
     }
 }
 
@@ -611,7 +654,7 @@ private struct TodayHeaderView: View {
             HStack(alignment: .top, spacing: 8) {
                 // 左侧主标题
                 Text("选择\n今天的\n目标")
-                    .font(.system(size: tuning.titleSize, weight: .medium))
+                    .font(.system(size: tuning.titleSize * tuning.textScale, weight: .medium))
                     .tracking(-0.6)
                     .lineSpacing(-8)
                     .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
@@ -622,10 +665,10 @@ private struct TodayHeaderView: View {
                 // 右侧大号艺术日期 (实时同步当前日期，调大字号使上下跨度与左侧标题等高)
                 VStack(alignment: .trailing, spacing: -8) {
                     Text(dayString)
-                        .font(.system(size: tuning.dateSize, weight: .regular))
+                        .font(.system(size: tuning.dateSize * tuning.textScale, weight: .regular))
                         .tracking(-3.0)
                     Text(monthString)
-                        .font(.system(size: tuning.dateSize, weight: .regular))
+                        .font(.system(size: tuning.dateSize * tuning.textScale, weight: .regular))
                         .tracking(-4.5)
                 }
                 .foregroundStyle(.white.opacity(0.82))
