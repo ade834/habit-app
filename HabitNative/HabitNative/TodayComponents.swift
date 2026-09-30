@@ -31,6 +31,7 @@ struct TodayStackDeckView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var drag: CGFloat = 0
     @GestureState private var horizontalDrag: CGFloat = 0
+    @State private var draggedGoalID: String?
     @State private var bounceID: String?
 
     private var focus: Int {
@@ -64,8 +65,8 @@ struct TodayStackDeckView: View {
 
             GeometryReader { geometry in
                 let cardHeight = min(geometry.size.height * 0.56, 390)
-                let step = max(37, geometry.size.height * 0.105)
-                let visibleSlots = min(goals.count, max(1, Int(geometry.size.height / step)))
+                let step = max(36, geometry.size.height * 0.075)
+                let visibleSlots = min(goals.count, 5)
                 ZStack(alignment: .top) {
                     ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
                         let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
@@ -86,23 +87,12 @@ struct TodayStackDeckView: View {
                             .clipShape(PerspectiveCardShape(topRadius: 28, bottomRadius: 22, bottomInset: 6))
                             .shadow(color: .black.opacity(0.22), radius: 12, y: -4)
                             .shadow(color: Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(0.22), radius: 9, y: 4)
-                            .padding(.horizontal, CGFloat(slot) * 6)
-                            .offset(y: CGFloat(slot) * step + dragOffset(slot: slot))
-                            .offset(x: slot == focus ? max(0, horizontalDrag) : 0)
+                            .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
+                            .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                             .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
                             .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
                             .zIndex(Double(slot))
-                            .contentShape(Rectangle())
-                            .simultaneousGesture(DragGesture(minimumDistance: 12)
-                                .updating($horizontalDrag) { value, current, _ in
-                                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                                    current = min(80, max(0, value.translation.width))
-                                }
-                                .onEnded { value in
-                                    guard abs(value.translation.width) > abs(value.translation.height), value.translation.width > 55 else { return }
-                                    toggle(goal)
-                                })
-                            .onTapGesture { toggle(goal) }
+                            .contentShape(PerspectiveCardShape(topRadius: 28, bottomRadius: 22, bottomInset: 6))
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("\(goal.previewTitle)，\(isSelected ? "已选择" : "未选择")")
                             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -114,23 +104,41 @@ struct TodayStackDeckView: View {
                 .clipped()
                 .contentShape(Rectangle())
                 .simultaneousGesture(DragGesture(minimumDistance: 12)
+                    .onChanged { value in
+                        guard abs(value.translation.width) > abs(value.translation.height), draggedGoalID == nil else { return }
+                        draggedGoalID = goalAt(value.startLocation.y, step: step, height: cardHeight, count: visibleSlots)?.id
+                    }
+                    .updating($horizontalDrag) { value, current, _ in
+                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                        current = min(90, max(0, value.translation.width))
+                    }
                     .updating($drag) { value, current, _ in
                         guard abs(value.translation.height) > abs(value.translation.width) else { return }
                         current = max(-90, min(90, value.translation.height))
                     }
                     .onEnded { value in
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            if value.translation.width > 55,
+                               let goal = goalAt(value.startLocation.y, step: step, height: cardHeight, count: visibleSlots) {
+                                toggle(goal)
+                            }
+                            draggedGoalID = nil
+                            return
+                        }
                         guard abs(value.translation.height) > abs(value.translation.width), abs(value.translation.height) > 48 else { return }
                         let next = min(max(0, focus + (value.predictedEndTranslation.height < 0 ? 1 : -1)), max(0, goals.count - visibleSlots + 1))
                         guard goals.indices.contains(next) else { return }
                         withAnimation(spring) { state.focusedGoalID = goals[next].id }
                     })
+                .simultaneousGesture(SpatialTapGesture().onEnded { value in
+                    if let goal = goalAt(value.location.y, step: step, height: cardHeight, count: visibleSlots) { toggle(goal) }
+                })
                 .animation(spring, value: drag == 0)
                 .animation(spring, value: horizontalDrag == 0)
             }
             .frame(maxHeight: .infinity)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 154)
         .animation(spring, value: state.focusedGoalID)
         .animation(spring, value: state.selectedGoalIDs)
     }
@@ -222,6 +230,26 @@ struct TodayStackDeckView: View {
         guard !reduceMotion else { return 0 }
         let fraction = CGFloat(slot + 1) / CGFloat(max(1, goals.count))
         return drag * fraction * 0.46
+    }
+
+    private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
+        switch slot {
+        case 0...2: CGFloat(slot) * step
+        case 3: 2 * step + height * 0.72
+        default: 2 * step + height * 0.72 + CGFloat(slot - 3) * max(54, height * 0.22)
+        }
+    }
+
+    private func goalAt(_ y: CGFloat, step: CGFloat, height: CGFloat, count: Int) -> Goal? {
+        guard !goals.isEmpty else { return nil }
+        for slot in (0..<count).reversed() {
+            let top = cardTop(slot: slot, step: step, height: height)
+            if y >= top && y <= top + height {
+                let index = (focus - 2 + slot + goals.count) % goals.count
+                return goals[index]
+            }
+        }
+        return nil
     }
 
     private func toggle(_ goal: Goal) {

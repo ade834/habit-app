@@ -74,10 +74,12 @@ private struct TodayRootView: View {
 
                             // 三个卡片下方提示
                             Text("轻触卡片\n进行今日目标选择")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: 16.25, weight: .bold))
                                 .multilineTextAlignment(.center)
                                 .lineSpacing(3)
-                                .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.29).opacity(0.65))
+                                .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.29))
+                                .shadow(color: .white.opacity(0.95), radius: 8)
+                                .shadow(color: .white.opacity(0.8), radius: 2)
                                 .offset(y: tuning.cardOffsetY + 10)
                         }
                     case .browsingDeck:
@@ -622,9 +624,9 @@ private struct HomePreviewDeckView: View {
 
     private var poses: [PreviewPose] {
         [
-            PreviewPose(x: -tuning.cardWidth * 0.32, y: 20, width: tuning.cardWidth * 0.94, rotation: -7, opacity: 0.72),
-            PreviewPose(x: 0, y: 0, width: tuning.cardWidth, rotation: 0, opacity: 0.94),
-            PreviewPose(x: tuning.cardWidth * 0.32, y: 18, width: tuning.cardWidth * 0.94, rotation: 7, opacity: 0.82)
+            PreviewPose(x: -tuning.cardWidth * 0.32, y: 20, width: tuning.cardWidth * 0.94, rotation: -7, opacity: 0.55),
+            PreviewPose(x: 0, y: 0, width: tuning.cardWidth, rotation: 0, opacity: 0.78),
+            PreviewPose(x: tuning.cardWidth * 0.32, y: 18, width: tuning.cardWidth * 0.94, rotation: 7, opacity: 0.62)
         ]
     }
 
@@ -632,7 +634,7 @@ private struct HomePreviewDeckView: View {
         ZStack {
             ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
                 let pose = poses[index]
-                let dynamicFloat: CGFloat = animateBreathing ? (index == 1 ? -4 : (index == 0 ? 3 : -2)) : 0
+                let dynamicFloat: CGFloat = animateBreathing ? (index == 1 ? -11 : (index == 0 ? 8 : -7)) : 0
 
                 PreviewGoalCard(goal: goal, index: index + 1)
                     .frame(width: pose.width, height: tuning.cardHeight)
@@ -647,7 +649,7 @@ private struct HomePreviewDeckView: View {
         .accessibilityLabel("三张目标预览")
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) {
+            withAnimation(.spring(response: 1.15, dampingFraction: 0.55).repeatForever(autoreverses: true)) {
                 animateBreathing = true
             }
         }
@@ -763,15 +765,14 @@ private struct TodayBottomNavigationView: View {
 
                 // 2. 空间连续滑动的动态水滴（在两按键之间约 20px 的过渡区自然扁平化，进入按钮恢复饱满）
                 GeometryReader { geo in
-                    let availableWidth = geo.size.width - 10
+                    let availableWidth = geo.size.width
                     let itemWidth = availableWidth / 3
 
                     FluidContinuousDropletView(
                         progress: animatedIndex,
                         itemWidth: itemWidth,
-                        totalHeight: geo.size.height - 10
+                        totalHeight: geo.size.height
                     )
-                    .offset(x: 5, y: 5)
                 }
 
                 // 3. 三个按键排布
@@ -894,8 +895,6 @@ private struct FluidContinuousDropletView: View, Animatable {
         let scaleY: CGFloat = 1.0 - transitFactor * 0.60
         // 横向伸展：在中间 20px 过渡区柔和拉长
         let scaleX: CGFloat = 1.0 + transitFactor * 0.16
-
-        let cornerRadius: CGFloat = 26 // 与外层导航栏 (高度60对应圆角30) 的弧度完美同心统一 (30 - 4 = 26)
 
         ZStack {
             // 水滴通透主体（完全使用 Capsule，与外层导航栏胶囊曲率 100% 绝对一致）
