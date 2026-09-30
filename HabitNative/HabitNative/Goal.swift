@@ -1,8 +1,6 @@
 import Foundation
 import SQLite3
 
-private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 struct GoalTint: Hashable, Sendable {
     let red: Double
     let green: Double
@@ -24,6 +22,7 @@ struct Goal: Identifiable, Hashable, Sendable {
     let order: Int
     var completionCount: Int = 0
     var growthStage: String = "种子"
+    var countsTowardQuota: Bool = true
 }
 
 struct GoalEntry: Sendable {
@@ -54,59 +53,65 @@ struct SharedHabitRepository: GoalRepository {
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 1200)
         var logCounts: [String: Int] = [:]
-        var totalCompletions = 0
+        var completions: [HabitCompletion] = []
         var statement: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT habit_id, COUNT(*) FROM habit_logs GROUP BY habit_id", -1, &statement, nil) == SQLITE_OK {
+        let dayFormatter = DateFormatter()
+        dayFormatter.calendar = Calendar(identifier: .gregorian)
+        dayFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dayFormatter.timeZone = .current
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        if sqlite3_prepare_v2(db, "SELECT habit_id, local_date FROM habit_logs", -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let raw = sqlite3_column_text(statement, 0), let rawDate = sqlite3_column_text(statement, 1) else { continue }
+                let id = String(cString: raw)
+                logCounts[id, default: 0] += 1
+                if let day = dayFormatter.date(from: String(cString: rawDate)) {
+                    completions.append(HabitCompletion(id: id, day: day))
+                }
+            }
+        }
+        sqlite3_finalize(statement)
+        var enabledAt: [String: Date] = [:]
+        statement = nil
+        if sqlite3_prepare_v2(db, "SELECT habit_id, enabled_at FROM habit_selections", -1, &statement, nil) == SQLITE_OK {
             while sqlite3_step(statement) == SQLITE_ROW {
                 guard let raw = sqlite3_column_text(statement, 0) else { continue }
-                let id = String(cString: raw)
-                let count = Int(sqlite3_column_int(statement, 1))
-                logCounts[id] = count
-                totalCompletions += count
+                enabledAt[String(cString: raw)] = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 1)))
             }
         }
         sqlite3_finalize(statement)
-        let unlocked = totalCompletions >= 6
-        let allowedIDs = Set((unlocked ? Self.catalog : Array(Self.catalog.prefix(4))).map(\.id))
-        var activeIDs = Set<String>()
-        statement = nil
-        let activeSQL = "SELECT s.habit_id FROM habit_selections s WHERE s.is_starred = 1 OR s.habit_id IN ('H5','H7','H10','H11') OR (s.active_on IS NOT NULL AND date(s.active_on) <= date(?))"
-        if sqlite3_prepare_v2(db, activeSQL, -1, &statement, nil) == SQLITE_OK {
-            let formatter = DateFormatter()
-            formatter.calendar = Calendar(identifier: .gregorian)
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone.current
-            formatter.dateFormat = "yyyy-MM-dd"
-            sqlite3_bind_text(statement, 1, formatter.string(from: date), -1, sqliteTransient)
-            while sqlite3_step(statement) == SQLITE_ROW {
-                if let raw = sqlite3_column_text(statement, 0) { activeIDs.insert(String(cString: raw)) }
-            }
-        }
-        sqlite3_finalize(statement)
-        let visible = Self.catalog.filter { allowedIDs.contains($0.id) && activeIDs.contains($0.id) }
+        let growth = HabitGrowthRules.progress(enabledAt: enabledAt, completions: completions, today: date)
+        let selection = try SharedHabitSelectionStore().snapshot(at: date)
+        let visible = Self.catalog.filter { !selection.completedPeriodicIDs.contains($0.id) }
         return visible.enumerated().map { index, goal in
             let count = logCounts[goal.id, default: 0]
-            let stage = count >= 60 ? "繁茂" : count >= 25 ? "开花" : count >= 10 ? "成长" : count >= 3 ? "发芽" : "种子"
+            let stage = HabitGrowthRules.stage(for: growth[goal.id, default: 0])
             return Goal(id: goal.id, title: goal.title, category: goal.category, summary: goal.summary,
-                        previewTitle: goal.previewTitle, previewSummary: goal.previewSummary,
+                        previewTitle: goal.title, previewSummary: goal.summary,
                         inputPrimary: goal.inputPrimary, inputSecondary: goal.inputSecondary,
                         completionLabel: goal.completionLabel, tint: goal.tint, order: index + 1,
-                        completionCount: count, growthStage: stage)
+                        completionCount: count, growthStage: stage,
+                        countsTowardQuota: !selection.quotaExemptIDs.contains(goal.id))
         }
     }
 
-    func selectedGoalIDs(for date: Date) async throws -> Set<String> { [] }
-    func saveSelectedGoalIDs(_ ids: Set<String>, for date: Date) async throws {}
+    func selectedGoalIDs(for date: Date) async throws -> Set<String> {
+        let snapshot = try SharedHabitSelectionStore().snapshot(at: date)
+        return snapshot.activeIDs.union(snapshot.starredIDs)
+    }
+    func saveSelectedGoalIDs(_ ids: Set<String>, for date: Date) async throws {
+        try SharedHabitSelectionStore().save(ids, at: date)
+    }
     func submit(_ entry: GoalEntry) async throws {}
 
     private static let catalog: [Goal] = [
         Goal(id: "H1", title: "每天100字复盘", category: "复盘", summary: "写下一个决定、一个结果、一个改进。", previewTitle: "每天100字复盘", previewSummary: "写下今天的关键一刻", inputPrimary: "今天发生了什么？", inputSecondary: "我下一步要怎么做？", completionLabel: "完成一次复盘", tint: tint(0), order: 1),
-        Goal(id: "H2", title: "30分钟深度思考", category: "思考", summary: "留出一段不被通知和输入打断的完整时间。", previewTitle: "深度思考", previewSummary: "留出完整的不被打断", inputPrimary: "今天要思考什么？", inputSecondary: "思考后的下一步（选填）", completionLabel: "完成深度思考", tint: tint(1), order: 2),
+        Goal(id: "H2", title: "30分钟深度思考", category: "思考", summary: "给自己30分钟不被打断的时间。", previewTitle: "深度思考", previewSummary: "留出完整的不被打断", inputPrimary: "今天要思考什么？", inputSecondary: "思考后的下一步（选填）", completionLabel: "完成深度思考", tint: tint(1), order: 2),
         Goal(id: "H3", title: "做一件不舒服的事", category: "成长", summary: "舒适区外一小步，才是真正的成长区。", previewTitle: "走出舒适区", previewSummary: "做一件需要勇气的事", inputPrimary: "今天做了哪件不舒服的事？", inputSecondary: "它让我看见了什么？（选填）", completionLabel: "完成挑战", tint: tint(2), order: 3),
         Goal(id: "H4", title: "睡前断网", category: "睡眠", summary: "给大脑一个真正安静的收尾。", previewTitle: "睡前断网", previewSummary: "给今天一个安静收尾", inputPrimary: "", inputSecondary: "", completionLabel: "开始断网", tint: tint(3), order: 4),
         Goal(id: "H5", title: "每周联系一位旧友", category: "关系", summary: "真诚联系一位久未联系的人。", previewTitle: "联系旧友", previewSummary: "重新连接重要的人", inputPrimary: "", inputSecondary: "", completionLabel: "完成联系", tint: tint(4), order: 5),
         Goal(id: "H6", title: "管理信息摄入", category: "注意力", summary: "清理一个低价值信息源。", previewTitle: "信息摄入", previewSummary: "选择值得关注的内容", inputPrimary: "清理了哪个信息源？", inputSecondary: "为什么它不值得继续占用注意力？（选填）", completionLabel: "完成清理", tint: tint(5), order: 6),
-        Goal(id: "H7", title: "每周财务盘点", category: "秩序", summary: "看清本周的钱去了哪里，并决定下周如何使用。", previewTitle: "财务盘点", previewSummary: "看清每一笔钱的去向", inputPrimary: "本周盘点了什么？", inputSecondary: "下周准备怎么安排？（选填）", completionLabel: "完成财务盘点", tint: tint(6), order: 7),
+        Goal(id: "H7", title: "每周财务盘点", category: "秩序", summary: "看清本周的资产投入与消费消耗。", previewTitle: "财务盘点", previewSummary: "看清每一笔钱的去向", inputPrimary: "本周盘点了什么？", inputSecondary: "下周准备怎么安排？（选填）", completionLabel: "完成财务盘点", tint: tint(6), order: 7),
         Goal(id: "H8", title: "勇敢说不", category: "边界", summary: "为重要的事守住一次边界。", previewTitle: "勇敢说不", previewSummary: "守住重要的边界", inputPrimary: "", inputSecondary: "", completionLabel: "完成一次拒绝", tint: tint(7), order: 8),
         Goal(id: "H9", title: "建立知识输出", category: "表达训练", summary: "把一个概念讲成别人能听懂的话。", previewTitle: "知识输出", previewSummary: "把想法讲清楚", inputPrimary: "这次输出讲清了什么？", inputSecondary: "你能讲给我听么？", completionLabel: "完成一次输出", tint: tint(8), order: 9),
         Goal(id: "H10", title: "每月读一本跨界硬核书", category: "学习", summary: "用跨界知识拓宽自己的认知边界。", previewTitle: "跨界阅读", previewSummary: "拓宽认知边界", inputPrimary: "", inputSecondary: "", completionLabel: "完成阅读", tint: tint(9), order: 10),

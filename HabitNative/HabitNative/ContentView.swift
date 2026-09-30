@@ -14,6 +14,8 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var state = TodayGoalState()
     @State private var goals: [Goal] = []
+    @State private var databaseError: String?
+    @State private var dashboard: HabitDashboardSnapshot?
     private let tuning = UITuningState()
 
     private let repository: any GoalRepository = SharedHabitRepository()
@@ -22,18 +24,41 @@ struct ContentView: View {
         ZStack {
             LiquidBackgroundView(reduceMotion: reduceMotion)
                 .ignoresSafeArea()
-            TodayRootView(goals: goals, state: $state, tuning: tuning, reduceMotion: reduceMotion)
+            TodayRootView(goals: goals, state: $state, tuning: tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection)
+        }
+        .alert("无法保存今日选择", isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
+            Button("知道了", role: .cancel) { databaseError = nil }
+        } message: {
+            Text(databaseError ?? "请稍后重试")
         }
         .task {
             while !Task.isCancelled {
-                let refreshedGoals = (try? await repository.availableGoals(for: .now)) ?? []
+                let refreshedGoals = (try? await repository.availableGoals(for: .now)) ?? goals
                 if refreshedGoals != goals { goals = refreshedGoals }
+                dashboard = try? SharedHabitSelectionStore().dashboard(at: .now)
+                if state.mode != .browsingDeck,
+                   let selected = try? await repository.selectedGoalIDs(for: .now) {
+                    state.selectedGoalIDs = selected
+                }
                 if goals.isEmpty {
                     state.mode = .homeUnselected
                 } else if !goals.contains(where: { $0.id == state.focusedGoalID }) {
                     state.focusedGoalID = goals.first?.id ?? "H1"
                 }
                 try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private func confirmSelection() {
+        Task {
+            do {
+                try await repository.saveSelectedGoalIDs(state.selectedGoalIDs, for: .now)
+                goals = try await repository.availableGoals(for: .now)
+                state.selectedGoalIDs = try await repository.selectedGoalIDs(for: .now)
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeSelected }
+            } catch {
+                databaseError = "数据库未能保存这次选择：\(error.localizedDescription)"
             }
         }
     }
@@ -44,17 +69,25 @@ private struct TodayRootView: View {
     @Binding var state: TodayGoalState
     let tuning: UITuningState
     let reduceMotion: Bool
+    let dashboard: HabitDashboardSnapshot?
+    let onConfirm: () -> Void
     @Namespace private var navMorphNamespace
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
     private let fluidMorphAnimation = Animation.spring(response: 0.52, dampingFraction: 0.84, blendDuration: 0.2)
+
+    private var previewGoals: [Goal] {
+        let selected = goals.filter { state.selectedGoalIDs.contains($0.id) }
+        let remaining = goals.filter { !state.selectedGoalIDs.contains($0.id) }
+        return Array((selected + remaining).prefix(3))
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             // 主内容区域（包含顶部和卡片/页面）
             VStack(spacing: 0) {
                 if state.tab == .today && !isExecuting && state.mode != .browsingDeck {
-                    TodayHeaderView(selectedCount: state.selectedGoalIDs.count, mode: state.mode, tuning: tuning)
+                    TodayHeaderView(selectedCount: state.selectedGoalIDs.count, mode: state.mode, tuning: tuning, dashboard: dashboard)
                 }
                 if state.mode != .browsingDeck { Spacer(minLength: 16) }
 
@@ -62,7 +95,7 @@ private struct TodayRootView: View {
                     switch state.mode {
                     case .homeUnselected:
                         VStack(spacing: 12) {
-                            HomePreviewDeckView(goals: Array(goals.prefix(3)), tuning: tuning, reduceMotion: reduceMotion)
+                            HomePreviewDeckView(goals: previewGoals, tuning: tuning, reduceMotion: reduceMotion)
                                 .offset(y: tuning.cardOffsetY)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
@@ -122,7 +155,7 @@ private struct TodayRootView: View {
 
             // 底部确认栏（选卡片时）
             if state.mode == .browsingDeck && state.tab == .today {
-                ConfirmSelectionBar { state.mode = .homeSelected }
+                ConfirmSelectionBar(action: onConfirm)
                     .padding(.bottom, 94)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -515,6 +548,7 @@ private struct TodayHeaderView: View {
     let selectedCount: Int
     var mode: TodayMode = .homeUnselected
     var tuning: UITuningState = UITuningState()
+    let dashboard: HabitDashboardSnapshot?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -558,7 +592,7 @@ private struct TodayHeaderView: View {
                     Image(systemName: "star.fill")
                         .font(.system(size: 22, weight: .semibold)) // 放大 2 倍
                         .foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.38))
-                    Text("124")
+                    Text("\(dashboard?.points ?? 0)")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color(red: 0.24, green: 0.34, blue: 0.28))
                 }
@@ -570,7 +604,7 @@ private struct TodayHeaderView: View {
 
             // 昨天的回顾提示位（保持柔和淡粉底色与清晰呼吸空间）
             if mode == .homeUnselected {
-                YesterdayReviewBanner()
+                YesterdayReviewBanner(missedCount: dashboard?.missedYesterday ?? 0)
                     .padding(.top, tuning.bannerPaddingTop)
             }
         }
@@ -593,9 +627,10 @@ private struct TodayHeaderView: View {
 }
 
 private struct YesterdayReviewBanner: View {
+    let missedCount: Int
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("昨天有 1 个普通习惯未完成，已记入日历。未完成不直接扣分；连续7天没有完成才会进入休眠与衰减。")
+            Text(missedCount == 0 ? "昨天没有未完成的习惯记录。" : "昨天有 \(missedCount) 个习惯未完成，已记入日历。未完成不直接扣分；连续7天没有完成才会进入休眠与衰减。")
                 .font(.system(size: 13.5, weight: .medium))
                 .lineSpacing(4)
                 .foregroundStyle(Color(red: 0.36, green: 0.26, blue: 0.28))
@@ -714,6 +749,7 @@ private struct HomeCaptionView: View {
 
 private struct TodayBottomNavigationView: View {
     @Binding var tab: AppTab
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let fluidMorphAnimation: Animation
     let namespace: Namespace.ID
 
@@ -771,8 +807,10 @@ private struct TodayBottomNavigationView: View {
                     FluidContinuousDropletView(
                         progress: animatedIndex,
                         itemWidth: itemWidth,
-                        totalHeight: geo.size.height
+                        totalHeight: geo.size.height,
+                        reduceMotion: reduceMotion
                     )
+                    .allowsHitTesting(false)
                 }
 
                 // 3. 三个按键排布
@@ -790,6 +828,10 @@ private struct TodayBottomNavigationView: View {
                     }
                 }
                 .padding(5)
+            }
+            .clipShape(Capsule())
+            .overlay {
+                Capsule().strokeBorder(.white.opacity(0.86), lineWidth: 1.2)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 60) // 恢复舒适大气的底层导航栏高度
@@ -857,7 +899,7 @@ private struct TodayBottomNavigationView: View {
     private func switchTab(to newTab: AppTab) {
         guard tab != newTab else { return }
         tab = newTab
-        withAnimation(fluidSpring) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : fluidSpring) {
             animatedIndex = tabTargetIndex(for: newTab)
         }
     }
@@ -868,6 +910,7 @@ private struct FluidContinuousDropletView: View, Animatable {
     var progress: Double
     let itemWidth: CGFloat
     let totalHeight: CGFloat
+    let reduceMotion: Bool
 
     var animatableData: Double {
         get { progress }
@@ -888,28 +931,16 @@ private struct FluidContinuousDropletView: View, Animatable {
 
     var body: some View {
         let xPos = CGFloat(progress) * itemWidth
-        // 高亮水滴按钮宽度缩窄 20%：itemWidth * 0.80，并在槽位中水平居中
-        let dropletWidth = itemWidth * 0.80
-        let dropletOffsetX = xPos + (itemWidth - dropletWidth) / 2.0
-        // 扁平度：平滑在 1.0（正常饱满）与 0.40（扁平流动水滴）之间过渡
-        let scaleY: CGFloat = 1.0 - transitFactor * 0.60
-        // 横向伸展：在中间 20px 过渡区柔和拉长
-        let scaleX: CGFloat = 1.0 + transitFactor * 0.16
+        let dropletWidth = itemWidth - 4
+        let dropletOffsetX = xPos + 2
+        let scaleX = reduceMotion ? 1 : 1 + transitFactor * 0.18
+        let scaleY = reduceMotion ? 1 : 1 - transitFactor * 0.42
 
         ZStack {
             // 水滴通透主体（完全使用 Capsule，与外层导航栏胶囊曲率 100% 绝对一致）
             Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(0.65 + Double(transitFactor) * 0.15),
-                            .white.opacity(0.28 + Double(transitFactor) * 0.10),
-                            .white.opacity(0.45 + Double(transitFactor) * 0.12)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(.white.opacity(0.08))
+                .glassEffect(.regular.tint(.white.opacity(0.14)).interactive(), in: Capsule())
 
             // 水滴内部凸透镜光泽
             Capsule()
@@ -922,9 +953,9 @@ private struct FluidContinuousDropletView: View, Animatable {
                     )
                 )
 
-            // 顶端晶莹反射边缘
+            // 边缘高光保持在形状内部，避免顶部出现悬空亮条。
             Capsule()
-                .stroke(
+                .strokeBorder(
                     LinearGradient(
                         colors: [
                             .white.opacity(0.98),
@@ -937,25 +968,10 @@ private struct FluidContinuousDropletView: View, Animatable {
                     lineWidth: 1.1
                 )
 
-            // 顶部小水珠反射聚光弧
-            VStack {
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [.white.opacity(0.85), .white.opacity(0.15)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(height: max(3.5, 10 - transitFactor * 6))
-                    .padding(.horizontal, 8 - transitFactor * 2)
-                    .padding(.top, 2.5)
-                Spacer()
-            }
         }
-        .frame(width: dropletWidth, height: totalHeight)
-        .scaleEffect(x: scaleX, y: scaleY, anchor: .center)
-        .offset(x: dropletOffsetX)
+        .frame(width: dropletWidth, height: totalHeight - 4)
+        .scaleEffect(x: scaleX, y: scaleY)
+        .offset(x: dropletOffsetX, y: 2)
         .shadow(
             color: Color(red: 0.88, green: 0.65, blue: 0.75).opacity(0.20 + Double(transitFactor) * 0.14),
             radius: 7 + transitFactor * 3,

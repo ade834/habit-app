@@ -13,18 +13,18 @@ private struct PerspectiveCardShape: Shape {
         path.move(to: CGPoint(x: rect.minX + topR, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY))
         path.addCurve(to: CGPoint(x: rect.maxX, y: rect.minY + topR), control1: CGPoint(x: rect.maxX - topR * 0.42, y: rect.minY), control2: CGPoint(x: rect.maxX, y: rect.minY + topR * 0.42))
-        path.addCurve(to: CGPoint(x: rect.maxX - inset - bottomR, y: rect.maxY - bottomR), control1: CGPoint(x: rect.maxX - inset * 0.10, y: rect.minY + rect.height * 0.46), control2: CGPoint(x: rect.maxX - inset - bottomR * 0.20, y: rect.maxY - bottomR * 0.18))
-        path.addCurve(to: CGPoint(x: rect.maxX - inset - bottomR, y: rect.maxY), control1: CGPoint(x: rect.maxX - inset - bottomR * 0.55, y: rect.maxY), control2: CGPoint(x: rect.maxX - inset - bottomR * 0.30, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR), control1: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.42), control2: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR * 2.1))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - inset - bottomR, y: rect.maxY), control: CGPoint(x: rect.maxX - inset, y: rect.maxY))
         path.addLine(to: CGPoint(x: rect.minX + inset + bottomR, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.minX + inset + bottomR, y: rect.maxY - bottomR), control1: CGPoint(x: rect.minX + inset + bottomR * 0.30, y: rect.maxY), control2: CGPoint(x: rect.minX + inset + bottomR * 0.55, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + topR), control1: CGPoint(x: rect.minX + inset + bottomR * 0.20, y: rect.maxY - bottomR * 0.18), control2: CGPoint(x: rect.minX + inset * 0.10, y: rect.minY + rect.height * 0.46))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR), control: CGPoint(x: rect.minX + inset, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + topR), control1: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR * 2.1), control2: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.42))
         path.addCurve(to: CGPoint(x: rect.minX + topR, y: rect.minY), control1: CGPoint(x: rect.minX, y: rect.minY + topR * 0.42), control2: CGPoint(x: rect.minX + topR * 0.42, y: rect.minY))
         path.closeSubpath()
         return path
     }
 }
 
-/// A bounded, perspective card stack with a large third card.
+/// A looping perspective card stack with a large third card.
 struct TodayStackDeckView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
@@ -52,7 +52,7 @@ struct TodayStackDeckView: View {
                     .minimumScaleFactor(0.78)
                 Spacer(minLength: 8)
                 HStack(spacing: 5) {
-                    Text("\(state.selectedGoalIDs.count)").fontWeight(.semibold)
+                    Text("\(goals.filter { state.selectedGoalIDs.contains($0.id) && $0.countsTowardQuota }.count)").fontWeight(.semibold)
                     Text("/ 3").foregroundStyle(.secondary)
                 }
                 .font(.system(size: 17))
@@ -126,8 +126,8 @@ struct TodayStackDeckView: View {
                             return
                         }
                         guard abs(value.translation.height) > abs(value.translation.width), abs(value.translation.height) > 48 else { return }
-                        let next = min(max(0, focus + (value.predictedEndTranslation.height < 0 ? 1 : -1)), max(0, goals.count - visibleSlots + 1))
-                        guard goals.indices.contains(next) else { return }
+                        guard !goals.isEmpty else { return }
+                        let next = (focus + (value.predictedEndTranslation.height < 0 ? 1 : -1) + goals.count) % goals.count
                         withAnimation(spring) { state.focusedGoalID = goals[next].id }
                     })
                 .simultaneousGesture(SpatialTapGesture().onEnded { value in
@@ -254,7 +254,8 @@ struct TodayStackDeckView: View {
 
     private func toggle(_ goal: Goal) {
         let wasSelected = state.selectedGoalIDs.contains(goal.id)
-        guard wasSelected || state.selectedGoalIDs.count < 3 else { return }
+        let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
+        guard wasSelected || !goal.countsTowardQuota || regularCount < 3 else { return }
         withAnimation(spring) {
             if wasSelected { state.selectedGoalIDs.remove(goal.id) }
             else { state.selectedGoalIDs.insert(goal.id) }
