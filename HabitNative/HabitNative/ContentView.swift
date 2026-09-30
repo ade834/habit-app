@@ -33,7 +33,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            LiquidBackgroundView(reduceMotion: reduceMotion)
+            TodayAmbientBackground(reduceMotion: reduceMotion)
                 .ignoresSafeArea()
             TodayRootView(goals: goals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection)
         }
@@ -1241,6 +1241,105 @@ private struct PrototypeIcon: View {
                 context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
             }
         }
+    }
+}
+
+// 今日页专用连续流体背景。独立于 Garden 使用的背景组件，避免跨模块改变养成物页面。
+private struct TodayAmbientBackground: View {
+    let reduceMotion: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: reduceMotion ? 60 : 1 / 45)) { timeline in
+            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            Canvas { context, size in
+                draw(in: &context, size: size, time: time)
+            }
+            .background(Color(red: 0.34, green: 0.34, blue: 0.37))
+            .overlay {
+                Rectangle()
+                    .fill(.ultraThinMaterial.opacity(0.16))
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func draw(in context: inout GraphicsContext, size: CGSize, time: TimeInterval) {
+        let minDim = min(size.width, size.height)
+        let travel = reduceMotion ? 0.48 : 0.5 + 0.5 * sin(time * 0.34)
+        let collision = smoothstep(0.08, 0.92, travel)
+        let exchange = smoothstep(0.38, 0.62, collision)
+
+        let largeRadius = minDim * (0.70 + 0.025 * sin(time * 0.47))
+        let smallRadius = minDim * (0.35 + 0.014 * cos(time * 0.53))
+        let largeCenter = CGPoint(
+            x: size.width * (0.17 + 0.36 * collision),
+            y: size.height * (0.82 - 0.35 * collision)
+        )
+        let smallCenter = CGPoint(
+            x: size.width * (0.86 - 0.34 * collision),
+            y: size.height * (0.18 + 0.35 * collision)
+        )
+
+        let magenta = Color(red: 0.93, green: 0.22, blue: 0.65)
+        let orange = Color(red: 1.00, green: 0.57, blue: 0.34)
+        let largeColor = magenta.mix(with: orange, by: exchange)
+        let smallColor = orange.mix(with: magenta, by: exchange)
+
+        context.addFilter(.blur(radius: 52))
+        drawSphere(in: &context, center: largeCenter, radius: largeRadius, color: largeColor)
+        drawSphere(in: &context, center: smallCenter, radius: smallRadius, color: smallColor)
+
+        let distance = hypot(smallCenter.x - largeCenter.x, smallCenter.y - largeCenter.y)
+        let overlap = 1 - smoothstep(
+            (largeRadius + smallRadius) * 0.62,
+            (largeRadius + smallRadius) * 1.08,
+            distance
+        )
+        let midpoint = CGPoint(
+            x: largeCenter.x * 0.55 + smallCenter.x * 0.45,
+            y: largeCenter.y * 0.55 + smallCenter.y * 0.45
+        )
+        let coreRadius = smallRadius * (0.48 + overlap * 0.26)
+        context.opacity = overlap * 0.72
+        context.fill(
+            Path(ellipseIn: CGRect(x: midpoint.x - coreRadius, y: midpoint.y - coreRadius, width: coreRadius * 2, height: coreRadius * 2)),
+            with: .radialGradient(
+                Gradient(colors: [orange.mix(with: magenta, by: 0.5).opacity(0.9), .clear]),
+                center: midpoint,
+                startRadius: 4,
+                endRadius: coreRadius
+            )
+        )
+        context.opacity = 1
+
+        drawAccent(in: &context, center: CGPoint(x: size.width * 0.88 + cos(time * 0.9) * 22, y: size.height * 0.26 + sin(time * 0.82) * 24), radius: minDim * 0.17, color: orange.opacity(0.42))
+        drawAccent(in: &context, center: CGPoint(x: size.width * 0.12 + sin(time * 0.84) * 20, y: size.height * 0.48 + cos(time * 0.92) * 22), radius: minDim * 0.13, color: magenta.opacity(0.36))
+    }
+
+    private func drawSphere(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat, color: Color) {
+        let rect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+        context.fill(
+            Path(ellipseIn: rect),
+            with: .radialGradient(
+                Gradient(colors: [color.opacity(0.96), color.opacity(0.72), color.opacity(0)]),
+                center: CGPoint(x: center.x - radius * 0.12, y: center.y - radius * 0.14),
+                startRadius: radius * 0.04,
+                endRadius: radius
+            )
+        )
+    }
+
+    private func drawAccent(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat, color: Color) {
+        context.fill(
+            Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)),
+            with: .radialGradient(Gradient(colors: [color, .clear]), center: center, startRadius: 2, endRadius: radius)
+        )
+    }
+
+    private func smoothstep(_ edge0: CGFloat, _ edge1: CGFloat, _ value: CGFloat) -> CGFloat {
+        let x = min(1, max(0, (value - edge0) / max(0.0001, edge1 - edge0)))
+        return x * x * (3 - 2 * x)
     }
 }
 

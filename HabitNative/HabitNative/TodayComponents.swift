@@ -33,6 +33,8 @@ struct TodayStackDeckView: View {
     @GestureState private var horizontalDrag: CGFloat = 0
     @State private var draggedGoalID: String?
     @State private var bounceID: String?
+    @State private var ruleNotice: String?
+    @State private var ruleNoticeID = UUID()
 
     private var focus: Int {
         goals.firstIndex { $0.id == state.focusedGoalID } ?? 0
@@ -100,12 +102,6 @@ struct TodayStackDeckView: View {
                                     .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
                                     .allowsHitTesting(false)
                             }
-                            .mask(cardVisibilityMask(
-                                isLastVisible: slot == visibleSlots - 1,
-                                top: cardTop(slot: slot, step: step, height: cardHeight),
-                                height: cardHeight,
-                                viewportHeight: geometry.size.height - 15
-                            ))
                             .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
                             .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                             .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
@@ -132,6 +128,7 @@ struct TodayStackDeckView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
                 .frame(height: max(0, geometry.size.height - 15), alignment: .top)
+                .mask(deckBottomFadeMask)
                 .clipped()
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 12)
@@ -170,6 +167,15 @@ struct TodayStackDeckView: View {
         .animation(spring, value: state.focusedGoalID)
         .animation(spring, value: state.selectedGoalIDs)
         .animation(spring, value: state.starredGoalIDs)
+        .overlay(alignment: .topTrailing) {
+            if let ruleNotice {
+                RuleNoticeBanner(message: ruleNotice)
+                    .padding(.top, 78)
+                    .padding(.trailing, 4)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(500)
+            }
+        }
         .onAppear {
             // 数据库排序第一张固定落在 slot 2（第三张、主展示位）。
             if let firstGoal = goals.first {
@@ -246,9 +252,9 @@ struct TodayStackDeckView: View {
                 .padding(.top, 16)
                 .opacity(contentReveal)
 
-                Text(state.starredGoalIDs.contains(goal.id) ? "星标：完成不加积分，但增加养成进度" : goal.isPeriodic ? "周期习惯：次日起作为额外名额保留" : goal.summary)
+                Text(goal.summary)
                     .font(.system(size: 14, weight: .medium))
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.94))
                     .frame(maxWidth: .infinity)
@@ -258,7 +264,7 @@ struct TodayStackDeckView: View {
             } else {
                 Text(goal.summary)
                     .font(.system(size: 13, weight: .medium))
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.white.opacity(0.86))
                     .padding(.horizontal, 24)
@@ -272,7 +278,7 @@ struct TodayStackDeckView: View {
     private func starButton(_ goal: Goal) -> some View {
         let starred = state.starredGoalIDs.contains(goal.id)
         let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
-        return StarTapControl(starred: starred, enabled: starred || canStar) {
+        return StarTapControl(starred: starred, available: starred || canStar) {
             toggleStar(goal)
         }
     }
@@ -285,6 +291,15 @@ struct TodayStackDeckView: View {
                 && $0.countsTowardQuota
         }.count
         let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
+
+        guard starred || canStar else {
+            showRuleNotice(
+                state.isFirstSelection
+                    ? "首次选择需要先完成今日目标，之后才能设置星标。"
+                    : "星标习惯最多选择 \(state.starLimit) 个，请先取消一个已有星标。"
+            )
+            return
+        }
 
         withAnimation(spring) {
             if starred {
@@ -313,18 +328,12 @@ struct TodayStackDeckView: View {
         return Color(red: 0.31, green: 0.72, blue: 0.53)
     }
 
-    private func cardVisibilityMask(isLastVisible: Bool, top: CGFloat, height: CGFloat, viewportHeight: CGFloat) -> LinearGradient {
-        guard isLastVisible else {
-            return LinearGradient(colors: [.white, .white], startPoint: .top, endPoint: .bottom)
-        }
-        // 渐隐锚定在卡片集的实际下边界，而不是卡片自身底部；否则会先被容器硬裁掉。
-        let edge = min(1, max(0, (viewportHeight - top) / max(1, height)))
-        let fadeStart = max(0, edge - 34 / max(1, height))
-        return LinearGradient(
+    private var deckBottomFadeMask: LinearGradient {
+        LinearGradient(
             stops: [
                 .init(color: .white, location: 0),
-                .init(color: .white, location: fadeStart),
-                .init(color: .clear, location: edge),
+                .init(color: .white, location: 0.91),
+                .init(color: .white.opacity(0.72), location: 0.95),
                 .init(color: .clear, location: 1)
             ],
             startPoint: .top,
@@ -370,7 +379,10 @@ struct TodayStackDeckView: View {
     private func toggle(_ goal: Goal) {
         let wasSelected = state.selectedGoalIDs.contains(goal.id)
         let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
-        guard wasSelected || !goal.countsTowardQuota || regularCount < 3 else { return }
+        guard wasSelected || !goal.countsTowardQuota || regularCount < 3 else {
+            showRuleNotice("当天最多选择 3 个普通或周期目标，请先取消一个再选择。")
+            return
+        }
         withAnimation(spring) {
             if wasSelected { state.selectedGoalIDs.remove(goal.id); state.starredGoalIDs.remove(goal.id) }
             else { state.selectedGoalIDs.insert(goal.id) }
@@ -382,13 +394,26 @@ struct TodayStackDeckView: View {
             withAnimation(.spring(response: 0.36, dampingFraction: 0.76)) { bounceID = nil }
         }
     }
+
+    private func showRuleNotice(_ message: String) {
+        let id = UUID()
+        ruleNoticeID = id
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) {
+            ruleNotice = message
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            guard ruleNoticeID == id else { return }
+            withAnimation(.easeOut(duration: 0.22)) { ruleNotice = nil }
+        }
+    }
 }
 
 private struct StarTapControl: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var pressed = false
     let starred: Bool
-    let enabled: Bool
+    let available: Bool
     let action: () -> Void
 
     var body: some View {
@@ -407,7 +432,7 @@ private struct StarTapControl: View {
                     }
             }
             .contentShape(Circle())
-            .opacity(enabled ? 1 : 0.42)
+            .opacity(available ? 1 : 0.42)
             .scaleEffect(pressed && !reduceMotion ? 0.96 : 1)
             .animation(
                 reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.55),
@@ -416,11 +441,10 @@ private struct StarTapControl: View {
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .updating($pressed) { _, value, _ in
-                        if enabled { value = true }
+                        value = true
                     }
                     .onEnded { value in
-                        guard enabled,
-                              abs(value.translation.width) < 12,
+                        guard abs(value.translation.width) < 12,
                               abs(value.translation.height) < 12 else { return }
                         action()
                     },
@@ -433,6 +457,32 @@ private struct StarTapControl: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(starred ? "取消星标" : "设为星标")
             .accessibilityHint(starred ? "取消星标；普通名额已满时会同时取消选择" : "设为星标并加入今日选择，不占普通名额")
-            .accessibilityAction { if enabled { action() } }
+            .accessibilityAction { action() }
+    }
+}
+
+private struct RuleNoticeBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 15, weight: .semibold))
+            Text(message)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Color(red: 0.28, green: 0.20, blue: 0.24))
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .frame(maxWidth: 250, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.white.opacity(0.72), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.14), radius: 14, y: 7)
+        .accessibilityAddTraits(.isStaticText)
     }
 }
