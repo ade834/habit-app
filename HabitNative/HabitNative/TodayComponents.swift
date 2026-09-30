@@ -64,9 +64,9 @@ struct TodayStackDeckView: View {
             .padding(.top, 20)
 
             HStack(spacing: 12) {
-                legend("普通", color: Color(red: 0.769, green: 0.820, blue: 0.733))
-                legend("周期", color: Color(red: 0.725, green: 0.800, blue: 0.831))
-                legend("星标", color: Color(red: 0.878, green: 0.816, blue: 0.659))
+                legend("普通", color: Color(red: 0.31, green: 0.72, blue: 0.53))
+                legend("周期", color: Color(red: 0.30, green: 0.61, blue: 0.88))
+                legend("星标", color: Color(red: 0.97, green: 0.70, blue: 0.22))
                 Spacer(minLength: 0)
                 Text("上下滑动浏览").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
             }
@@ -100,7 +100,12 @@ struct TodayStackDeckView: View {
                                     .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
                                     .allowsHitTesting(false)
                             }
-                            .mask(cardVisibilityMask(isLastVisible: slot == visibleSlots - 1, height: cardHeight))
+                            .mask(cardVisibilityMask(
+                                isLastVisible: slot == visibleSlots - 1,
+                                top: cardTop(slot: slot, step: step, height: cardHeight),
+                                height: cardHeight,
+                                viewportHeight: geometry.size.height - 15
+                            ))
                             .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
                             .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                             .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
@@ -167,7 +172,7 @@ struct TodayStackDeckView: View {
 
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
         let tint = Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
-        let accent: Color = state.starredGoalIDs.contains(goal.id) ? Color(red: 0.878, green: 0.816, blue: 0.659) : goal.isPeriodic ? Color(red: 0.725, green: 0.800, blue: 0.831) : tint
+        let accent: Color = state.starredGoalIDs.contains(goal.id) ? Color(red: 0.97, green: 0.70, blue: 0.22) : goal.isPeriodic ? Color(red: 0.30, green: 0.61, blue: 0.88) : tint
         return PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
             .fill(LinearGradient(stops: [
                 .init(color: accent.opacity(0.99), location: 0),
@@ -191,49 +196,61 @@ struct TodayStackDeckView: View {
                     Text(taskTypeTitle(for: goal))
                         .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 7).padding(.vertical, 4)
-                        .foregroundStyle(Color(red: 0.25, green: 0.22, blue: 0.27))
+                        .foregroundStyle(Color(red: 0.16, green: 0.18, blue: 0.22))
                         .background(taskTypeColor(for: goal), in: Capsule())
                         .transition(.opacity.combined(with: .scale(scale: 0.88)))
                 }
                 Spacer(minLength: 4)
                 starButton(goal)
             }
-            .padding(.horizontal, 20).padding(.top, 9)
+            .padding(.leading, 20).padding(.trailing, 12).padding(.top, 5)
             .foregroundStyle(.white)
+            .zIndex(2)
 
-            if contentReveal > 0.01 {
-                Text(goal.title)
-                    .font(.system(size: isHero ? 30 : 22, weight: .semibold))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.82)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 24).padding(.top, 12)
-                    .opacity(contentReveal)
-                    .offset(y: (1 - contentReveal) * 10)
+            // 标题始终贴近卡片上缘；卡片从遮挡中翻出时同步显现。
+            Text(goal.title)
+                .font(.system(size: isHero ? 30 : 22, weight: .semibold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 24).padding(.top, 10)
+                .opacity(max(0.18, contentReveal))
+                .offset(y: (1 - contentReveal) * 7)
 
-                if contentReveal > 0.45 {
-                    Spacer(minLength: 8)
-                    ZStack {
-                        Circle().fill(.white.opacity(0.18)).frame(width: 118, height: 118)
-                        Circle().stroke(.white.opacity(0.55), lineWidth: 1.3).frame(width: 64, height: 64)
-                        if selected {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 24, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.94))
-                        }
+            if isHero {
+                // 主展示位的选择图标前置，避免被下一层卡片遮住。
+                ZStack {
+                    Circle().fill(.white.opacity(0.18)).frame(width: 104, height: 104)
+                    Circle().stroke(.white.opacity(0.58), lineWidth: 1.3).frame(width: 58, height: 58)
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.94))
                     }
-                    .frame(maxWidth: .infinity)
-                    .opacity(contentReveal)
-                    Text(state.starredGoalIDs.contains(goal.id) ? "星标：完成不加积分，但增加养成进度" : goal.isPeriodic ? "周期习惯：次日起作为额外名额保留" : goal.summary)
-                        .font(.system(size: 16, weight: .medium))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.white.opacity(0.94))
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 22)
-                        .padding(.top, 8)
-                        .opacity(contentReveal)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
+                .opacity(contentReveal)
+
+                Text(state.starredGoalIDs.contains(goal.id) ? "星标：完成不加积分，但增加养成进度" : goal.isPeriodic ? "周期习惯：次日起作为额外名额保留" : goal.summary)
+                    .font(.system(size: 14, weight: .medium))
+                    .lineLimit(3)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(0.94))
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 10)
+                    .opacity(contentReveal)
+            } else {
+                Text(goal.summary)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.white.opacity(0.86))
+                    .padding(.horizontal, 24)
+                    .padding(.top, 6)
+                    .opacity(contentReveal)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -257,7 +274,7 @@ struct TodayStackDeckView: View {
             Image(systemName: starred ? "star.fill" : "star")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
-                .frame(width: 44, height: 44)
+                .frame(width: 52, height: 52)
         }
         .buttonStyle(StarPressStyle())
         .contentShape(Circle())
@@ -272,21 +289,27 @@ struct TodayStackDeckView: View {
 
     private func taskTypeColor(for goal: Goal) -> Color {
         if state.starredGoalIDs.contains(goal.id) {
-            return Color(red: 0.878, green: 0.816, blue: 0.659)
+            return Color(red: 0.97, green: 0.70, blue: 0.22)
         }
         if goal.isPeriodic {
-            return Color(red: 0.725, green: 0.800, blue: 0.831)
+            return Color(red: 0.30, green: 0.61, blue: 0.88)
         }
-        return Color(red: 0.769, green: 0.820, blue: 0.733)
+        return Color(red: 0.31, green: 0.72, blue: 0.53)
     }
 
-    private func cardVisibilityMask(isLastVisible: Bool, height: CGFloat) -> LinearGradient {
-        let fadeStart = max(0, 1 - 18 / max(1, height))
+    private func cardVisibilityMask(isLastVisible: Bool, top: CGFloat, height: CGFloat, viewportHeight: CGFloat) -> LinearGradient {
+        guard isLastVisible else {
+            return LinearGradient(colors: [.white, .white], startPoint: .top, endPoint: .bottom)
+        }
+        // 渐隐锚定在卡片集的实际下边界，而不是卡片自身底部；否则会先被容器硬裁掉。
+        let edge = min(1, max(0, (viewportHeight - top) / max(1, height)))
+        let fadeStart = max(0, edge - 34 / max(1, height))
         return LinearGradient(
             stops: [
                 .init(color: .white, location: 0),
-                .init(color: .white, location: isLastVisible ? fadeStart : 1),
-                .init(color: isLastVisible ? .clear : .white, location: 1)
+                .init(color: .white, location: fadeStart),
+                .init(color: .clear, location: edge),
+                .init(color: .clear, location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom
