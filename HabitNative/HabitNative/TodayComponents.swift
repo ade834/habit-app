@@ -9,22 +9,34 @@ private struct PerspectiveCardShape: Shape {
         let topR = min(topRadius, min(rect.width, rect.height) / 2)
         let inset = min(bottomInset, rect.width * 0.12)
         let bottomR = min(bottomRadius, min(rect.width - inset * 2, rect.height) / 2)
+        let safeHeight = max(1, rect.height)
+        let topSideInset = inset * topR / safeHeight
+        let bottomSideInset = inset * bottomR / safeHeight
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + topR, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY))
-        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.minY + topR), control1: CGPoint(x: rect.maxX - topR * 0.42, y: rect.minY), control2: CGPoint(x: rect.maxX, y: rect.minY + topR * 0.42))
-        path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - bottomR))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - topSideInset, y: rect.minY + topR),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - inset + bottomSideInset, y: rect.maxY - bottomR))
         path.addQuadCurve(to: CGPoint(x: rect.maxX - inset - bottomR, y: rect.maxY), control: CGPoint(x: rect.maxX - inset, y: rect.maxY))
         path.addLine(to: CGPoint(x: rect.minX + inset + bottomR, y: rect.maxY))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + inset, y: rect.maxY - bottomR), control: CGPoint(x: rect.minX + inset, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + topR))
-        path.addCurve(to: CGPoint(x: rect.minX + topR, y: rect.minY), control1: CGPoint(x: rect.minX, y: rect.minY + topR * 0.42), control2: CGPoint(x: rect.minX + topR * 0.42, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + inset - bottomSideInset, y: rect.maxY - bottomR),
+            control: CGPoint(x: rect.minX + inset, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + topSideInset, y: rect.minY + topR))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + topR, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
         path.closeSubpath()
         return path
     }
 }
 
-/// A looping perspective card stack with a large third card.
+/// A looping perspective card stack with a large second card.
 struct TodayStackDeckView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
@@ -82,7 +94,7 @@ struct TodayStackDeckView: View {
 
             GeometryReader { geometry in
                 let cardHeight = min(geometry.size.height * 0.56, 390)
-                // 第二张作为主展示位；第三张从 40% 露出量开始逐级递减。
+                // 第二张作为主展示位；第三、第四张逐级减少露出，底部边界保持不变。
                 let step = max(45, geometry.size.height * 0.094)
                 let visibleSlots = min(goals.count, 5)
                 ZStack(alignment: .top) {
@@ -394,14 +406,14 @@ struct TodayStackDeckView: View {
     }
 
     private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
-        let thirdTop = step + height * 0.58
-        let fourthTop = thirdTop + height * 0.40
+        let thirdTop = step + height * 0.68
+        let fourthTop = thirdTop + height * 0.34
         return switch slot {
         case 0: 0
         case 1: step
         case 2: thirdTop
         case 3: fourthTop
-        default: fourthTop + CGFloat(slot - 3) * max(64, height * 0.28)
+        default: fourthTop + CGFloat(slot - 3) * max(64, height * 0.24)
         }
     }
 
