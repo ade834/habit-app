@@ -99,12 +99,6 @@ private struct TodayRootView: View {
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
     private let fluidMorphAnimation = Animation.spring(response: 0.52, dampingFraction: 0.84, blendDuration: 0.2)
 
-    private var previewGoals: [Goal] {
-        let selected = goals.filter { state.selectedGoalIDs.contains($0.id) }
-        let remaining = goals.filter { !state.selectedGoalIDs.contains($0.id) }
-        return Array((selected + remaining).prefix(3))
-    }
-
     var body: some View {
         ZStack(alignment: .bottom) {
             // 主内容区域（包含顶部和卡片/页面）
@@ -118,7 +112,7 @@ private struct TodayRootView: View {
                     switch state.mode {
                     case .homeUnselected:
                         VStack(spacing: 12) {
-                            HomePreviewDeckView(goals: previewGoals, tuning: tuning, reduceMotion: reduceMotion)
+                            HomePreviewDeckView(tuning: tuning, reduceMotion: reduceMotion)
                                 .offset(y: tuning.cardOffsetY)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
@@ -746,10 +740,15 @@ private struct HomeSelectionHint: View {
 }
 
 private struct HomePreviewDeckView: View {
-    let goals: [Goal]
-    var tuning: UITuningState = UITuningState()
+    let tuning: UITuningState
     let reduceMotion: Bool
 
+    // 首页是固定的引导画面，不读取当日可选习惯，也不写入任何选择状态。
+    private let cards: [HomePreviewCard] = [
+        HomePreviewCard(id: "preview-knowledge", title: "建立知识输出", summary: "把一个概念讲成别人能听懂的话", tint: GoalTint(red: 0.77, green: 0.29, blue: 0.58, opacity: 1)),
+        HomePreviewCard(id: "preview-attention", title: "管理信息摄入", summary: "选择值得关注的内容", tint: GoalTint(red: 0.82, green: 0.26, blue: 0.53, opacity: 1)),
+        HomePreviewCard(id: "preview-sleep", title: "睡前断网", summary: "给今天一个安静收尾", tint: GoalTint(red: 0.88, green: 0.40, blue: 0.47, opacity: 1))
+    ]
     @State private var animateBreathing = false
 
     private var poses: [PreviewPose] {
@@ -762,11 +761,11 @@ private struct HomePreviewDeckView: View {
 
     var body: some View {
         ZStack {
-            ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
+            ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
                 let pose = poses[index]
                 let dynamicFloat: CGFloat = animateBreathing ? (index == 1 ? -11 : (index == 0 ? 8 : -7)) : 0
 
-                PreviewGoalCard(goal: goal, index: index + 1, surfaceOpacity: pose.opacity, isPrimary: index == 1)
+                PreviewGoalCard(card: card, index: index + 1, surfaceOpacity: pose.opacity, isPrimary: index == 1)
                     .frame(width: pose.width, height: tuning.cardHeight)
                     .rotationEffect(.degrees(pose.rotation))
                     .offset(x: pose.x, y: pose.y + dynamicFloat)
@@ -775,7 +774,7 @@ private struct HomePreviewDeckView: View {
         }
         .frame(height: tuning.cardHeight + 44)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("三张目标预览")
+        .accessibilityLabel("三张虚拟引导卡")
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.spring(response: 1.15, dampingFraction: 0.55).repeatForever(autoreverses: true)) {
@@ -783,6 +782,13 @@ private struct HomePreviewDeckView: View {
             }
         }
     }
+}
+
+private struct HomePreviewCard: Identifiable {
+    let id: String
+    let title: String
+    let summary: String
+    let tint: GoalTint
 }
 
 private struct PreviewPose {
@@ -794,10 +800,30 @@ private struct PreviewPose {
 }
 
 private struct PreviewGoalCard: View {
-    let goal: Goal
+    let title: String
+    let summary: String
+    let tint: GoalTint
     let index: Int
     var surfaceOpacity: Double = 0.9
     var isPrimary = true
+
+    init(card: HomePreviewCard, index: Int, surfaceOpacity: Double = 0.9, isPrimary: Bool = true) {
+        self.title = card.title
+        self.summary = card.summary
+        self.tint = card.tint
+        self.index = index
+        self.surfaceOpacity = surfaceOpacity
+        self.isPrimary = isPrimary
+    }
+
+    init(goal: Goal, index: Int, surfaceOpacity: Double = 0.9, isPrimary: Bool = true) {
+        self.title = goal.previewTitle
+        self.summary = goal.previewSummary
+        self.tint = goal.tint
+        self.index = index
+        self.surfaceOpacity = surfaceOpacity
+        self.isPrimary = isPrimary
+    }
 
     private var textColor: Color {
         .white
@@ -809,11 +835,11 @@ private struct PreviewGoalCard: View {
                 .font(.system(size: 11, weight: .medium))
                 .tracking(1.32)
                 .foregroundStyle(textColor.opacity(isPrimary ? 0.85 : 0.45))
-            Text(goal.previewTitle)
+            Text(title)
                     .font(.system(size: isPrimary ? 25 : 21, weight: .semibold))
                     .tracking(-0.77)
                     .foregroundStyle(textColor)
-            Text(goal.previewSummary)
+            Text(summary)
                     .font(.system(size: isPrimary ? 12 : 11, weight: .medium))
                     .foregroundStyle(textColor.opacity(0.86))
             Spacer()
@@ -826,7 +852,7 @@ private struct PreviewGoalCard: View {
                 .fill(.ultraThinMaterial)
                 .overlay {
                     RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .fill(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue).opacity(surfaceOpacity))
+                        .fill(Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(surfaceOpacity))
                 }
         }
         .overlay {
