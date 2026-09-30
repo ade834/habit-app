@@ -87,23 +87,12 @@ struct TodayStackDeckView: View {
                             .frame(maxWidth: .infinity)
                             .background { cardSurface(goal, isHero: isHero) }
                             .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
-                            .overlay(alignment: .top) {
-                                if slot > 0 {
-                                    LinearGradient(
-                                        colors: [.black.opacity(isHero ? 0.18 : 0.22), .black.opacity(0.06), .clear],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                    .frame(height: isHero ? 34 : 27)
-                                    .clipShape(PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19))
-                                    .allowsHitTesting(false)
-                                }
-                            }
                             .overlay {
                                 PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
                                     .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
                                     .allowsHitTesting(false)
                             }
+                            .mask(cardVisibilityMask(isLastVisible: slot == visibleSlots - 1))
                             .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
                             .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                             .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
@@ -152,6 +141,7 @@ struct TodayStackDeckView: View {
         .padding(.horizontal, 24)
         .animation(spring, value: state.focusedGoalID)
         .animation(spring, value: state.selectedGoalIDs)
+        .animation(spring, value: state.starredGoalIDs)
         .onAppear {
             // 数据库排序第一张固定落在 slot 2（第三张、主展示位）。
             if let firstGoal = goals.first {
@@ -190,15 +180,13 @@ struct TodayStackDeckView: View {
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .frame(width: 34, height: 34)
                         .background(.white.opacity(0.16), in: Circle())
-                    Text("\(goal.id) · \(goal.category)")
-                        .font(.system(size: 14, weight: .medium))
-                    Text(state.starredGoalIDs.contains(goal.id) ? "星标" : goal.isPeriodic ? "周期" : "普通")
+                    Text(taskTypeTitle(for: goal))
                         .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 7).padding(.vertical, 4)
-                        .background(.white.opacity(0.19), in: Capsule())
+                        .foregroundStyle(Color(red: 0.25, green: 0.22, blue: 0.27))
+                        .background(taskTypeColor(for: goal), in: Capsule())
                     Spacer()
                     starButton(goal)
-                    selectionMark(goal, selected: selected, size: 30)
                 }
                 .padding(.horizontal, 20).padding(.top, 9)
                 .foregroundStyle(.white)
@@ -243,9 +231,7 @@ struct TodayStackDeckView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 4)
-                    if state.starredGoalIDs.contains(goal.id) { Image(systemName: "star.fill").font(.system(size: 13)) }
-                    else if goal.isPeriodic { Image(systemName: "calendar").font(.system(size: 13)) }
-                    selectionMark(goal, selected: selected, size: 25)
+                    starButton(goal)
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 20).padding(.top, 9)
@@ -259,12 +245,14 @@ struct TodayStackDeckView: View {
         let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
         let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
         return Button {
-            if starred {
-                state.starredGoalIDs.remove(goal.id)
-                if goal.countsTowardQuota && regularCount >= 3 { state.selectedGoalIDs.remove(goal.id) }
-            } else if canStar {
-                state.starredGoalIDs.insert(goal.id)
-                state.selectedGoalIDs.insert(goal.id)
+            withAnimation(spring) {
+                if starred {
+                    state.starredGoalIDs.remove(goal.id)
+                    if goal.countsTowardQuota && regularCount >= 3 { state.selectedGoalIDs.remove(goal.id) }
+                } else if canStar {
+                    state.starredGoalIDs.insert(goal.id)
+                    state.selectedGoalIDs.insert(goal.id)
+                }
             }
         } label: {
             Image(systemName: starred ? "star.fill" : "star")
@@ -272,24 +260,36 @@ struct TodayStackDeckView: View {
                 .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
                 .frame(width: 34, height: 34)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(StarPressStyle())
         .disabled(!starred && !canStar)
         .accessibilityLabel(starred ? "取消星标" : "设为星标")
         .accessibilityHint(starred ? "取消星标；普通名额已满时会同时取消选择" : "设为星标并加入今日选择，不占普通名额")
     }
 
-    private func selectionMark(_ goal: Goal, selected: Bool, size: CGFloat) -> some View {
-        ZStack {
-            Circle().strokeBorder(.white.opacity(0.92), lineWidth: 1.4)
-            if selected {
-                Circle().fill(.white.opacity(0.94))
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue))
-            }
+    private func taskTypeTitle(for goal: Goal) -> String {
+        state.starredGoalIDs.contains(goal.id) ? "星标" : goal.isPeriodic ? "周期" : "普通"
+    }
+
+    private func taskTypeColor(for goal: Goal) -> Color {
+        if state.starredGoalIDs.contains(goal.id) {
+            return Color(red: 0.878, green: 0.816, blue: 0.659)
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        if goal.isPeriodic {
+            return Color(red: 0.725, green: 0.800, blue: 0.831)
+        }
+        return Color(red: 0.769, green: 0.820, blue: 0.733)
+    }
+
+    private func cardVisibilityMask(isLastVisible: Bool) -> LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .white, location: 0),
+                .init(color: .white, location: isLastVisible ? 0.987 : 1),
+                .init(color: isLastVisible ? .clear : .white, location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private func dragOffset(slot: Int) -> CGFloat {
@@ -332,5 +332,31 @@ struct TodayStackDeckView: View {
             try? await Task.sleep(for: .milliseconds(180))
             withAnimation(.spring(response: 0.36, dampingFraction: 0.76)) { bounceID = nil }
         }
+    }
+}
+
+private struct StarPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                Circle()
+                    .fill(.black.opacity(configuration.isPressed ? 0.16 : 0))
+                    .overlay {
+                        Circle()
+                            .stroke(.black.opacity(configuration.isPressed ? 0.26 : 0), lineWidth: 3)
+                            .blur(radius: configuration.isPressed ? 2 : 0)
+                            .offset(y: configuration.isPressed ? 1.5 : 0)
+                    }
+            }
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(
+                reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.55),
+                value: configuration.isPressed
+            )
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, isPressed in
+                isPressed
+            }
     }
 }
