@@ -43,6 +43,7 @@ struct ContentView: View {
             Text(databaseError ?? "请稍后重试")
         }
         .task {
+            try? await repository.recoverInterruptedSessions()
             while !Task.isCancelled {
                 let refreshedGoals = (try? await repository.availableGoals(for: .now)) ?? goals
                 if refreshedGoals != goals { goals = refreshedGoals }
@@ -106,6 +107,7 @@ private struct TodayRootView: View {
     let dashboard: HabitDashboardSnapshot?
     let onConfirm: () -> Void
     @Namespace private var navMorphNamespace
+    @Namespace private var selectionTransitionNamespace
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
     private let fluidMorphAnimation = Animation.spring(response: 0.52, dampingFraction: 0.84, blendDuration: 0.2)
@@ -116,6 +118,10 @@ private struct TodayRootView: View {
             VStack(spacing: 0) {
                 if state.tab == .today && !isExecuting && state.mode != .browsingDeck {
                     TodayHeaderView(selectedCount: state.selectedGoalIDs.count, mode: state.mode, tuning: tuning, dashboard: dashboard)
+                        .transition(.asymmetric(
+                            insertion: .offset(y: -220).combined(with: .opacity),
+                            removal: .offset(y: -150).combined(with: .scale(scale: 0.94, anchor: .topLeading)).combined(with: .opacity)
+                        ))
                 }
                 if state.mode != .browsingDeck { Spacer(minLength: 16) }
 
@@ -144,12 +150,16 @@ private struct TodayRootView: View {
                                 .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 28)
-                            TodayStackDeckView(goals: goals, state: $state)
+                            TodayStackDeckView(goals: goals, state: $state, selectionTransitionNamespace: selectionTransitionNamespace)
                         }
                     case .homeSelected:
-                        SelectedGoalView(goals: goals, state: $state)
+                        SelectedGoalView(goals: goals, state: $state, selectionTransitionNamespace: selectionTransitionNamespace)
                     case .executing(let id):
-                        ExecutionView(goal: goals.first(where: { $0.id == id }) ?? goals.first, state: $state)
+                        ExecutionView(
+                            goal: goals.first(where: { $0.id == id }) ?? goals.first,
+                            state: $state,
+                            selectionTransitionNamespace: selectionTransitionNamespace
+                        )
                     }
                 } else if state.tab == .garden {
                     GrowthView(goals: goals)
@@ -171,7 +181,8 @@ private struct TodayRootView: View {
                 // 底部占位高度，确保主内容不被底部胶囊栏遮挡
                 Color.clear.frame(height: state.mode == .browsingDeck ? 154 : 94)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 目标页内容超过可用高度时仍从安全区顶部开始排版，不能因居中布局向上侵入状态栏。
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .offset(x: tuning.contentOffsetX, y: tuning.contentOffsetY)
 
             // 底部确认栏（选卡片时）
@@ -207,6 +218,7 @@ private struct TodayRootView: View {
             }
         }
         .ignoresSafeArea(.all, edges: .bottom)
+        .animation(reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.62, dampingFraction: 0.82, blendDuration: 0.14), value: state.mode)
     }
 
     private var isExecuting: Bool {
@@ -572,40 +584,269 @@ private struct ConfirmPressStyle: ButtonStyle {
 }
 
 private struct SelectedGoalView: View {
-    let goals: [Goal]; @Binding var state: TodayGoalState
+    let goals: [Goal]
+    @Binding var state: TodayGoalState
+    let selectionTransitionNamespace: Namespace.ID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var dragX: CGFloat = 0
+    @State private var departingGoal: Goal?
+    @State private var departingOffsetX: CGFloat = 0
+    @State private var departingOpacity: Double = 1
+
     private var selected: [Goal] { goals.filter { state.selectedGoalIDs.contains($0.id) } }
+    private var activeIndex: Int { selected.isEmpty ? 0 : state.homeSelectedIndex % selected.count }
+    private var deckSpring: Animation {
+        reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.46, dampingFraction: 0.72, blendDuration: 0.12)
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
-            Text("今天的目标").font(.system(size: 18, weight: .semibold))
-            if let goal = selected[safe: state.homeSelectedIndex] ?? selected.first {
-                PreviewGoalCard(goal: goal, index: state.homeSelectedIndex + 1).frame(width: 286, height: 330)
-                HStack(spacing: 28) {
-                    Button("‹") { state.homeSelectedIndex = max(0, state.homeSelectedIndex - 1) }
-                    Text("\(state.homeSelectedIndex + 1) / \(selected.count)").font(.system(size: 13, weight: .semibold))
-                    Button("›") { state.homeSelectedIndex = min(max(0, selected.count - 1), state.homeSelectedIndex + 1) }
-                }.buttonStyle(.bordered)
-                Button("开始目标") { state.mode = .executing(goalID: goal.id) }.buttonStyle(.borderedProminent)
+        Group {
+            if !selected.isEmpty {
+                selectedDeck
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var selectedDeck: some View {
+        GeometryReader { proxy in
+            let visibleCount = min(3, selected.count)
+            let progress = min(1, abs(dragX) / 170)
+
+            ZStack {
+                ForEach(Array((0..<visibleCount).reversed()), id: \.self) { depth in
+                    let goal = selected[(activeIndex + depth) % selected.count]
+                    let isFront = depth == 0
+                    let direction: CGFloat = dragX < 0 ? -1 : 1
+
+                    PreviewGoalCard(
+                        goal: goal,
+                        index: (activeIndex + depth) % selected.count + 1,
+                        surfaceOpacity: 1,
+                        isPrimary: isFront,
+                        textScale: 1.68,
+                        // 下一张卡片在被前卡让出时，立即带出自己的标题、说明和按钮。
+                        showsContent: depth <= 1
+                    )
+                    .frame(width: proxy.size.width - CGFloat(depth) * 20, height: 316 - CGFloat(depth) * 8)
+                    .matchedGeometryEffect(
+                        id: "selected-goal-card-\(goal.id)",
+                        in: selectionTransitionNamespace,
+                        properties: .frame,
+                        anchor: .center,
+                        isSource: false
+                    )
+                    // 按钮必须先成为卡片本体的一部分，再接受卡片的位移和旋转。
+                    .overlay(alignment: .bottom) {
+                        Button("开始目标") {
+                            state.mode = .executing(goalID: goal.id)
+                        }
+                        .buttonStyle(LiquidGlassGoalButtonStyle())
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
+                        .accessibilityHint("开始当前目标")
+                    }
+                    .matchedGeometryEffect(
+                        id: "execution-card-\(goal.id)",
+                        in: selectionTransitionNamespace,
+                        properties: .frame,
+                        anchor: .center,
+                        isSource: isFront
+                    )
+                    .compositingGroup()
+                    .scaleEffect(
+                        x: isFront ? 1 - progress * 0.055 : 1,
+                        y: isFront ? 1 + progress * 0.028 : 1
+                    )
+                    .rotation3DEffect(
+                        .degrees(isFront ? Double(-dragX / 22) : Double(direction * progress * CGFloat(depth) * 2.2)),
+                        axis: (x: 0, y: 1, z: 0),
+                        perspective: 0.72
+                    )
+                    .rotationEffect(.degrees(isFront ? Double(-dragX / 42) : Double(depth) * 1.8))
+                    .offset(
+                        x: isFront ? dragX : (CGFloat(depth) * 7 - direction * progress * CGFloat(depth) * 17),
+                        y: isFront ? progress * 11 : CGFloat(depth) * 17 - progress * CGFloat(depth) * 8
+                    )
+                    .shadow(
+                        color: .black.opacity(isFront ? 0.20 : 0.12),
+                        radius: isFront ? 18 : 11,
+                        y: isFront ? 12 : 8
+                    )
+                    .zIndex(Double(visibleCount - depth))
+                    .allowsHitTesting(isFront)
+                    .accessibilityHidden(!isFront)
+                }
+
+                // 手指松开后，刚才的前景卡片才沿滑动方向线性淡出。
+                // 拖动期间不改变透明度，让卡片与其中的按钮完整地跟随手指。
+                if let departingGoal {
+                    PreviewGoalCard(
+                        goal: departingGoal,
+                        index: departingIndex(for: departingGoal),
+                        surfaceOpacity: 1,
+                        isPrimary: true,
+                        textScale: 1.68,
+                        showsContent: true
+                    )
+                    .frame(width: proxy.size.width, height: 316)
+                    .matchedGeometryEffect(
+                        id: "selected-goal-card-\(departingGoal.id)",
+                        in: selectionTransitionNamespace,
+                        properties: .frame,
+                        anchor: .center,
+                        isSource: false
+                    )
+                    .overlay(alignment: .bottom) {
+                        Button("开始目标") {}
+                            .buttonStyle(LiquidGlassGoalButtonStyle())
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
+                            .allowsHitTesting(false)
+                    }
+                    .rotation3DEffect(
+                        .degrees(Double(-departingOffsetX / 22)),
+                        axis: (x: 0, y: 1, z: 0),
+                        perspective: 0.72
+                    )
+                    .rotationEffect(.degrees(Double(-departingOffsetX / 42)))
+                    .offset(x: departingOffsetX, y: 11)
+                    .opacity(departingOpacity)
+                    .shadow(color: .black.opacity(0.20), radius: 18, y: 12)
+                    .zIndex(100)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .contentShape(Rectangle())
+            .gesture(dragGesture)
+            .accessibilityHint("向左或向右滑动切换今日目标")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: shift(by: 1)
+                case .decrement: shift(by: -1)
+                @unknown default: break
+                }
+            }
+        }
+        // 让整组内容落在状态栏与底部导航之间，避免 VStack 因超高而把页首推入状态栏。
+        .frame(height: 332)
+        .animation(deckSpring, value: state.homeSelectedIndex)
+        .animation(reduceMotion ? .none : .linear(duration: 0.06), value: dragX)
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 6)
+            .updating($dragX) { value, state, _ in
+                state = rubberBand(value.translation.width, limit: 170)
+            }
+            .onEnded { value in
+                finishDrag(value)
+            }
+    }
+
+    private func finishDrag(_ value: DragGesture.Value) {
+        let projected = value.predictedEndTranslation.width
+        guard abs(projected) > 82 || abs(value.translation.width) > 58,
+              selected.count > 1,
+              departingGoal == nil else { return }
+
+        let outgoing = selected[activeIndex]
+        let direction = projected < 0 ? 1 : -1
+        departingGoal = outgoing
+        departingOffsetX = rubberBand(value.translation.width, limit: 170)
+        departingOpacity = 1
+
+        withAnimation(deckSpring) {
+            state.homeSelectedIndex = (activeIndex + direction + selected.count) % selected.count
+        }
+        DispatchQueue.main.async {
+            withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .linear(duration: 0.20)) {
+                departingOffsetX = direction > 0 ? -420 : 420
+                departingOpacity = 0
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+            departingGoal = nil
+            departingOffsetX = 0
+            departingOpacity = 1
+        }
+    }
+
+    private func shift(by direction: Int) {
+        guard selected.count > 1 else { return }
+        let next = (activeIndex + direction + selected.count) % selected.count
+        withAnimation(deckSpring) { state.homeSelectedIndex = next }
+    }
+
+    private func departingIndex(for goal: Goal) -> Int {
+        (selected.firstIndex(where: { $0.id == goal.id }) ?? 0) + 1
+    }
+
+    private func rubberBand(_ value: CGFloat, limit: CGFloat) -> CGFloat {
+        let magnitude = abs(value)
+        guard magnitude > limit else { return value }
+        let resisted = limit + (magnitude - limit) * 0.28
+        return value.sign == .minus ? -resisted : resisted
+    }
+}
+
+private struct LiquidGlassGoalButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 17, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(.white.opacity(configuration.isPressed ? 0.18 : 0.12), in: Capsule())
+            .background(.ultraThinMaterial.opacity(configuration.isPressed ? 0.78 : 0.62), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(
+                        LinearGradient(
+                            colors: [.white.opacity(0.95), .white.opacity(0.25), .white.opacity(0.72)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+            }
+            .overlay {
+                LiquidGlassIdleHighlight()
+                    .clipShape(Capsule())
+                    .allowsHitTesting(false)
+            }
+            .shadow(color: .white.opacity(configuration.isPressed ? 0.08 : 0.30), radius: 7, y: -2)
+            .shadow(color: .black.opacity(configuration.isPressed ? 0.12 : 0.22), radius: configuration.isPressed ? 3 : 8, y: configuration.isPressed ? 2 : 5)
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.linear(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
+private struct LiquidGlassIdleHighlight: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            LinearGradient(
+                colors: [.clear, .white.opacity(0.06), .white.opacity(0.52), .white.opacity(0.06), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: proxy.size.width * 0.58)
+            .offset(x: phase ? proxy.size.width * 1.08 : -proxy.size.width * 0.58)
+            .blur(radius: 2)
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.linear(duration: 2.8).repeatForever(autoreverses: false)) {
+                phase = true
             }
         }
     }
 }
 
-private struct ExecutionView: View {
-    let goal: Goal?; @Binding var state: TodayGoalState
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(goal?.title ?? "今天的目标").font(.system(size: 30, weight: .medium))
-            Text(goal?.summary ?? "").font(.system(size: 15, weight: .medium)).opacity(0.78)
-            if let goal, !goal.inputPrimary.isEmpty {
-                Text(goal.inputPrimary).font(.system(size: 14, weight: .semibold)).padding(.top, 12)
-                TextEditor(text: .constant("")).scrollContentBackground(.hidden).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading).padding(10).background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 18))
-                Text(goal.inputSecondary).font(.system(size: 14, weight: .semibold)).padding(.top, 4)
-                TextEditor(text: .constant("")).scrollContentBackground(.hidden).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 70, alignment: .topLeading).padding(10).background(.white.opacity(0.35), in: RoundedRectangle(cornerRadius: 18))
-            }
-            Button(goal?.completionLabel ?? "提交") { state.mode = .homeSelected }.buttonStyle(.borderedProminent)
-        }.padding(.horizontal, 24)
-    }
-}
 
 private extension Collection {
     subscript(safe index: Index) -> Element? { indices.contains(index) ? self[index] : nil }
@@ -617,12 +858,16 @@ private struct TodayHeaderView: View {
     var tuning: UITuningState = UITuningState()
     let dashboard: HabitDashboardSnapshot?
 
+    private var headerTitle: String {
+        mode == .homeSelected ? "已选择\n今天的\n目标" : "选择\n今天的\n目标"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             // 顶部艺术化排版：大号换行标题 + 右侧大号艺术日期
             HStack(alignment: .top, spacing: 8) {
                 // 左侧主标题
-                Text("选择\n今天的\n目标")
+                Text(headerTitle)
                     .font(.system(size: tuning.titleSize * tuning.textScale, weight: .medium))
                     .tracking(-0.6)
                     .lineSpacing(-8)
@@ -648,9 +893,10 @@ private struct TodayHeaderView: View {
             HStack(alignment: .center, spacing: 10) {
                 Text("把注意力留给想变好的自己。")
                     .font(.system(size: 17, weight: .medium)) // 13.5 * 1.25 ≈ 17
-                    .foregroundStyle(Color(red: 0.30, green: 0.28, blue: 0.32).opacity(0.88))
+                    .foregroundStyle(Color.white.opacity(0.72))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 8)
 
@@ -676,7 +922,8 @@ private struct TodayHeaderView: View {
             }
         }
         .padding(.horizontal, 22)
-        .padding(.top, 14)
+        // 页面背景延伸到状态栏，但内容必须从 Dynamic Island / 时间下方开始。
+        .padding(.top, 64)
     }
 
     private var dayString: String {
@@ -820,54 +1067,98 @@ private struct PreviewGoalCard: View {
     let index: Int
     var surfaceOpacity: Double = 0.9
     var isPrimary = true
+    var textScale: CGFloat = 1
+    var showsContent = true
 
-    init(card: HomePreviewCard, index: Int, surfaceOpacity: Double = 0.9, isPrimary: Bool = true) {
+    init(card: HomePreviewCard, index: Int, surfaceOpacity: Double = 0.9, isPrimary: Bool = true, textScale: CGFloat = 1, showsContent: Bool = true) {
         self.title = card.title
         self.summary = card.summary
         self.tint = card.tint
         self.index = index
         self.surfaceOpacity = surfaceOpacity
         self.isPrimary = isPrimary
+        self.textScale = textScale
+        self.showsContent = showsContent
     }
 
-    init(goal: Goal, index: Int, surfaceOpacity: Double = 0.9, isPrimary: Bool = true) {
+    init(goal: Goal, index: Int, surfaceOpacity: Double = 0.9, isPrimary: Bool = true, textScale: CGFloat = 1, showsContent: Bool = true) {
         self.title = goal.previewTitle
         self.summary = goal.previewSummary
         self.tint = goal.tint
         self.index = index
         self.surfaceOpacity = surfaceOpacity
         self.isPrimary = isPrimary
+        self.textScale = textScale
+        self.showsContent = showsContent
     }
 
     private var textColor: Color {
         .white
     }
 
+    private var baseTintOpacity: Double {
+        // 已选目标页不透出后方叠卡；首页预览继续沿用原有透明度。
+        surfaceOpacity >= 0.99 ? 1 : min(tint.opacity + 0.18, 1)
+    }
+
+    private var usesSelectedDeckLayout: Bool {
+        textScale > 1
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: usesSelectedDeckLayout ? 10 : 14) {
             Text(String(format: "%02d", index))
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11 * textScale, weight: .medium))
                 .tracking(1.32)
                 .foregroundStyle(textColor.opacity(isPrimary ? 0.85 : 0.45))
             Text(title)
-                    .font(.system(size: isPrimary ? 25 : 21, weight: .semibold))
+                    .font(.system(size: (isPrimary ? 25 : 21) * textScale, weight: .semibold))
                     .tracking(-0.77)
                     .foregroundStyle(textColor)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.68)
+                    .frame(maxWidth: .infinity, minHeight: usesSelectedDeckLayout ? 88 : 0, alignment: .topLeading)
             Text(summary)
-                    .font(.system(size: isPrimary ? 12 : 11, weight: .medium))
+                    .font(.system(size: (isPrimary ? 12 : 11) * textScale, weight: .medium))
                     .foregroundStyle(textColor.opacity(0.86))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.72)
+                    // 说明文字始终从同一高度开始，避免标题换行时上下跳动。
+                    .frame(maxWidth: .infinity, minHeight: usesSelectedDeckLayout ? 46 : 0, alignment: .topLeading)
             Spacer()
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 24)
+        .padding(.vertical, usesSelectedDeckLayout ? 20 : 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .opacity(showsContent ? 1 : 0)
         .background {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                // 75% 的材质层保留背景透出，色彩只作为玻璃染色而非实心底。
-                .fill(.ultraThinMaterial.opacity(0.75))
+                // 已选卡片直接使用卡片集里相同的习惯色作为底色，再叠加磨砂高光。
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(baseTintOpacity),
+                            Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(baseTintOpacity * 0.92),
+                            Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(baseTintOpacity * 0.80)
+                        ],
+                        startPoint: .topTrailing,
+                        endPoint: .bottomLeading
+                    )
+                )
                 .overlay {
                     RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .fill(Color(red: tint.red, green: tint.green, blue: tint.blue).opacity(0.30))
+                        // 已选页不能让真实材质采样后方叠卡，改用不透底的仿磨砂高光层。
+                        .fill(
+                            surfaceOpacity >= 0.99
+                                ? AnyShapeStyle(
+                                    LinearGradient(
+                                        colors: [.white.opacity(0.20), .white.opacity(0.055), .white.opacity(0.12)],
+                                        startPoint: .topTrailing,
+                                        endPoint: .bottomLeading
+                                    )
+                                )
+                                : AnyShapeStyle(.ultraThinMaterial.opacity(0.75))
+                        )
                 }
                 // 右上角主光，沿对角线衰减，不将卡面照成一整片白色。
                 .overlay {

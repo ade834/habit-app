@@ -26,10 +26,40 @@ struct Goal: Identifiable, Hashable, Sendable {
     var isPeriodic: Bool = false
 }
 
+enum HabitSubmissionPayload: Sendable {
+    case review(decision: String, result: String, improvement: String)
+    case focus(sessionID: Int64)
+    case challenge(cardIndex: Int, primaryText: String, secondaryText: String)
+    case disconnect(sessionID: Int64)
+    case activity(primaryText: String, secondaryText: String, firstValue: Double?, secondValue: Double?)
+    case travelPlan(destination: String, days: Int, focus: String, preparation: String, summary: String, completed: Bool)
+}
+
+struct TravelPlanRecord: Sendable {
+    let destination: String
+    let days: Int
+    let focus: String
+    let preparation: String
+}
+
+struct HabitChallengeRecord: Sendable {
+    let cardIndex: Int
+    let swapCount: Int
+    let title: String
+}
+
+struct NativeTimerRecord: Sendable {
+    let id: Int64
+    let startedAt: Date
+    let pausedAt: Date?
+    let accumulatedPauseSeconds: Int
+    let status: String
+}
+
 struct GoalEntry: Sendable {
     let goalID: String
     let date: Date
-    let text: String
+    let payload: HabitSubmissionPayload
 }
 
 protocol GoalRepository: Sendable {
@@ -37,56 +67,22 @@ protocol GoalRepository: Sendable {
     func selectedGoalIDs(for date: Date) async throws -> Set<String>
     func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws
     func submit(_ entry: GoalEntry) async throws
+    func recoverInterruptedSessions() async throws
+    func travelPlanForCurrentYear() async throws -> TravelPlanRecord?
+    func challengeForToday() async throws -> HabitChallengeRecord
+    func swapChallenge() async throws -> HabitChallengeRecord
 }
 
 struct SharedHabitRepository: GoalRepository {
-    private let databaseURL: URL? = FileManager.default
-        .containerURL(forSecurityApplicationGroupIdentifier: "group.com.deshiru.habitapp")?
-        .appendingPathComponent("habit_app.sqlite")
+    private let database = NativeDatabase()
 
     func availableGoals(for date: Date) async throws -> [Goal] {
-        guard let databaseURL, FileManager.default.fileExists(atPath: databaseURL.path) else {
-            return []
-        }
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(databaseURL.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
-              let db else { return [] }
-        defer { sqlite3_close(db) }
-        sqlite3_busy_timeout(db, 1200)
-        var logCounts: [String: Int] = [:]
-        var completions: [HabitCompletion] = []
-        var statement: OpaquePointer?
-        let dayFormatter = DateFormatter()
-        dayFormatter.calendar = Calendar(identifier: .gregorian)
-        dayFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dayFormatter.timeZone = .current
-        dayFormatter.dateFormat = "yyyy-MM-dd"
-        if sqlite3_prepare_v2(db, "SELECT habit_id, local_date FROM habit_logs", -1, &statement, nil) == SQLITE_OK {
-            while sqlite3_step(statement) == SQLITE_ROW {
-                guard let raw = sqlite3_column_text(statement, 0), let rawDate = sqlite3_column_text(statement, 1) else { continue }
-                let id = String(cString: raw)
-                logCounts[id, default: 0] += 1
-                if let day = dayFormatter.date(from: String(cString: rawDate)) {
-                    completions.append(HabitCompletion(id: id, day: day))
-                }
-            }
-        }
-        sqlite3_finalize(statement)
-        var enabledAt: [String: Date] = [:]
-        statement = nil
-        if sqlite3_prepare_v2(db, "SELECT habit_id, enabled_at FROM habit_selections", -1, &statement, nil) == SQLITE_OK {
-            while sqlite3_step(statement) == SQLITE_ROW {
-                guard let raw = sqlite3_column_text(statement, 0) else { continue }
-                enabledAt[String(cString: raw)] = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 1)))
-            }
-        }
-        sqlite3_finalize(statement)
-        let growth = HabitGrowthRules.progress(enabledAt: enabledAt, completions: completions, today: date)
+        let data = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
         let selection = try SharedHabitSelectionStore().snapshot(at: date)
         let visible = Self.catalog.filter { !selection.completedPeriodicIDs.contains($0.id) }
         return visible.enumerated().map { index, goal in
-            let count = logCounts[goal.id, default: 0]
-            let stage = HabitGrowthRules.stage(for: growth[goal.id, default: 0])
+            let count = data.completionCounts[goal.id, default: 0]
+            let stage = HabitGrowthRules.stage(for: data.growthProgress[goal.id, default: 0])
             return Goal(id: goal.id, title: goal.title, category: goal.category, summary: goal.summary,
                         previewTitle: goal.title, previewSummary: goal.summary,
                         inputPrimary: goal.inputPrimary, inputSecondary: goal.inputSecondary,
@@ -104,9 +100,13 @@ struct SharedHabitRepository: GoalRepository {
     func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws {
         try SharedHabitSelectionStore().save(ids, starredIDs: starredIDs, at: date)
     }
-    func submit(_ entry: GoalEntry) async throws {}
+    func submit(_ entry: GoalEntry) async throws { try database.submit(entry) }
+    func recoverInterruptedSessions() async throws { try database.recoverInterruptedDisconnectSessions() }
+    func travelPlanForCurrentYear() async throws -> TravelPlanRecord? { try database.travelPlan(year: Calendar.current.component(.year, from: .now)) }
+    func challengeForToday() async throws -> HabitChallengeRecord { try database.challengeForToday() }
+    func swapChallenge() async throws -> HabitChallengeRecord { try database.swapChallenge() }
 
-    private static let catalog: [Goal] = [
+    static let catalog: [Goal] = [
         Goal(id: "H1", title: "每天100字复盘", category: "复盘", summary: "写下一个决定、一个结果、一个改进。", previewTitle: "每天100字复盘", previewSummary: "写下今天的关键一刻", inputPrimary: "今天发生了什么？", inputSecondary: "我下一步要怎么做？", completionLabel: "完成一次复盘", tint: tint(0), order: 1),
         Goal(id: "H2", title: "30分钟深度思考", category: "思考", summary: "给自己30分钟不被打断的时间。", previewTitle: "深度思考", previewSummary: "留出完整的不被打断", inputPrimary: "今天要思考什么？", inputSecondary: "思考后的下一步（选填）", completionLabel: "完成深度思考", tint: tint(1), order: 2),
         Goal(id: "H3", title: "做一件不舒服的事", category: "成长", summary: "舒适区外一小步，才是真正的成长区。", previewTitle: "走出舒适区", previewSummary: "做一件需要勇气的事", inputPrimary: "今天做了哪件不舒服的事？", inputSecondary: "它让我看见了什么？（选填）", completionLabel: "完成挑战", tint: tint(2), order: 3),
@@ -132,6 +132,10 @@ struct InMemoryGoalRepository: GoalRepository {
     func selectedGoalIDs(for date: Date) async throws -> Set<String> { [] }
     func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws {}
     func submit(_ entry: GoalEntry) async throws {}
+    func recoverInterruptedSessions() async throws {}
+    func travelPlanForCurrentYear() async throws -> TravelPlanRecord? { nil }
+    func challengeForToday() async throws -> HabitChallengeRecord { HabitChallengeRecord(cardIndex: 0, swapCount: 0, title: "每日挑战") }
+    func swapChallenge() async throws -> HabitChallengeRecord { try await challengeForToday() }
 
     static let goals = [
         Goal(id: "H9", title: "建立知识输出", category: "表达训练", summary: "把一个概念讲成别人能听懂的话。", previewTitle: "知识输出", previewSummary: "把想法讲清楚", inputPrimary: "这次输出讲清了什么？", inputSecondary: "你能讲给我听么？", completionLabel: "完成一次输出", tint: tint(at: 0), order: 1),

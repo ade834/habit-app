@@ -40,6 +40,7 @@ private struct PerspectiveCardShape: Shape {
 struct TodayStackDeckView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
+    let selectionTransitionNamespace: Namespace.ID
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var drag: CGFloat = 0
     @GestureState private var horizontalDrag: CGFloat = 0
@@ -120,6 +121,13 @@ struct TodayStackDeckView: View {
                             .frame(maxWidth: .infinity)
                             .background { cardSurface(goal, isHero: isHero) }
                             .clipShape(deckCardShape)
+                            .matchedGeometryEffect(
+                                id: "selected-goal-card-\(goal.id)",
+                                in: selectionTransitionNamespace,
+                                properties: .frame,
+                                anchor: .center,
+                                isSource: state.selectedGoalIDs.contains(goal.id)
+                            )
                             .overlay {
                                 deckCardShape
                                     .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)

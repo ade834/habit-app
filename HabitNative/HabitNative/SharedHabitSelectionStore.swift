@@ -26,12 +26,10 @@ enum HabitSelectionError: Error {
 }
 
 struct SharedHabitSelectionStore {
-    private let url: URL?
+    private let database: NativeDatabase
 
-    init(databaseURL: URL? = FileManager.default
-        .containerURL(forSecurityApplicationGroupIdentifier: "group.com.deshiru.habitapp")?
-        .appendingPathComponent("habit_app.sqlite")) {
-        url = databaseURL
+    init(databaseURL: URL? = nil) {
+        database = NativeDatabase(fileURL: databaseURL, legacyURL: databaseURL == nil ? NativeDatabase.legacyDatabaseURL : nil)
     }
 
     private struct Row {
@@ -41,7 +39,7 @@ struct SharedHabitSelectionStore {
     }
 
     func dashboard(at date: Date) throws -> HabitDashboardSnapshot {
-        try withDatabase(readOnly: true) { db in
+        try database.withConnection { db in
             let points = try scalar("SELECT COALESCE(SUM(amount), 0) FROM point_transactions", in: db)
             let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: date) ?? date
             let parts = Calendar.current.dateComponents([.year, .month, .day], from: yesterday)
@@ -55,7 +53,7 @@ struct SharedHabitSelectionStore {
     }
 
     func snapshot(at date: Date) throws -> HabitSelectionSnapshot {
-        try withDatabase(readOnly: true) { db in
+        try database.withConnection { db in
             let rows = try selections(in: db)
             var snapshot = HabitSelectionSnapshot()
             snapshot.isFirstSelection = rows.isEmpty
@@ -90,7 +88,7 @@ struct SharedHabitSelectionStore {
     }
 
     func save(_ ids: Set<String>, starredIDs: Set<String>, at date: Date) throws {
-        try withDatabase(readOnly: false) { db in
+        try database.withConnection { db in
             let rows = try selections(in: db)
             let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
             guard starredIDs.isSubset(of: ids) else { throw HabitSelectionError.invalidStarredSelection }
@@ -163,19 +161,6 @@ struct SharedHabitSelectionStore {
         sqlite3_bind_int(statement, 3, starred ? 1 : 0)
         sqlite3_bind_int64(statement, 4, Int64(date.timeIntervalSince1970))
         guard sqlite3_step(statement) == SQLITE_DONE else { throw failure(in: db) }
-    }
-
-    private func withDatabase<T>(readOnly: Bool, _ body: (OpaquePointer) throws -> T) throws -> T {
-        guard let url, FileManager.default.fileExists(atPath: url.path) else { throw HabitSelectionError.databaseUnavailable }
-        var pointer: OpaquePointer?
-        let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE) | SQLITE_OPEN_FULLMUTEX
-        guard sqlite3_open_v2(url.path, &pointer, flags, nil) == SQLITE_OK, let db = pointer else {
-            if pointer != nil { sqlite3_close(pointer) }
-            throw HabitSelectionError.databaseUnavailable
-        }
-        defer { sqlite3_close(db) }
-        sqlite3_busy_timeout(db, 1500)
-        return try body(db)
     }
 
     private func prepare(_ sql: String, in db: OpaquePointer) throws -> OpaquePointer {
