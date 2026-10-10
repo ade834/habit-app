@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ExecutionView: View {
     let goal: Goal?
+    @Binding var selectedGoals: [Goal]
     @Binding var state: TodayGoalState
     let selectionTransitionNamespace: Namespace.ID
     @State private var responses: [String: String] = [:]
@@ -196,6 +197,7 @@ struct ExecutionView: View {
                 } else {
                     // A successful habit submission returns to the selected-habits
                     // deck so the user can immediately start another task.
+                    selectedGoals = (try? await SharedHabitRepository().selectedGoals(for: .now)) ?? selectedGoals
                     withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                         state.mode = .homeSelected
                     }

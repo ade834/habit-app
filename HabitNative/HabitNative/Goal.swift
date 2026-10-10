@@ -24,6 +24,7 @@ struct Goal: Identifiable, Hashable, Sendable {
     var growthStage: String = "种子"
     var countsTowardQuota: Bool = true
     var isPeriodic: Bool = false
+    var completedToday: Bool = false
 }
 
 enum HabitSubmissionPayload: Sendable {
@@ -64,6 +65,7 @@ struct GoalEntry: Sendable {
 
 protocol GoalRepository: Sendable {
     func availableGoals(for date: Date) async throws -> [Goal]
+    func selectedGoals(for date: Date) async throws -> [Goal]
     func selectedGoalIDs(for date: Date) async throws -> Set<String>
     func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws
     func submit(_ entry: GoalEntry) async throws
@@ -77,10 +79,21 @@ struct SharedHabitRepository: GoalRepository {
     private let database = NativeDatabase()
 
     func availableGoals(for date: Date) async throws -> [Goal] {
-        let data = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
         let selection = try SharedHabitSelectionStore().snapshot(at: date)
         let visible = Self.catalog.filter { !selection.completedPeriodicIDs.contains($0.id) }
-        return visible.enumerated().map { index, goal in
+        return try makeGoals(visible, selection: selection, date: date)
+    }
+
+    func selectedGoals(for date: Date) async throws -> [Goal] {
+        let selection = try SharedHabitSelectionStore().snapshot(at: date)
+        let selectedIDs = selection.activeIDs.union(selection.starredIDs)
+        let selected = Self.catalog.filter { selectedIDs.contains($0.id) }
+        return try makeGoals(selected, selection: selection, date: date)
+    }
+
+    private func makeGoals(_ source: [Goal], selection: HabitSelectionSnapshot, date: Date) throws -> [Goal] {
+        let data = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
+        return source.enumerated().map { index, goal in
             let count = data.completionCounts[goal.id, default: 0]
             let stage = HabitGrowthRules.stage(for: data.growthProgress[goal.id, default: 0])
             return Goal(id: goal.id, title: goal.title, category: goal.category, summary: goal.summary,
@@ -89,7 +102,8 @@ struct SharedHabitRepository: GoalRepository {
                         completionLabel: goal.completionLabel, tint: goal.tint, order: index + 1,
                         completionCount: count, growthStage: stage,
                         countsTowardQuota: !selection.retainedPeriodicIDs.contains(goal.id),
-                        isPeriodic: SharedHabitSelectionStore.isPeriodic(goal.id))
+                        isPeriodic: SharedHabitSelectionStore.isPeriodic(goal.id),
+                        completedToday: data.completedTodayIDs.contains(goal.id))
         }
     }
 
@@ -129,6 +143,7 @@ struct SharedHabitRepository: GoalRepository {
 
 struct InMemoryGoalRepository: GoalRepository {
     func availableGoals(for date: Date) async throws -> [Goal] { Self.goals }
+    func selectedGoals(for date: Date) async throws -> [Goal] { [] }
     func selectedGoalIDs(for date: Date) async throws -> Set<String> { [] }
     func saveSelectedGoalIDs(_ ids: Set<String>, starredIDs: Set<String>, for date: Date) async throws {}
     func submit(_ entry: GoalEntry) async throws {}

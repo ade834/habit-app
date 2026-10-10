@@ -25,6 +25,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var state = TodayGoalState()
     @State private var goals: [Goal] = []
+    @State private var selectedGoals: [Goal] = []
     @State private var databaseError: String?
     @State private var dashboard: HabitDashboardSnapshot?
     @State private var tuning = UITuningState.load()
@@ -35,7 +36,7 @@ struct ContentView: View {
         ZStack {
             TodayAmbientBackground(reduceMotion: reduceMotion)
                 .ignoresSafeArea()
-            TodayRootView(goals: goals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection)
+            TodayRootView(goals: goals, selectedGoals: $selectedGoals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection)
         }
         .alert("无法保存今日选择", isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
             Button("知道了", role: .cancel) { databaseError = nil }
@@ -57,6 +58,9 @@ struct ContentView: View {
                    let selected = try? await repository.selectedGoalIDs(for: .now) {
                     state.selectedGoalIDs = selected
                     if let selectionSnapshot { state.starredGoalIDs = selectionSnapshot.starredIDs }
+                    if let refreshedSelectedGoals = try? await repository.selectedGoals(for: .now) {
+                        selectedGoals = refreshedSelectedGoals
+                    }
                 }
                 if goals.isEmpty {
                     state.mode = .homeUnselected
@@ -81,6 +85,7 @@ struct ContentView: View {
                     throw HabitSelectionError.databaseFailure("保存后重新读取的选择与页面不一致，请重试。")
                 }
                 goals = try await repository.availableGoals(for: date)
+                selectedGoals = try await repository.selectedGoals(for: date)
                 state.selectedGoalIDs = persisted.activeIDs.union(persisted.starredIDs)
                 state.starredGoalIDs = persisted.starredIDs
                 state.isFirstSelection = persisted.isFirstSelection
@@ -101,6 +106,7 @@ struct ContentView: View {
 
 private struct TodayRootView: View {
     let goals: [Goal]
+    @Binding var selectedGoals: [Goal]
     @Binding var state: TodayGoalState
     @Binding var tuning: UITuningState
     let reduceMotion: Bool
@@ -153,10 +159,11 @@ private struct TodayRootView: View {
                             TodayStackDeckView(goals: goals, state: $state, selectionTransitionNamespace: selectionTransitionNamespace)
                         }
                     case .homeSelected:
-                        SelectedGoalView(goals: goals, state: $state, selectionTransitionNamespace: selectionTransitionNamespace)
+                        SelectedGoalView(goals: selectedGoals, state: $state, selectionTransitionNamespace: selectionTransitionNamespace)
                     case .executing(let id):
                         ExecutionView(
-                            goal: goals.first(where: { $0.id == id }) ?? goals.first,
+                            goal: selectedGoals.first(where: { $0.id == id }) ?? goals.first(where: { $0.id == id }) ?? goals.first,
+                            selectedGoals: $selectedGoals,
                             state: $state,
                             selectionTransitionNamespace: selectionTransitionNamespace
                         )
@@ -629,6 +636,17 @@ private struct SelectedGoalView: View {
                         showsContent: depth <= 1
                     )
                     .frame(width: proxy.size.width - CGFloat(depth) * 20, height: 316 - CGFloat(depth) * 8)
+                    .overlay(alignment: .topTrailing) {
+                        if state.starredGoalIDs.contains(goal.id) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+                                .padding(.top, 22)
+                                .padding(.trailing, 22)
+                                .accessibilityLabel("星标习惯")
+                        }
+                    }
                     .matchedGeometryEffect(
                         id: "selected-goal-card-\(goal.id)",
                         in: selectionTransitionNamespace,
@@ -638,10 +656,12 @@ private struct SelectedGoalView: View {
                     )
                     // 按钮必须先成为卡片本体的一部分，再接受卡片的位移和旋转。
                     .overlay(alignment: .bottom) {
-                        Button("开始目标") {
+                        Button(goal.completedToday ? "今日已完成" : "开始目标") {
                             state.mode = .executing(goalID: goal.id)
                         }
                         .buttonStyle(LiquidGlassGoalButtonStyle())
+                        .disabled(goal.completedToday)
+                        .opacity(goal.completedToday ? 0.64 : 1)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 16)
                         .accessibilityHint("开始当前目标")
@@ -690,6 +710,15 @@ private struct SelectedGoalView: View {
                         showsContent: true
                     )
                     .frame(width: proxy.size.width, height: 316)
+                    .overlay(alignment: .topTrailing) {
+                        if state.starredGoalIDs.contains(departingGoal.id) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.top, 22)
+                                .padding(.trailing, 22)
+                        }
+                    }
                     .matchedGeometryEffect(
                         id: "selected-goal-card-\(departingGoal.id)",
                         in: selectionTransitionNamespace,

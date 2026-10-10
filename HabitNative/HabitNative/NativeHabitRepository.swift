@@ -4,6 +4,7 @@ import SQLite3
 struct HabitGoalMetrics {
     let completionCounts: [String: Int]
     let growthProgress: [String: Int]
+    let completedTodayIDs: Set<String>
 }
 
 enum HabitSubmissionError: LocalizedError {
@@ -22,11 +23,15 @@ extension NativeDatabase {
     func goalMetrics(in db: OpaquePointer, today: Date) throws -> HabitGoalMetrics {
         var counts: [String: Int] = [:]
         var completions: [HabitCompletion] = []
+        var completedTodayIDs: Set<String> = []
+        let todayParts = Calendar.current.dateComponents([.year, .month, .day], from: today)
+        let todayKey = String(format: "%04d-%02d-%02d", todayParts.year ?? 0, todayParts.month ?? 0, todayParts.day ?? 0)
         let logs = try Self.prepare("SELECT habit_id, local_date FROM habit_logs", in: db)
         defer { sqlite3_finalize(logs) }
         while sqlite3_step(logs) == SQLITE_ROW {
             guard let rawID = sqlite3_column_text(logs, 0), let rawDate = sqlite3_column_text(logs, 1) else { continue }
             let id = String(cString: rawID)
+            if String(cString: rawDate) == todayKey { completedTodayIDs.insert(id) }
             counts[id, default: 0] += 1
             if let day = Self.parseLocalDate(String(cString: rawDate)) {
                 completions.append(HabitCompletion(id: id, day: day))
@@ -42,7 +47,8 @@ extension NativeDatabase {
         }
         return HabitGoalMetrics(
             completionCounts: counts,
-            growthProgress: HabitGrowthRules.progress(enabledAt: enabledAt, completions: completions, today: today)
+            growthProgress: HabitGrowthRules.progress(enabledAt: enabledAt, completions: completions, today: today),
+            completedTodayIDs: completedTodayIDs
         )
     }
 

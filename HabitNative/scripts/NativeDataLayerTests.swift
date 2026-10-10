@@ -57,6 +57,8 @@ struct NativeDataLayerTests {
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs", in: connection) == 2, "valid review and starred activity create logs")
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM point_transactions WHERE amount=0", in: connection) == 1, "starred completion keeps its log and gives zero points")
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM review_entries", in: connection) == 2, "today and backfilled reviews are persisted")
+            let metrics = try db.goalMetrics(in: connection, today: now)
+            try expect(metrics.completedTodayIDs.contains("H1") && metrics.completedTodayIDs.contains("H6"), "completed selected habits remain identifiable for the selected-habits deck")
         }
         try expectThrows("ordinary primary text length is enforced") {
             try db.submit(GoalEntry(goalID: "H6", date: now, payload: .activity(primaryText: "超过五个字", secondaryText: "", firstValue: nil, secondValue: nil)))
