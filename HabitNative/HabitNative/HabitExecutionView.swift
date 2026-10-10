@@ -63,6 +63,20 @@ struct ExecutionView: View {
         }
         .alert("记录结果", isPresented: $showNotice) { Button("知道了", role: .cancel) {} } message: { Text(notice) }
         .task(id: goal?.id) { await loadPersistedTaskState() }
+        // Native interactive-pop behavior for this state-driven screen: begin at the
+        // left edge, then drag right. Vertical scrolling remains available.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .local)
+                .onEnded { value in
+                    let translation = value.translation
+                    guard value.startLocation.x <= 32,
+                          translation.width >= 88,
+                          abs(translation.height) < 90 else { return }
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+                        state.mode = .homeSelected
+                    }
+                }
+        )
         .onDisappear {
             if let goal, goal.id == "H4", let timerID, !timerReady(for: goal) {
                 try? NativeDatabase().abandonDisconnectSession(timerID)
@@ -174,11 +188,21 @@ struct ExecutionView: View {
             do {
                 let date = goal.id == "H1" ? reviewDate : Date.now
                 try await SharedHabitRepository().submit(GoalEntry(goalID: goal.id, date: date, payload: payload))
-                notice = goal.id == "H11" && travelPlan == nil ? "旅行计划已保存。" : "已写入本机数据库，积分与成长状态已同步。"
-                if goal.id == "H11" && travelPlan == nil { travelPlan = try? await SharedHabitRepository().travelPlanForCurrentYear() }
+                if goal.id == "H11" && travelPlan == nil {
+                    // Saving the annual plan is the first step, not task completion.
+                    notice = "旅行计划已保存。完成旅行后再回来提交回顾。"
+                    travelPlan = try? await SharedHabitRepository().travelPlanForCurrentYear()
+                    showNotice = true
+                } else {
+                    // A successful habit submission returns to the selected-habits
+                    // deck so the user can immediately start another task.
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                        state.mode = .homeSelected
+                    }
+                }
             } catch { notice = error.localizedDescription }
             saving = false
-            showNotice = true
+            if state.mode == .executing(goalID: goal.id) { showNotice = true }
         }
     }
 
