@@ -610,6 +610,19 @@ private struct SelectedGoalView: View {
         Group {
             if !selected.isEmpty {
                 selectedDeck
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 42, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Text("今日目标已全部完成")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("已完成的习惯已从待做卡片中移除。")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .frame(maxWidth: .infinity, minHeight: 260)
             }
         }
         .padding(.horizontal, 24)

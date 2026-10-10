@@ -79,20 +79,23 @@ struct SharedHabitRepository: GoalRepository {
     private let database = NativeDatabase()
 
     func availableGoals(for date: Date) async throws -> [Goal] {
+        let data = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
         let selection = try SharedHabitSelectionStore().snapshot(at: date)
         let visible = Self.catalog.filter { !selection.completedPeriodicIDs.contains($0.id) }
-        return try makeGoals(visible, selection: selection, date: date)
+        return makeGoals(visible, selection: selection, data: data)
     }
 
     func selectedGoals(for date: Date) async throws -> [Goal] {
         let selection = try SharedHabitSelectionStore().snapshot(at: date)
         let selectedIDs = selection.activeIDs.union(selection.starredIDs)
-        let selected = Self.catalog.filter { selectedIDs.contains($0.id) }
-        return try makeGoals(selected, selection: selection, date: date)
+        let metrics = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
+        let selected = Self.catalog.filter {
+            selectedIDs.contains($0.id) && !metrics.completedTodayIDs.contains($0.id)
+        }
+        return makeGoals(selected, selection: selection, data: metrics)
     }
 
-    private func makeGoals(_ source: [Goal], selection: HabitSelectionSnapshot, date: Date) throws -> [Goal] {
-        let data = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
+    private func makeGoals(_ source: [Goal], selection: HabitSelectionSnapshot, data: HabitGoalMetrics) -> [Goal] {
         return source.enumerated().map { index, goal in
             let count = data.completionCounts[goal.id, default: 0]
             let stage = HabitGrowthRules.stage(for: data.growthProgress[goal.id, default: 0])
