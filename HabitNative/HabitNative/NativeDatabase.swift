@@ -54,6 +54,32 @@ struct NativeDatabase: Sendable {
         return try body(db)
     }
 
+    /// Clears user habit data while preserving the one-time migration marker and schema.
+    func clearAllUserData() throws {
+        try withConnection { db in
+            try Self.execute("BEGIN IMMEDIATE", in: db)
+            do {
+                for table in [
+                    "challenge_draws",
+                    "habit_activity_entries",
+                    "travel_plans",
+                    "missed_habit_records",
+                    "timer_sessions",
+                    "review_entries",
+                    "point_transactions",
+                    "habit_logs",
+                    "habit_selections"
+                ] {
+                    try Self.execute("DELETE FROM \(table)", in: db)
+                }
+                try Self.execute("COMMIT", in: db)
+            } catch {
+                try? Self.execute("ROLLBACK", in: db)
+                throw error
+            }
+        }
+    }
+
     private func prepareStoreIfNeeded() throws {
         try Self.preparationLock.withLock {
             let manager = FileManager.default

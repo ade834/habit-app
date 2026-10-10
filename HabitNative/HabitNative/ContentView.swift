@@ -36,9 +36,9 @@ struct ContentView: View {
         ZStack {
             TodayAmbientBackground(reduceMotion: reduceMotion)
                 .ignoresSafeArea()
-            TodayRootView(goals: goals, selectedGoals: $selectedGoals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection)
+            TodayRootView(goals: goals, selectedGoals: $selectedGoals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection, onClearData: clearLocalData)
         }
-        .alert("无法保存今日选择", isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
+        .alert("操作未完成", isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
             Button("知道了", role: .cancel) { databaseError = nil }
         } message: {
             Text(databaseError ?? "请稍后重试")
@@ -102,6 +102,30 @@ struct ContentView: View {
             }
         }
     }
+
+    private func clearLocalData() {
+        Task {
+            do {
+                try NativeDatabase().clearAllUserData()
+                let date = Date.now
+                goals = try await repository.availableGoals(for: date)
+                selectedGoals = []
+                let selection = try SharedHabitSelectionStore().snapshot(at: date)
+                state.selectedGoalIDs = []
+                state.starredGoalIDs = []
+                state.starLimit = selection.starLimit
+                state.isFirstSelection = true
+                state.homeSelectedIndex = 0
+                dashboard = try SharedHabitSelectionStore().dashboard(at: date)
+                withAnimation(.spring(response: 0.48, dampingFraction: 0.86)) {
+                    state.tab = .today
+                    state.mode = .homeUnselected
+                }
+            } catch {
+                databaseError = "清除本地数据失败：\(error.localizedDescription)"
+            }
+        }
+    }
 }
 
 private struct TodayRootView: View {
@@ -112,6 +136,7 @@ private struct TodayRootView: View {
     let reduceMotion: Bool
     let dashboard: HabitDashboardSnapshot?
     let onConfirm: () -> Void
+    let onClearData: () -> Void
     @Namespace private var navMorphNamespace
     @Namespace private var selectionTransitionNamespace
 
@@ -216,7 +241,8 @@ private struct TodayRootView: View {
                 FluidSettingsExpandedPanel(
                     tab: $state.tab,
                     fluidMorphAnimation: fluidMorphAnimation,
-                    namespace: navMorphNamespace
+                    namespace: navMorphNamespace,
+                    onClearData: onClearData
                 )
                 .transition(.asymmetric(
                     insertion: .scale(scale: 0.92, anchor: .bottomTrailing).combined(with: .opacity),
@@ -239,8 +265,10 @@ private struct FluidSettingsExpandedPanel: View {
     @Binding var tab: AppTab
     let fluidMorphAnimation: Animation
     let namespace: Namespace.ID
+    let onClearData: () -> Void
 
     @State private var dragOffsetY: CGFloat = 0
+    @State private var showingClearConfirmation = false
 
     // 计算交互式拖动阻尼位移与缩放比例
     private var effectiveDragOffset: CGFloat {
@@ -275,9 +303,7 @@ private struct FluidSettingsExpandedPanel: View {
             HStack {
                 Spacer()
                 Button {
-                    withAnimation(fluidMorphAnimation) {
-                        tab = .today
-                    }
+                    dismissSettings()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 26))
@@ -293,38 +319,20 @@ private struct FluidSettingsExpandedPanel: View {
                     .font(.system(size: 38, weight: .medium))
                     .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
 
-                Text("管理你的习惯应用偏好与系统选项。")
+                Text("习惯记录和积分保存在此设备。")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Color(red: 0.32, green: 0.28, blue: 0.33).opacity(0.72))
 
-                VStack(spacing: 12) {
-                    HStack {
-                        Label("通知与提醒", systemImage: "bell.badge")
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).opacity(0.4)
-                    }
-                    .padding(18)
-                    .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 18))
-
-                    HStack {
-                        Label("触感反馈与音效", systemImage: "waveform")
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).opacity(0.4)
-                    }
-                    .padding(18)
-                    .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 18))
-
-                    HStack {
-                        Label("数据与 iCloud 备份", systemImage: "icloud")
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).opacity(0.4)
-                    }
-                    .padding(18)
-                    .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 18))
+                Button(role: .destructive) {
+                    showingClearConfirmation = true
+                } label: {
+                    Label("清除本地数据并重新开始", systemImage: "trash")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color(red: 0.26, green: 0.22, blue: 0.27))
-
+                .tint(Color(red: 0.62, green: 0.20, blue: 0.28))
 
                 Spacer()
             }
@@ -335,7 +343,7 @@ private struct FluidSettingsExpandedPanel: View {
 
             // 底部关闭返回胶囊（与原胶囊位置呼应）
             Button {
-                withAnimation(fluidMorphAnimation) { tab = .today }
+                dismissSettings()
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "chevron.down.circle.fill")
@@ -379,6 +387,12 @@ private struct FluidSettingsExpandedPanel: View {
         .padding(.horizontal, 10)
         .padding(.top, 54)
         .padding(.bottom, 12)
+        .alert("清除本地数据？", isPresented: $showingClearConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("清除并重新开始", role: .destructive, action: onClearData)
+        } message: {
+            Text("这会删除已选习惯、打卡记录、复盘、计时记录和积分，并回到首次选择页面。此操作无法撤销。")
+        }
         .gesture(
             DragGesture(minimumDistance: 10)
                 .onChanged { value in
@@ -388,17 +402,22 @@ private struct FluidSettingsExpandedPanel: View {
                     // 速度较快或下拉超过 110pt 时执行随拉随放弹回收起
                     let shouldDismiss = value.translation.height > 110 || (value.velocity.height > 300 && value.translation.height > 40)
                     if shouldDismiss {
-                        withAnimation(fluidMorphAnimation) {
-                            tab = .today
-                        }
+                        dismissSettings()
                     } else {
                         // 未达到阈值，随拉随放平滑弹回原位
-                        withAnimation(.interpolatingSpring(stiffness: 300, damping: 24)) {
+                        withAnimation(fluidMorphAnimation) {
                             dragOffsetY = 0
                         }
                     }
                 }
         )
+    }
+
+    private func dismissSettings() {
+        withAnimation(fluidMorphAnimation) {
+            dragOffsetY = max(dragOffsetY, 150)
+            tab = .today
+        }
     }
 }
 

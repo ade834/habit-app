@@ -288,10 +288,23 @@ private struct HabitExecutionForm: View {
     }
 
     private func field(_ label: String, key: String, limit: Int? = nil) -> some View {
-        TextField(label, text: Binding(get: { responses[key, default: ""] }, set: { value in
-            responses[key] = limit.map { String(value.prefix($0)) } ?? value
-        }))
-        .textFieldStyle(.roundedBorder)
+        TextField(
+            label,
+            text: Binding(get: { responses[key, default: ""] }, set: { value in
+                responses[key] = limit.map { String(value.prefix($0)) } ?? value
+            }),
+            prompt: Text(label).foregroundColor(Color(red: 0.25, green: 0.20, blue: 0.25).opacity(0.48))
+        )
+        .foregroundColor(Color(red: 0.25, green: 0.20, blue: 0.25).opacity(0.75))
+        .tint(Color(red: 0.25, green: 0.20, blue: 0.25).opacity(0.75))
+        .textFieldStyle(.plain)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.white.opacity(0.76), lineWidth: 1)
+        }
         .keyboardType(key == "days" ? .numberPad : (key.contains("Value") ? .decimalPad : .default))
     }
 

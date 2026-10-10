@@ -29,6 +29,13 @@ struct NativeDataLayerTests {
         try withReadOnlyDatabase(legacy) { db in
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs", in: db) == 1, "legacy database remains unchanged")
         }
+        try native.clearAllUserData()
+        try native.withConnection { db in
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs", in: db) == 0, "settings reset clears native habit records")
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM point_transactions", in: db) == 0, "settings reset clears points")
+            try expect(NativeDatabase.scalarText("SELECT value FROM native_metadata WHERE key='migration_state'", in: db) == "complete", "settings reset preserves the one-time migration marker")
+            try expect(NativeDatabase.scalarText("PRAGMA integrity_check", in: db) == "ok", "reset database remains valid")
+        }
     }
 
     private static func submissionsUseOriginalRules() throws {
