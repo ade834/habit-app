@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
@@ -127,12 +128,19 @@ class MissedHabitRecords extends Table {
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  static const _sharedContainer = MethodChannel('com.deshiru.habitapp/shared_database');
+  static const _sharedContainer = MethodChannel(
+    'com.deshiru.habitapp/shared_database',
+  );
 
-  AppDatabase() : super(driftDatabase(
-    name: 'habit_app',
-    native: DriftNativeOptions(databaseDirectory: _sharedDatabaseDirectory),
-  ));
+  AppDatabase()
+    : super(
+        driftDatabase(
+          name: 'habit_app',
+          native: DriftNativeOptions(
+            databaseDirectory: _sharedDatabaseDirectory,
+          ),
+        ),
+      );
 
   static Future<Object> _sharedDatabaseDirectory() async {
     final path = await _sharedContainer.invokeMethod<String>('containerPath');
@@ -143,11 +151,24 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onCreate: (migrator) => migrator.createAll(),
+    onCreate: (migrator) async {
+      await migrator.createAll();
+      await customStatement(
+        'CREATE TABLE challenge_history ('
+        'cycle INTEGER NOT NULL, card_index INTEGER NOT NULL, '
+        'drawn_at INTEGER NOT NULL, local_date TEXT NOT NULL, '
+        'PRIMARY KEY (cycle, card_index))',
+      );
+      await customStatement(
+        'CREATE TABLE challenge_daily_swaps ('
+        'local_date TEXT NOT NULL, slot INTEGER NOT NULL, card_index INTEGER NOT NULL, '
+        'PRIMARY KEY (local_date, slot))',
+      );
+    },
     onUpgrade: (migrator, from, to) async {
       if (from < 2) {
         await migrator.createTable(reviewEntries);
@@ -186,6 +207,51 @@ class AppDatabase extends _$AppDatabase {
           await migrator.addColumn(
             missedHabitRecords,
             missedHabitRecords.settledOn,
+          );
+        }
+      }
+      if (from < 11) {
+        await customStatement(
+          'CREATE TABLE IF NOT EXISTS challenge_history ('
+          'cycle INTEGER NOT NULL, card_index INTEGER NOT NULL, '
+          'drawn_at INTEGER NOT NULL, local_date TEXT NOT NULL, '
+          'PRIMARY KEY (cycle, card_index))',
+        );
+        await customStatement(
+          'INSERT OR IGNORE INTO challenge_history '
+          '(cycle, card_index, drawn_at, local_date) '
+          'SELECT 1, card_index, 0, local_date FROM challenge_draws',
+        );
+      }
+      if (from < 12) {
+        await customStatement(
+          'CREATE TABLE IF NOT EXISTS challenge_daily_swaps ('
+          'local_date TEXT NOT NULL, slot INTEGER NOT NULL, card_index INTEGER NOT NULL, '
+          'PRIMARY KEY (local_date, slot))',
+        );
+        final seenPerDay = <String, int>{};
+        final previousDraws = await customSelect(
+          'SELECT local_date, card_index FROM challenge_history ORDER BY rowid',
+        ).get();
+        for (final previous in previousDraws) {
+          final day = previous.read<String>('local_date');
+          final ordinal = (seenPerDay[day] ?? 0) + 1;
+          seenPerDay[day] = ordinal;
+          if (ordinal < 2 || ordinal > 4) continue;
+          await customStatement(
+            'INSERT OR IGNORE INTO challenge_daily_swaps '
+            '(local_date, slot, card_index) VALUES (?, ?, ?)',
+            [day, ordinal - 1, previous.read<int>('card_index')],
+          );
+        }
+        for (final draw in await select(challengeDraws).get()) {
+          if (draw.swapCount == 0 || (seenPerDay[draw.localDate] ?? 0) > 1) {
+            continue;
+          }
+          await customStatement(
+            'INSERT OR IGNORE INTO challenge_daily_swaps '
+            '(local_date, slot, card_index) VALUES (?, 1, ?)',
+            [draw.localDate, draw.cardIndex],
           );
         }
       }
@@ -351,6 +417,8 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> clearAllData() async {
     await transaction(() async {
+      await customStatement('DELETE FROM challenge_history');
+      await customStatement('DELETE FROM challenge_daily_swaps');
       await delete(challengeDraws).go();
       await delete(habitActivityEntries).go();
       await delete(travelPlans).go();
@@ -822,41 +890,93 @@ class AppDatabase extends _$AppDatabase {
 
   Future<ChallengeDraw> challengeForToday({DateTime? now}) async {
     final current = now ?? DateTime.now();
+    return transaction(() => _challengeForDate(current));
+  }
+
+  Future<ChallengeDraw> swapChallenge({DateTime? now}) async {
+    final current = now ?? DateTime.now();
+    return transaction(() async {
+      final draw = await _challengeForDate(current);
+      final nextCount = draw.swapCount + 1;
+      final int nextIndex;
+      if (draw.swapCount < 3) {
+        nextIndex = await _drawUnusedChallenge(current);
+        await customStatement(
+          'INSERT INTO challenge_daily_swaps '
+          '(local_date, slot, card_index) VALUES (?, ?, ?)',
+          [draw.localDate, nextCount, nextIndex],
+        );
+      } else {
+        final choices = await customSelect(
+          'SELECT card_index FROM challenge_daily_swaps WHERE local_date = ? ORDER BY slot',
+          variables: [Variable<String>(draw.localDate)],
+        ).get();
+        final indexes = choices
+            .map((row) => row.read<int>('card_index'))
+            .toList();
+        final pool = indexes.isEmpty ? [draw.cardIndex] : indexes;
+        nextIndex = pool[Random().nextInt(pool.length)];
+      }
+      await (update(
+        challengeDraws,
+      )..where((row) => row.localDate.equals(draw.localDate))).write(
+        ChallengeDrawsCompanion(
+          cardIndex: Value(nextIndex),
+          swapUsed: Value(nextCount >= 3),
+          swapCount: Value(nextCount),
+        ),
+      );
+      return (select(
+        challengeDraws,
+      )..where((row) => row.localDate.equals(draw.localDate))).getSingle();
+    });
+  }
+
+  Future<ChallengeDraw> _challengeForDate(DateTime current) async {
     final localDate = _localDate(current);
     final existing = await (select(
       challengeDraws,
     )..where((row) => row.localDate.equals(localDate))).getSingleOrNull();
     if (existing != null) return existing;
+    final index = await _drawUnusedChallenge(current);
     await into(challengeDraws).insert(
-      ChallengeDrawsCompanion.insert(
-        localDate: localDate,
-        cardIndex: current.day % challengeCards.length,
-      ),
+      ChallengeDrawsCompanion.insert(localDate: localDate, cardIndex: index),
     );
     return (select(
       challengeDraws,
     )..where((row) => row.localDate.equals(localDate))).getSingle();
   }
 
-  Future<ChallengeDraw> swapChallenge({DateTime? now}) async {
-    final current = now ?? DateTime.now();
-    final draw = await challengeForToday(now: current);
-    final nextCount = draw.swapCount + 1;
-    final nextIndex = draw.swapCount < 3
-        ? (draw.cardIndex + 5) % challengeCards.length
-        : draw.swapCount % 3 == 0
-        ? (draw.cardIndex - 10) % challengeCards.length
-        : (draw.cardIndex + 5) % challengeCards.length;
-    await (update(
-      challengeDraws,
-    )..where((row) => row.localDate.equals(draw.localDate))).write(
-      ChallengeDrawsCompanion(
-        cardIndex: Value(nextIndex),
-        swapUsed: Value(nextCount >= 3),
-        swapCount: Value(nextCount),
-      ),
+  Future<int> _drawUnusedChallenge(DateTime current) async {
+    final cycleRow = await customSelect(
+      'SELECT COALESCE(MAX(cycle), 0) AS cycle FROM challenge_history',
+    ).getSingle();
+    var cycle = max(1, cycleRow.read<int>('cycle'));
+    final usedRows = await customSelect(
+      'SELECT card_index FROM challenge_history WHERE cycle = ?',
+      variables: [Variable<int>(cycle)],
+    ).get();
+    final used = usedRows.map((row) => row.read<int>('card_index')).toSet();
+    var available = List<int>.generate(
+      challengeCards.length,
+      (index) => index,
+    ).where((index) => !used.contains(index)).toList();
+    if (available.isEmpty) {
+      cycle++;
+      available = List<int>.generate(challengeCards.length, (index) => index);
+    }
+    final index = available[Random().nextInt(available.length)];
+    await customStatement(
+      'INSERT INTO challenge_history '
+      '(cycle, card_index, drawn_at, local_date) VALUES (?, ?, ?, ?)',
+      [
+        cycle,
+        index,
+        current.millisecondsSinceEpoch ~/ 1000,
+        _localDate(current),
+      ],
     );
-    return challengeForToday(now: current);
+    return index;
   }
 
   Future<int> pointBalance() async {

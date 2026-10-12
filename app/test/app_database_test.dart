@@ -443,26 +443,75 @@ void main() {
     expect(session.focusTopic, '善良的边界该如何取舍？');
   });
 
-  test('H3前3次换新卡，第4次起在前3张中循环', () async {
+  test('H3每轮随机抽题且不重复，抽完后开启下一轮', () async {
     final now = DateTime(2026, 8, 5);
     final first = await database.challengeForToday(now: now);
-    final firstSwap = await database.swapChallenge(now: now);
-    final secondSwap = await database.swapChallenge(now: now);
-    final thirdSwap = await database.swapChallenge(now: now);
-    final fourthSwap = await database.swapChallenge(now: now);
-    final fifthSwap = await database.swapChallenge(now: now);
-    final sixthSwap = await database.swapChallenge(now: now);
+    final todayOptions = <int>{};
+    for (var index = 1; index <= 3; index++) {
+      final next = await database.swapChallenge(now: now);
+      expect(next.cardIndex, isNot(first.cardIndex));
+      expect(
+        todayOptions.add(next.cardIndex),
+        isTrue,
+        reason: 'today’s new question $index should not repeat',
+      );
+    }
+    expect(todayOptions, hasLength(3));
 
-    expect({
-      firstSwap.cardIndex,
-      secondSwap.cardIndex,
-      thirdSwap.cardIndex,
-    }, hasLength(3));
-    expect(firstSwap.cardIndex, isNot(first.cardIndex));
-    expect(fourthSwap.cardIndex, firstSwap.cardIndex);
-    expect(fifthSwap.cardIndex, secondSwap.cardIndex);
-    expect(sixthSwap.cardIndex, thirdSwap.cardIndex);
-    expect(sixthSwap.swapCount, 6);
+    for (var click = 4; click <= 20; click++) {
+      final next = await database.swapChallenge(now: now);
+      expect(
+        todayOptions.contains(next.cardIndex),
+        isTrue,
+        reason: 'swap $click must reuse one of today’s three new questions',
+      );
+    }
+    final dailyChoices = await database
+        .customSelect(
+          "SELECT card_index FROM challenge_daily_swaps WHERE local_date = '2026-08-05'",
+        )
+        .get();
+    expect(
+      dailyChoices.map((row) => row.read<int>('card_index')).toSet(),
+      todayOptions,
+    );
+
+    final firstCycle = <int>{first.cardIndex, ...todayOptions};
+    for (var day = 1; firstCycle.length < challengeCards.length; day++) {
+      final next = await database.challengeForToday(
+        now: now.add(Duration(days: day)),
+      );
+      expect(
+        firstCycle.add(next.cardIndex),
+        isTrue,
+        reason: 'question on day $day repeats before this cycle is exhausted',
+      );
+    }
+    expect(firstCycle, hasLength(challengeCards.length));
+
+    final nextCycleDate = now.add(const Duration(days: 500));
+    final nextCycleDraw = await database.challengeForToday(now: nextCycleDate);
+    final storedHistory = await database
+        .customSelect(
+          'SELECT cycle, COUNT(*) AS draws FROM challenge_history GROUP BY cycle ORDER BY cycle',
+        )
+        .get();
+    expect(
+      storedHistory.map(
+        (row) => [row.read<int>('cycle'), row.read<int>('draws')],
+      ),
+      [
+        [1, challengeCards.length],
+        [2, 1],
+      ],
+    );
+
+    final nextDayDraw = await database.challengeForToday(
+      now: nextCycleDate.add(const Duration(days: 1)),
+    );
+    expect(nextDayDraw.cardIndex, isNot(nextCycleDraw.cardIndex));
+    final sameDayReload = await database.challengeForToday(now: nextCycleDate);
+    expect(sameDayReload.cardIndex, nextCycleDraw.cardIndex);
   });
 
   test('H4倒计未结束不能完成，结束后自动完成', () async {

@@ -736,8 +736,8 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
       SnackBar(
         content: Text(
           swapped.swapCount <= 3
-              ? '已获取第 ${swapped.swapCount} 张新挑战。'
-              : '已切换到前三张挑战之一。',
+              ? '已获取第 ${swapped.swapCount} 条新问题'
+              : '已在今日抽取的 3 个问题中随机切换',
         ),
       ),
     );
@@ -779,8 +779,8 @@ class _ChallengeToolPageState extends State<ChallengeToolPage> {
               icon: const Icon(Icons.swap_horiz),
               label: Text(
                 draw.swapCount < 3
-                    ? '换一张（还可获取 ${3 - draw.swapCount} 张新挑战）'
-                    : '在前三张挑战中切换',
+                    ? '随机换题（还可获取 ${3 - draw.swapCount} 条新问题）'
+                    : '在今日抽取的 3 个问题中随机切换',
               ),
             ),
             const SizedBox(height: 12),
