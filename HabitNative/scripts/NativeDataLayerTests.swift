@@ -21,6 +21,7 @@ struct NativeDataLayerTests {
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs", in: db) == 1, "backup imports historical logs")
             try expect(NativeDatabase.scalarText("SELECT value FROM native_metadata WHERE key='migration_state'", in: db) == "complete", "migration marker is recorded")
             try expect(NativeDatabase.scalarText("PRAGMA integrity_check", in: db) == "ok", "SQLite integrity check")
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM challenge_history WHERE cycle=1 AND card_index=17", in: db) == 1, "migration carries previously shown H3 challenges into the no-repeat history")
             try NativeDatabase.execute("INSERT INTO habit_logs(habit_id, local_date, timezone_offset_minutes, created_at) VALUES ('H2','2026-10-11',480,200)", in: db)
         }
         try native.withConnection { db in
@@ -59,6 +60,8 @@ struct NativeDataLayerTests {
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs WHERE habit_id='H1'", in: connection) == 0, "99 characters do not meet H1 threshold")
         }
         try db.submit(GoalEntry(goalID: "H1", date: now, payload: .review(decision: hundred, result: "", improvement: "")))
+        let persistedReview = try db.reviewEntry(on: now)
+        try expect(persistedReview?.decision == hundred, "H1 form can reload its saved content for editing")
         try db.submit(GoalEntry(goalID: "H6", date: now, payload: .activity(primaryText: "清理信息", secondaryText: "可选", firstValue: nil, secondValue: nil)))
         try db.withConnection { connection in
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs", in: connection) == 2, "valid review and starred activity create logs")
@@ -90,11 +93,37 @@ struct NativeDataLayerTests {
         try expect(Set(HabitTaskCatalog.challengeCards).count == 500, "challenge cards remain unique")
         try expect(HabitTaskCatalog.thinkingTopics(for: .now).count == 3, "daily recommended topics return three entries")
         try expect(Set(HabitTaskCatalog.thinkingTopics(for: .now)).count == 3, "daily recommended topics are distinct")
+        try expectThrows("H2 cannot start without a thinking topic") {
+            _ = try db.startTimer(habitID: "H2", targetSeconds: 1800, focusTopic: "  ", at: .now)
+        }
 
         let date = Date.now
         let challenge = try db.challengeForToday(at: date)
-        let firstSwap = try db.swapChallenge(at: date)
-        try expect(firstSwap.cardIndex == (challenge.cardIndex + 5) % 500 && firstSwap.swapCount == 1, "challenge swap follows source offset")
+        var dailyChoices: Set<Int> = []
+        for expectedCount in 1...3 {
+            let next = try db.swapChallenge(at: date)
+            try expect(next.cardIndex != challenge.cardIndex && dailyChoices.insert(next.cardIndex).inserted, "the first three daily H3 swaps draw distinct unseen questions")
+            try expect(next.swapCount == expectedCount, "H3 persists the daily swap count")
+        }
+        try expect(dailyChoices.count == 3, "H3 captures exactly three fresh daily choices")
+        for _ in 4...20 {
+            let next = try db.swapChallenge(at: date)
+            try expect(dailyChoices.contains(next.cardIndex), "the fourth and later H3 swaps recycle only today's three choices")
+        }
+        try db.withConnection { connection in
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM challenge_daily_swaps", in: connection) == 3, "only three fresh choices are persisted for the day")
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM challenge_history WHERE cycle=1", in: connection) == 4, "recycled daily choices do not consume new questions")
+        }
+        for offset in 1...496 {
+            let nextDate = Calendar.current.date(byAdding: .day, value: offset, to: date)!
+            _ = try db.challengeForToday(at: nextDate)
+        }
+        let nextCycleDate = Calendar.current.date(byAdding: .day, value: 497, to: date)!
+        _ = try db.challengeForToday(at: nextCycleDate)
+        try db.withConnection { connection in
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM challenge_history WHERE cycle=1", in: connection) == 500, "H3 history preserves every unique question in the first cycle")
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM challenge_history WHERE cycle=2", in: connection) == 1, "H3 begins a new cycle only after exhausting the question pool")
+        }
 
         let start = date.addingTimeInterval(-3)
         let focus = try db.startTimer(habitID: "H2", targetSeconds: 1, focusTopic: "topic", at: start)
@@ -105,10 +134,23 @@ struct NativeDataLayerTests {
         try db.withConnection { connection in
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM timer_sessions WHERE habit_id='H2' AND status='completed'", in: connection) == 1, "completed focus session is persisted")
         }
+        let endedEarly = try db.startTimer(habitID: "H2", targetSeconds: 1800, focusTopic: "topic", at: date)
+        try db.endFocusSessionEarly(endedEarly, at: date.addingTimeInterval(30))
+        try db.withConnection { connection in
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM timer_sessions WHERE id=\(endedEarly) AND status='failed'", in: connection) == 1, "H2 early end is persisted as failed")
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs WHERE habit_id='H2'", in: connection) == 1, "H2 early end does not create a completion log")
+        }
         let pausedTooLong = try db.startTimer(habitID: "H2", targetSeconds: 10, focusTopic: "topic", at: start)
         try db.pauseFocusSession(pausedTooLong, at: start.addingTimeInterval(1))
         try expectThrows("H2 pause over five minutes fails") {
             _ = try db.resumeFocusSession(pausedTooLong, at: start.addingTimeInterval(302))
+        }
+        let timedOutPause = try db.startTimer(habitID: "H2", targetSeconds: 1800, focusTopic: "topic", at: start)
+        try db.pauseFocusSession(timedOutPause, at: start.addingTimeInterval(1))
+        try expect(try db.failExpiredFocusPause(timedOutPause, at: start.addingTimeInterval(301)) == false, "H2 pause remains valid at exactly five minutes")
+        try expect(try db.failExpiredFocusPause(timedOutPause, at: start.addingTimeInterval(302)), "H2 pause automatically expires after five minutes")
+        try db.withConnection { connection in
+            try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM timer_sessions WHERE id=\(timedOutPause) AND status='failed'", in: connection) == 1, "expired H2 pause is persisted as failed")
         }
 
         let base = date.addingTimeInterval(60)
@@ -144,6 +186,7 @@ struct NativeDataLayerTests {
             "CREATE TABLE missed_habit_records(habit_id TEXT NOT NULL, local_date TEXT NOT NULL, settled_on TEXT, PRIMARY KEY(habit_id, local_date))",
             "INSERT INTO habit_selections(habit_id, enabled_at, active_on) VALUES ('H1', 100, 100)",
             "INSERT INTO habit_logs(habit_id, local_date, timezone_offset_minutes, created_at) VALUES ('H1', '2026-10-10', 480, 100)",
+            "INSERT INTO challenge_draws(local_date, card_index, swap_used, swap_count) VALUES ('2026-10-10', 17, 0, 0)",
             "INSERT INTO point_transactions(habit_log_id, amount, created_at) VALUES (1, 1, 100)",
             "PRAGMA user_version=10"
         ]

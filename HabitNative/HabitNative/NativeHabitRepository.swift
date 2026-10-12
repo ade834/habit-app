@@ -7,6 +7,17 @@ struct HabitGoalMetrics {
     let completedTodayIDs: Set<String>
 }
 
+struct NativeReviewRecord: Sendable {
+    let decision: String
+    let result: String
+    let improvement: String
+}
+
+struct NativeDisconnectStatus: Sendable {
+    let consecutiveFailures: Int
+    let lockedUntil: Date?
+}
+
 enum HabitSubmissionError: LocalizedError {
     case invalid(String)
     case alreadyCompleted
@@ -20,6 +31,28 @@ enum HabitSubmissionError: LocalizedError {
 }
 
 extension NativeDatabase {
+    func reviewEntry(on date: Date) throws -> NativeReviewRecord? {
+        try withConnection { db in
+            let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+            let key = String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+            let statement = try Self.prepare("SELECT decision, result, improvement FROM review_entries WHERE local_date=?", in: db)
+            defer { sqlite3_finalize(statement) }
+            Self.bind(key, to: 1, in: statement)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            func text(_ column: Int32) -> String {
+                sqlite3_column_text(statement, column).map { String(cString: $0) } ?? ""
+            }
+            return NativeReviewRecord(decision: text(0), result: text(1), improvement: text(2))
+        }
+    }
+
+    func disconnectStatus(at date: Date = .now) throws -> NativeDisconnectStatus {
+        try withConnection { db in
+            let state = try disconnectAttemptState(in: db, now: date)
+            return NativeDisconnectStatus(consecutiveFailures: state.failures, lockedUntil: state.lockedUntil)
+        }
+    }
+
     func goalMetrics(in db: OpaquePointer, today: Date) throws -> HabitGoalMetrics {
         var counts: [String: Int] = [:]
         var completions: [HabitCompletion] = []
@@ -102,6 +135,9 @@ extension NativeDatabase {
 
     func startTimer(habitID: String, targetSeconds: Int, focusTopic: String? = nil, at date: Date = .now) throws -> Int64 {
         guard habitID == "H2" || habitID == "H4", targetSeconds > 0 else { throw HabitSubmissionError.invalid("计时参数无效。") }
+        if habitID == "H2", focusTopic?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            throw HabitSubmissionError.invalid("开始前请先选择或填写一个思考议题。")
+        }
         return try withConnection { db in
             let supersede = try Self.prepare("UPDATE timer_sessions SET status='failed', ended_at=? WHERE habit_id=? AND status IN ('running','paused')", in: db)
             sqlite3_bind_int64(supersede, 1, Int64(date.timeIntervalSince1970)); Self.bind(habitID, to: 2, in: supersede)
@@ -154,6 +190,41 @@ extension NativeDatabase {
         }
     }
 
+    func endFocusSessionEarly(_ id: Int64, at date: Date = .now) throws {
+        try withConnection { db in
+            let statement = try Self.prepare("UPDATE timer_sessions SET status='failed', ended_at=? WHERE id=? AND habit_id='H2' AND status IN ('running','paused')", in: db)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, Int64(date.timeIntervalSince1970))
+            sqlite3_bind_int64(statement, 2, id)
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw NativeDatabaseError.unavailable(String(cString: sqlite3_errmsg(db))) }
+            guard sqlite3_changes(db) == 1 else { throw HabitSubmissionError.invalid("当前没有可提前结束的专注计时。") }
+        }
+    }
+
+    @discardableResult
+    func failExpiredFocusPause(_ id: Int64, at date: Date = .now) throws -> Bool {
+        try withConnection { db in
+            let query = try Self.prepare("SELECT paused_at, accumulated_pause_seconds FROM timer_sessions WHERE id=? AND habit_id='H2' AND status='paused'", in: db)
+            sqlite3_bind_int64(query, 1, id)
+            guard sqlite3_step(query) == SQLITE_ROW, sqlite3_column_type(query, 0) != SQLITE_NULL else {
+                sqlite3_finalize(query)
+                return false
+            }
+            let pausedAt = Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(query, 0)))
+            let accumulated = Int(sqlite3_column_int(query, 1))
+            sqlite3_finalize(query)
+            let totalPauseSeconds = accumulated + max(0, Int(date.timeIntervalSince(pausedAt)))
+            guard totalPauseSeconds > 300 else { return false }
+
+            let fail = try Self.prepare("UPDATE timer_sessions SET status='failed', ended_at=? WHERE id=? AND habit_id='H2' AND status='paused'", in: db)
+            defer { sqlite3_finalize(fail) }
+            sqlite3_bind_int64(fail, 1, Int64(date.timeIntervalSince1970))
+            sqlite3_bind_int64(fail, 2, id)
+            guard sqlite3_step(fail) == SQLITE_DONE else { throw NativeDatabaseError.unavailable(String(cString: sqlite3_errmsg(db))) }
+            return sqlite3_changes(db) == 1
+        }
+    }
+
     func resumeFocusSession(_ id: Int64, at date: Date = .now) throws -> Int {
         try withConnection { db in
             let query = try Self.prepare("SELECT paused_at, accumulated_pause_seconds FROM timer_sessions WHERE id=? AND habit_id='H2' AND status='paused'", in: db)
@@ -200,7 +271,17 @@ extension NativeDatabase {
     }
 
     func challengeForToday(at date: Date = .now) throws -> HabitChallengeRecord {
-        try withConnection { db in try challengeRecord(at: date, in: db) }
+        try withConnection { db in
+            try Self.execute("BEGIN IMMEDIATE", in: db)
+            do {
+                let record = try challengeRecord(at: date, in: db)
+                try Self.execute("COMMIT", in: db)
+                return record
+            } catch {
+                try? Self.execute("ROLLBACK", in: db)
+                throw error
+            }
+        }
     }
 
     func swapChallenge(at date: Date = .now) throws -> HabitChallengeRecord {
@@ -209,11 +290,25 @@ extension NativeDatabase {
             do {
                 let current = try challengeRecord(at: date, in: db)
                 let nextCount = current.swapCount + 1
-                let count = HabitTaskCatalog.challengeCards.count
                 let nextIndex: Int
-                if current.swapCount < 3 { nextIndex = (current.cardIndex + 5) % count }
-                else if current.swapCount % 3 == 0 { nextIndex = (current.cardIndex - 10 + count) % count }
-                else { nextIndex = (current.cardIndex + 5) % count }
+                if current.swapCount < 3 {
+                    nextIndex = try drawNextChallenge(at: date, in: db)
+                    let insert = try Self.prepare("INSERT INTO challenge_daily_swaps(local_date, slot, card_index) VALUES (?, ?, ?)", in: db)
+                    Self.bind(Self.localDate(date), to: 1, in: insert)
+                    sqlite3_bind_int(insert, 2, Int32(nextCount))
+                    sqlite3_bind_int(insert, 3, Int32(nextIndex))
+                    guard sqlite3_step(insert) == SQLITE_DONE else { sqlite3_finalize(insert); throw NativeDatabaseError.unavailable(String(cString: sqlite3_errmsg(db))) }
+                    sqlite3_finalize(insert)
+                } else {
+                    let choices = try Self.prepare("SELECT card_index FROM challenge_daily_swaps WHERE local_date=? ORDER BY slot", in: db)
+                    Self.bind(Self.localDate(date), to: 1, in: choices)
+                    var indexes: [Int] = []
+                    while sqlite3_step(choices) == SQLITE_ROW { indexes.append(Int(sqlite3_column_int(choices, 0))) }
+                    sqlite3_finalize(choices)
+                    let pool = indexes.isEmpty ? [current.cardIndex] : indexes
+                    guard let selected = pool.randomElement() else { throw NativeDatabaseError.migration("今日挑战题目为空") }
+                    nextIndex = selected
+                }
                 let update = try Self.prepare("UPDATE challenge_draws SET card_index=?, swap_used=?, swap_count=? WHERE local_date=?", in: db)
                 sqlite3_bind_int(update, 1, Int32(nextIndex)); sqlite3_bind_int(update, 2, nextCount >= 3 ? 1 : 0); sqlite3_bind_int(update, 3, Int32(nextCount))
                 Self.bind(Self.localDate(date), to: 4, in: update)
@@ -242,12 +337,45 @@ extension NativeDatabase {
             return HabitChallengeRecord(cardIndex: index, swapCount: swaps, title: cards[index])
         }
         sqlite3_finalize(statement)
-        let index = Calendar.current.component(.day, from: date) % HabitTaskCatalog.challengeCards.count
+        let index = try drawNextChallenge(at: date, in: db)
         let insert = try Self.prepare("INSERT INTO challenge_draws(local_date, card_index, swap_used, swap_count) VALUES (?, ?, 0, 0)", in: db)
         Self.bind(key, to: 1, in: insert); sqlite3_bind_int(insert, 2, Int32(index))
         guard sqlite3_step(insert) == SQLITE_DONE else { sqlite3_finalize(insert); throw NativeDatabaseError.unavailable(String(cString: sqlite3_errmsg(db))) }
         sqlite3_finalize(insert)
         return HabitChallengeRecord(cardIndex: index, swapCount: 0, title: HabitTaskCatalog.challengeCards[index])
+    }
+
+    private func drawNextChallenge(at date: Date, in db: OpaquePointer) throws -> Int {
+        let cards = HabitTaskCatalog.challengeCards
+        let latestCycle = max(1, try NativeDatabase.scalarInt("SELECT COALESCE(MAX(cycle), 0) FROM challenge_history", in: db))
+        var cycle = latestCycle
+        let usedStatement = try Self.prepare("SELECT card_index FROM challenge_history WHERE cycle=?", in: db)
+        sqlite3_bind_int(usedStatement, 1, Int32(cycle))
+        var used = Set<Int>()
+        while sqlite3_step(usedStatement) == SQLITE_ROW {
+            used.insert(Int(sqlite3_column_int(usedStatement, 0)))
+        }
+        sqlite3_finalize(usedStatement)
+
+        var available = cards.indices.filter { !used.contains($0) }
+        if available.isEmpty {
+            cycle += 1
+            available = Array(cards.indices)
+        }
+        guard let index = available.randomElement() else {
+            throw NativeDatabaseError.migration("H3 挑战题库为空")
+        }
+
+        let history = try Self.prepare("INSERT INTO challenge_history(cycle, card_index, drawn_at, local_date) VALUES (?, ?, ?, ?)", in: db)
+        defer { sqlite3_finalize(history) }
+        sqlite3_bind_int(history, 1, Int32(cycle))
+        sqlite3_bind_int(history, 2, Int32(index))
+        sqlite3_bind_int64(history, 3, Int64(date.timeIntervalSince1970))
+        Self.bind(Self.localDate(date), to: 4, in: history)
+        guard sqlite3_step(history) == SQLITE_DONE else {
+            throw NativeDatabaseError.unavailable(String(cString: sqlite3_errmsg(db)))
+        }
+        return index
     }
 
     private func finishTimer(sessionID: Int64, at date: Date, in db: OpaquePointer) throws {

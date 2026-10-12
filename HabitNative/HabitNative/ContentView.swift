@@ -61,6 +61,14 @@ struct ContentView: View {
                     if let refreshedSelectedGoals = try? await repository.selectedGoals(for: .now) {
                         selectedGoals = refreshedSelectedGoals
                     }
+                    // Restore the real selected-habits screen after relaunch. The home preview
+                    // is only for a first-time/unselected state; keeping that mode after loading
+                    // a persisted selection made the app look like the older preview-only UI.
+                    if !selected.isEmpty, state.mode == .homeUnselected {
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) {
+                            state.mode = .homeSelected
+                        }
+                    }
                 }
                 if goals.isEmpty {
                     state.mode = .homeUnselected
@@ -139,6 +147,9 @@ private struct TodayRootView: View {
     let onClearData: () -> Void
     @Namespace private var navMorphNamespace
     @Namespace private var selectionTransitionNamespace
+    @State private var executionToast: String?
+    @State private var executionToastID = UUID()
+    @State private var executionToastExpanded = false
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
     private let fluidMorphAnimation = Animation.spring(response: 0.52, dampingFraction: 0.84, blendDuration: 0.2)
@@ -190,7 +201,8 @@ private struct TodayRootView: View {
                             goal: selectedGoals.first(where: { $0.id == id }) ?? goals.first(where: { $0.id == id }) ?? goals.first,
                             selectedGoals: $selectedGoals,
                             state: $state,
-                            selectionTransitionNamespace: selectionTransitionNamespace
+                            selectionTransitionNamespace: selectionTransitionNamespace,
+                            onPrompt: showExecutionToast
                         )
                     }
                 } else if state.tab == .garden {
@@ -251,12 +263,51 @@ private struct TodayRootView: View {
             }
         }
         .ignoresSafeArea(.all, edges: .bottom)
+        .overlay(alignment: .bottom) {
+            if let executionToast, state.tab == .today, isExecuting {
+                Text(executionToast.filter { !$0.isPunctuation })
+                    .font(.system(size: 18.75, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.25, green: 0.20, blue: 0.25))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 11)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.78), lineWidth: 1.2))
+                    .shadow(color: .black.opacity(0.12), radius: 16, y: 7)
+                    .padding(.bottom, 84)
+                    .scaleEffect(x: executionToastExpanded ? 1 : 0.58, y: executionToastExpanded ? 1 : 0.88, anchor: .center)
+                    .transition(.opacity)
+                    .animation(.spring(response: 0.42, dampingFraction: 0.78), value: executionToastExpanded)
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.isStaticText)
+            }
+        }
         .animation(reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.62, dampingFraction: 0.82, blendDuration: 0.14), value: state.mode)
     }
 
     private var isExecuting: Bool {
         if case .executing = state.mode { return true }
         return false
+    }
+
+    private func showExecutionToast(_ message: String) {
+        let id = UUID()
+        executionToastID = id
+        executionToastExpanded = false
+        withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) { executionToast = message }
+        Task {
+            try? await Task.sleep(for: .milliseconds(90))
+            guard executionToastID == id else { return }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { executionToastExpanded = true }
+            try? await Task.sleep(for: .seconds(1.5))
+            guard executionToastID == id else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                executionToastExpanded = false
+                executionToast = nil
+            }
+        }
     }
 }
 
@@ -1606,7 +1657,8 @@ private struct TodayAmbientBackground: View {
             Canvas { context, size in
                 draw(in: &context, size: size, time: time)
             }
-            .background(Color(red: 0.34, green: 0.34, blue: 0.37))
+            // Lighten the neutral base by blending it 75% toward white.
+            .background(Color(red: 0.835, green: 0.835, blue: 0.8425))
             .overlay {
                 Rectangle()
                     .fill(.ultraThinMaterial.opacity(0.16))
@@ -1622,8 +1674,8 @@ private struct TodayAmbientBackground: View {
         let collision = smoothstep(0.08, 0.92, travel)
         let exchange = smoothstep(0.38, 0.62, collision)
 
-        let largeRadius = minDim * (0.70 + 0.025 * sin(time * 0.47))
-        let smallRadius = minDim * (0.35 + 0.014 * cos(time * 0.53))
+        let largeRadius = minDim * (1.225 + 0.04375 * sin(time * 0.47))
+        let smallRadius = minDim * (0.6125 + 0.0245 * cos(time * 0.53))
         let largeCenter = CGPoint(
             x: size.width * (0.17 + 0.36 * collision),
             y: size.height * (0.82 - 0.35 * collision)
