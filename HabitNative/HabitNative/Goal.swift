@@ -195,6 +195,8 @@ struct TodayGoalState: Equatable {
     var focusedGoalID = "H6"
     var selectedGoalIDs: Set<String> = []
     var starredGoalIDs: Set<String> = []
+    var completedRegularGoalIDs: Set<String> = []
+    var completedSelectedGoalIDs: Set<String> = []
     var starLimit = 1
     var isFirstSelection = false
     var homeSelectedIndex = 0

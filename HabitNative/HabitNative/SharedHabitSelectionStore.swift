@@ -7,6 +7,8 @@ struct HabitSelectionSnapshot {
     var quotaExemptIDs: Set<String> = []
     var retainedPeriodicIDs: Set<String> = []
     var completedPeriodicIDs: Set<String> = []
+    var completedRegularIDs: Set<String> = []
+    var completedSelectedIDs: Set<String> = []
     var starLimit = 1
     var isFirstSelection = false
 }
@@ -58,6 +60,8 @@ struct SharedHabitSelectionStore {
             var snapshot = HabitSelectionSnapshot()
             snapshot.isFirstSelection = rows.isEmpty
             snapshot.starLimit = try scalar("SELECT COUNT(*) FROM habit_logs", in: db) >= 6 ? 2 : 1
+            snapshot.completedRegularIDs = try completedRegularIDs(at: date, in: db)
+            snapshot.completedSelectedIDs = try completedSelectedIDs(at: date, in: db)
             for row in rows {
                 let periodic = Self.isPeriodic(row.id)
                 let periodKey = Self.periodKey(row.id, date)
@@ -91,16 +95,19 @@ struct SharedHabitSelectionStore {
         try database.withConnection { db in
             let rows = try selections(in: db)
             let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+            let day = Self.localDate(date)
+            let completedRegular = try completedRegularIDs(at: date, in: db)
             guard starredIDs.isSubset(of: ids) else { throw HabitSelectionError.invalidStarredSelection }
             let starLimit = try scalar("SELECT COUNT(*) FROM habit_logs", in: db) >= 6 ? 2 : 1
             guard starredIDs.count <= starLimit else { throw HabitSelectionError.starLimitExceeded(starLimit) }
             if rows.isEmpty && ids.isEmpty { throw HabitSelectionError.firstSelectionRequiresGoal }
             if rows.isEmpty && !starredIDs.isEmpty { throw HabitSelectionError.invalidStarredSelection }
-            let regularCount = ids.filter { id in
+            let currentRegular = Set(ids.filter { id in
                 if starredIDs.contains(id) { return false }
                 guard Self.isPeriodic(id), let activeOn = byID[id]?.activeOn else { return true }
                 return Self.periodKey(id, activeOn) != Self.periodKey(id, date)
-            }.count
+            })
+            let regularCount = currentRegular.union(completedRegular).count
             guard regularCount <= 3 else { throw HabitSelectionError.quotaExceeded }
             try execute("BEGIN IMMEDIATE", in: db)
             do {
@@ -113,13 +120,59 @@ struct SharedHabitSelectionStore {
                     } else {
                         try insert(id: id, at: date, starred: starredIDs.contains(id), in: db)
                     }
+                    try recordSelection(id: id, day: day, countsRegular: currentRegular.contains(id), in: db)
                 }
+                let remove = try prepare("DELETE FROM daily_selection_records WHERE local_date = ? AND habit_id NOT IN (SELECT habit_id FROM habit_logs WHERE local_date = ?) AND habit_id NOT IN (SELECT habit_id FROM habit_selections WHERE active_on >= ? AND active_on < ?)", in: db)
+                defer { sqlite3_finalize(remove) }
+                let start = Calendar.current.startOfDay(for: date)
+                let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86400)
+                bind(day, to: 1, in: remove)
+                bind(day, to: 2, in: remove)
+                sqlite3_bind_int64(remove, 3, Int64(start.timeIntervalSince1970))
+                sqlite3_bind_int64(remove, 4, Int64(end.timeIntervalSince1970))
+                guard sqlite3_step(remove) == SQLITE_DONE else { throw failure(in: db) }
                 try execute("COMMIT", in: db)
             } catch {
                 try? execute("ROLLBACK", in: db)
                 throw error
             }
         }
+    }
+
+    private func completedRegularIDs(at date: Date, in db: OpaquePointer) throws -> Set<String> {
+        let statement = try prepare("SELECT r.habit_id FROM daily_selection_records r JOIN habit_logs l ON l.habit_id = r.habit_id AND l.local_date = r.local_date WHERE r.local_date = ? AND r.counts_regular = 1", in: db)
+        defer { sqlite3_finalize(statement) }
+        bind(Self.localDate(date), to: 1, in: statement)
+        var ids: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let value = sqlite3_column_text(statement, 0) { ids.insert(String(cString: value)) }
+        }
+        return ids
+    }
+
+    private func completedSelectedIDs(at date: Date, in db: OpaquePointer) throws -> Set<String> {
+        let statement = try prepare("SELECT r.habit_id FROM daily_selection_records r JOIN habit_logs l ON l.habit_id = r.habit_id AND l.local_date = r.local_date WHERE r.local_date = ?", in: db)
+        defer { sqlite3_finalize(statement) }
+        bind(Self.localDate(date), to: 1, in: statement)
+        var ids: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let value = sqlite3_column_text(statement, 0) { ids.insert(String(cString: value)) }
+        }
+        return ids
+    }
+
+    private func recordSelection(id: String, day: String, countsRegular: Bool, in db: OpaquePointer) throws {
+        let statement = try prepare("INSERT INTO daily_selection_records(habit_id, local_date, counts_regular) VALUES (?, ?, ?) ON CONFLICT(habit_id, local_date) DO UPDATE SET counts_regular = excluded.counts_regular WHERE NOT EXISTS (SELECT 1 FROM habit_logs WHERE habit_id = excluded.habit_id AND local_date = excluded.local_date)", in: db)
+        defer { sqlite3_finalize(statement) }
+        bind(id, to: 1, in: statement)
+        bind(day, to: 2, in: statement)
+        sqlite3_bind_int(statement, 3, countsRegular ? 1 : 0)
+        guard sqlite3_step(statement) == SQLITE_DONE else { throw failure(in: db) }
+    }
+
+    private static func localDate(_ date: Date) -> String {
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
     private func selections(in db: OpaquePointer) throws -> [Row] {
