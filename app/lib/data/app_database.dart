@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:flutter/services.dart';
 
 import '../domain/habit_growth.dart';
 import '../domain/habit_tools.dart';
@@ -126,7 +127,18 @@ class MissedHabitRecords extends Table {
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(driftDatabase(name: 'habit_app'));
+  static const _sharedContainer = MethodChannel('com.deshiru.habitapp/shared_database');
+
+  AppDatabase() : super(driftDatabase(
+    name: 'habit_app',
+    native: DriftNativeOptions(databaseDirectory: _sharedDatabaseDirectory),
+  ));
+
+  static Future<Object> _sharedDatabaseDirectory() async {
+    final path = await _sharedContainer.invokeMethod<String>('containerPath');
+    if (path == null || path.isEmpty) throw StateError('App Group 数据目录不可用');
+    return path;
+  }
 
   AppDatabase.forTesting(super.executor);
 
