@@ -53,6 +53,8 @@ struct ContentView: View {
                 if let selectionSnapshot {
                     state.starLimit = selectionSnapshot.starLimit
                     state.isFirstSelection = selectionSnapshot.isFirstSelection
+                    state.completedRegularGoalIDs = selectionSnapshot.completedRegularIDs
+                    state.completedSelectedGoalIDs = selectionSnapshot.completedSelectedIDs
                 }
                 if state.mode != .browsingDeck,
                    let selected = try? await repository.selectedGoalIDs(for: .now) {
@@ -96,6 +98,8 @@ struct ContentView: View {
                 selectedGoals = try await repository.selectedGoals(for: date)
                 state.selectedGoalIDs = persisted.activeIDs.union(persisted.starredIDs)
                 state.starredGoalIDs = persisted.starredIDs
+                state.completedRegularGoalIDs = persisted.completedRegularIDs
+                state.completedSelectedGoalIDs = persisted.completedSelectedIDs
                 state.isFirstSelection = persisted.isFirstSelection
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeSelected }
             } catch {
@@ -121,6 +125,8 @@ struct ContentView: View {
                 let selection = try SharedHabitSelectionStore().snapshot(at: date)
                 state.selectedGoalIDs = []
                 state.starredGoalIDs = []
+                state.completedRegularGoalIDs = []
+                state.completedSelectedGoalIDs = []
                 state.starLimit = selection.starLimit
                 state.isFirstSelection = true
                 state.homeSelectedIndex = 0
@@ -150,6 +156,9 @@ private struct TodayRootView: View {
     @State private var executionToast: String?
     @State private var executionToastID = UUID()
     @State private var executionToastExpanded = false
+    @State private var deckReturnMode: TodayMode = .homeUnselected
+    @State private var deckOriginalSelectedIDs: Set<String> = []
+    @State private var deckOriginalStarredIDs: Set<String> = []
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
     private let fluidMorphAnimation = Animation.spring(response: 0.52, dampingFraction: 0.84, blendDuration: 0.2)
@@ -175,10 +184,7 @@ private struct TodayRootView: View {
                                 .offset(y: tuning.cardOffsetY)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                                        state.mode = .browsingDeck
-                                        state.focusedGoalID = goals.first?.id ?? "H6"
-                                    }
+                                    browseGoals(returningTo: .homeUnselected)
                                 }
 
                             // 三个卡片下方提示
@@ -187,7 +193,7 @@ private struct TodayRootView: View {
                         }
                     case .browsingDeck:
                         VStack(spacing: 10) {
-                            Button("‹ 返回") { withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeUnselected } }
+                            Button("‹ 返回") { cancelBrowsing() }
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,7 +201,12 @@ private struct TodayRootView: View {
                             TodayStackDeckView(goals: goals, state: $state, selectionTransitionNamespace: selectionTransitionNamespace)
                         }
                     case .homeSelected:
-                        SelectedGoalView(goals: selectedGoals, state: $state, selectionTransitionNamespace: selectionTransitionNamespace)
+                        SelectedGoalView(
+                            goals: selectedGoals,
+                            state: $state,
+                            selectionTransitionNamespace: selectionTransitionNamespace,
+                            onBrowseGoals: { browseGoals(returningTo: .homeSelected) }
+                        )
                     case .executing(let id):
                         ExecutionView(
                             goal: selectedGoals.first(where: { $0.id == id }) ?? goals.first(where: { $0.id == id }) ?? goals.first,
@@ -285,6 +296,24 @@ private struct TodayRootView: View {
             }
         }
         .animation(reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.62, dampingFraction: 0.82, blendDuration: 0.14), value: state.mode)
+    }
+
+    private func browseGoals(returningTo mode: TodayMode) {
+        deckReturnMode = mode
+        deckOriginalSelectedIDs = state.selectedGoalIDs
+        deckOriginalStarredIDs = state.starredGoalIDs
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+            state.focusedGoalID = goals.first?.id ?? "H6"
+            state.mode = .browsingDeck
+        }
+    }
+
+    private func cancelBrowsing() {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) {
+            state.selectedGoalIDs = deckOriginalSelectedIDs
+            state.starredGoalIDs = deckOriginalStarredIDs
+            state.mode = deckReturnMode
+        }
     }
 
     private var isExecuting: Bool {
@@ -609,7 +638,10 @@ private struct ConfirmSelectionBar: View {
     let state: TodayGoalState
     let action: () -> Void
     private var regularCount: Int {
-        goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
+        let current = Set(goals.filter {
+            state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota
+        }.map(\.id))
+        return current.union(state.completedRegularGoalIDs).count
     }
     var body: some View {
         HStack(spacing: 10) {
@@ -664,6 +696,7 @@ private struct SelectedGoalView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
     let selectionTransitionNamespace: Namespace.ID
+    let onBrowseGoals: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var dragX: CGFloat = 0
     @State private var departingGoal: Goal?
@@ -677,7 +710,7 @@ private struct SelectedGoalView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 18) {
             if !selected.isEmpty {
                 selectedDeck
             } else {
@@ -688,11 +721,27 @@ private struct SelectedGoalView: View {
                     Text("今日目标已全部完成")
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("已完成的习惯已从待做卡片中移除。")
+                    Text(state.selectedGoalIDs.union(state.completedSelectedGoalIDs).count < 3
+                         ? "已完成的习惯已从待做卡片中移除，可继续选择今天的目标。"
+                         : "已完成的习惯已从待做卡片中移除。")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.white.opacity(0.8))
                 }
                 .frame(maxWidth: .infinity, minHeight: 260)
+            }
+            if state.selectedGoalIDs.union(state.completedSelectedGoalIDs).count < 3 {
+                Button(action: onBrowseGoals) {
+                    Label("继续选择今天的目标", systemImage: "square.stack.3d.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
+                        .padding(.horizontal, 18)
+                        .frame(height: 44)
+                        .background(.white.opacity(0.72), in: Capsule())
+                        .overlay(Capsule().stroke(.white.opacity(0.86), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityHint("打开卡片集，添加今天的目标")
             }
         }
         .padding(.horizontal, 24)

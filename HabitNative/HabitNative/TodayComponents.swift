@@ -36,7 +36,7 @@ private struct PerspectiveCardShape: Shape {
     }
 }
 
-/// A looping perspective card stack with a large second card.
+/// A looping perspective card stack with a large third card.
 struct TodayStackDeckView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
@@ -58,7 +58,7 @@ struct TodayStackDeckView: View {
         reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.46, dampingFraction: 0.72)
     }
 
-    // 第二张主卡的轮廓是整组卡片唯一的斜边与圆角基准。
+    // 第三张主卡的轮廓是整组卡片唯一的斜边与圆角基准。
     private var deckCardShape: PerspectiveCardShape {
         PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
     }
@@ -74,7 +74,7 @@ struct TodayStackDeckView: View {
                 Spacer(minLength: 8)
                 if ruleNotice == nil {
                     HStack(spacing: 5) {
-                        Text("\(goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count)").fontWeight(.semibold)
+                        Text("\(regularCount)").fontWeight(.semibold)
                         Text("/ 3").foregroundStyle(.secondary)
                     }
                     .font(.system(size: 17))
@@ -100,14 +100,14 @@ struct TodayStackDeckView: View {
 
             GeometryReader { geometry in
                 let cardHeight = min(geometry.size.height * 0.56, 390)
-                // 第二张作为主展示位；第三至第五张按递减比例向下展开。
+                // 第三张作为主展示位，保留原第二张的露出高度；顶部增加一张。
                 let step = max(45, geometry.size.height * 0.094)
-                let visibleSlots = min(goals.count, 5)
+                let visibleSlots = min(goals.count, 6)
                 ZStack(alignment: .top) {
                     ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
-                        let slot = (index - focus + 1 + goals.count) % max(1, goals.count)
+                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
                         if slot < visibleSlots {
-                        let isHero = slot == min(1, visibleSlots - 1)
+                        let isHero = slot == min(2, visibleSlots - 1)
                         let isSelected = state.selectedGoalIDs.contains(goal.id)
                         let reveal = contentReveal(
                             slot: slot,
@@ -117,9 +117,19 @@ struct TodayStackDeckView: View {
                             viewportHeight: geometry.size.height - 15
                         )
                         goalCard(goal, isHero: isHero, selected: isSelected, contentReveal: reveal)
-                            .frame(height: cardHeight, alignment: .top)
-                            .frame(maxWidth: .infinity)
+                            .frame(width: geometry.size.width, height: cardHeight, alignment: .top)
                             .background { cardSurface(goal, isHero: isHero) }
+                            .overlay(alignment: .topTrailing) {
+                                HStack(spacing: 7) {
+                                    if isSelected {
+                                        selectedBadge
+                                            .transition(.scale(scale: 0.72).combined(with: .opacity))
+                                    }
+                                }
+                                .frame(height: 52)
+                                .padding(.top, 5)
+                                .padding(.trailing, 59)
+                            }
                             .clipShape(deckCardShape)
                             .matchedGeometryEffect(
                                 id: "selected-goal-card-\(goal.id)",
@@ -133,39 +143,34 @@ struct TodayStackDeckView: View {
                                     .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
                                     .allowsHitTesting(false)
                             }
+                            .scaleEffect(
+                                cardScale(slot: slot, visibleSlots: visibleSlots)
+                                    * (bounceID == goal.id && !reduceMotion ? 1.025 : 1),
+                                anchor: .top
+                            )
+                            .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
                             .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
                             .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
-                            .scaleEffect(bounceID == goal.id && !reduceMotion ? 1.025 : 1, anchor: .center)
-                            .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
                             .zIndex(Double(slot))
                             .contentShape(deckCardShape)
                         }
                     }
-
-                    // 交互层独立置于所有卡片之上，避免相邻卡片的大画布遮住星标命中区。
+                    // Keep the interactive star targets above the transformed cards. A button
+                    // inside a scaled and offset card can have a different hit area from its icon.
                     ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
-                        let slot = (index - focus + 1 + goals.count) % max(1, goals.count)
+                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
                         if slot < visibleSlots {
+                            let scale = cardScale(slot: slot, visibleSlots: visibleSlots)
+                                * (bounceID == goal.id && !reduceMotion ? 1.025 : 1)
                             starButton(goal)
+                                .scaleEffect(scale)
                                 .position(
-                                    x: geometry.size.width - 27,
-                                    y: cardTop(slot: slot, step: step, height: cardHeight) + 31
+                                    x: geometry.size.width / 2 + (geometry.size.width / 2 - 27) * scale
+                                        + (draggedGoalID == goal.id ? max(0, horizontalDrag) : 0),
+                                    y: cardTop(slot: slot, step: step, height: cardHeight)
+                                        + dragOffset(slot: slot) + 31 * scale
                                 )
-                                .offset(y: dragOffset(slot: slot))
-                                .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                                 .zIndex(100 + Double(slot))
-
-                            if state.selectedGoalIDs.contains(goal.id) {
-                                selectedBadge
-                                    .position(
-                                        x: geometry.size.width - 72,
-                                        y: cardTop(slot: slot, step: step, height: cardHeight) + 31
-                                    )
-                                    .offset(y: dragOffset(slot: slot))
-                                    .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
-                                    .transition(.scale(scale: 0.72).combined(with: .opacity))
-                                    .zIndex(100 + Double(slot))
-                            }
                         }
                     }
                 }
@@ -174,7 +179,7 @@ struct TodayStackDeckView: View {
                 .mask(deckBottomFadeMask)
                 .clipped()
                 .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 12)
+                .simultaneousGesture(DragGesture(minimumDistance: 12)
                     .onChanged { value in
                         guard abs(value.translation.width) > abs(value.translation.height), draggedGoalID == nil else { return }
                         draggedGoalID = goalAt(value.startLocation.y, step: step, height: cardHeight, count: visibleSlots)?.id
@@ -200,7 +205,7 @@ struct TodayStackDeckView: View {
                         guard !goals.isEmpty else { return }
                         let next = (focus + (value.predictedEndTranslation.height < 0 ? 1 : -1) + goals.count) % goals.count
                         withAnimation(spring) { state.focusedGoalID = goals[next].id }
-                    }, including: .gesture)
+                    })
                 .animation(spring, value: drag == 0)
                 .animation(spring, value: horizontalDrag == 0)
             }
@@ -221,7 +226,7 @@ struct TodayStackDeckView: View {
             }
         }
         .onAppear {
-            // 数据库排序第一张固定落在 slot 1（第二张、主展示位）。
+            // 数据库排序第一张固定落在 slot 2（第三张、主展示位）。
             if let firstGoal = goals.first {
                 state.focusedGoalID = firstGoal.id
             }
@@ -343,11 +348,6 @@ struct TodayStackDeckView: View {
 
     private func toggleStar(_ goal: Goal) {
         let starred = state.starredGoalIDs.contains(goal.id)
-        let regularCount = goals.filter {
-            state.selectedGoalIDs.contains($0.id)
-                && !state.starredGoalIDs.contains($0.id)
-                && $0.countsTowardQuota
-        }.count
         let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
 
         guard starred || canStar else {
@@ -394,8 +394,8 @@ struct TodayStackDeckView: View {
         LinearGradient(
             stops: [
                 .init(color: .white, location: 0),
-                .init(color: .white, location: 0.91),
-                .init(color: .white.opacity(0.72), location: 0.95),
+                .init(color: .white, location: 0.95),
+                .init(color: .white.opacity(0.72), location: 0.98),
                 .init(color: .clear, location: 1)
             ],
             startPoint: .top,
@@ -414,19 +414,38 @@ struct TodayStackDeckView: View {
 
     private func dragOffset(slot: Int) -> CGFloat {
         guard !reduceMotion else { return 0 }
-        let fraction = CGFloat(slot + 1) / CGFloat(max(1, goals.count))
-        return drag * fraction * 0.46
+        return drag * (0.46 + CGFloat(slot) * 0.07)
+    }
+
+    private func cardWidthRatio(slot: Int, visibleSlots: Int) -> CGFloat {
+        guard visibleSlots >= 3 else { return 1 }
+        return switch slot {
+        case 0: 0.81
+        case 1: 0.9
+        default: 1
+        }
+    }
+
+    private func cardScale(slot: Int, visibleSlots: Int) -> CGFloat {
+        let current = cardWidthRatio(slot: slot, visibleSlots: visibleSlots)
+        guard !reduceMotion, drag != 0 else { return current }
+        let nextSlot = drag < 0 ? max(0, slot - 1) : min(visibleSlots - 1, slot + 1)
+        let next = cardWidthRatio(slot: nextSlot, visibleSlots: visibleSlots)
+        let progress = min(1, abs(drag) / 90)
+        return current + (next - current) * progress
     }
 
     private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
-        let thirdTop = step + height * 0.75
-        let fourthTop = thirdTop + height * 0.32
+        let fourthTop = step * 2 + height * 0.75
+        let fifthTop = fourthTop + height * 0.28
+        let sixthTop = fifthTop + height * 0.19
         return switch slot {
         case 0: 0
         case 1: step
-        case 2: thirdTop
+        case 2: step * 2
         case 3: fourthTop
-        default: fourthTop + CGFloat(slot - 3) * max(64, height * 0.24)
+        case 4: fifthTop
+        default: sixthTop + CGFloat(slot - 5) * max(48, height * 0.18)
         }
     }
 
@@ -435,7 +454,7 @@ struct TodayStackDeckView: View {
         for slot in (0..<count).reversed() {
             let top = cardTop(slot: slot, step: step, height: height)
             if y >= top && y <= top + height {
-                let index = (focus - 1 + slot + goals.count) % goals.count
+                let index = (focus - 2 + slot + goals.count) % goals.count
                 return goals[index]
             }
         }
@@ -444,8 +463,7 @@ struct TodayStackDeckView: View {
 
     private func toggle(_ goal: Goal) {
         let wasSelected = state.selectedGoalIDs.contains(goal.id)
-        let regularCount = goals.filter { state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota }.count
-        guard wasSelected || !goal.countsTowardQuota || regularCount < 3 else {
+        guard wasSelected || !goal.countsTowardQuota || state.completedRegularGoalIDs.contains(goal.id) || regularCount < 3 else {
             showRuleNotice("当天最多选择 3 个普通或周期目标，请先取消一个再选择。")
             return
         }
@@ -459,6 +477,13 @@ struct TodayStackDeckView: View {
             try? await Task.sleep(for: .milliseconds(180))
             withAnimation(.spring(response: 0.36, dampingFraction: 0.76)) { bounceID = nil }
         }
+    }
+
+    private var regularCount: Int {
+        let current = Set(goals.filter {
+            state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota
+        }.map(\.id))
+        return current.union(state.completedRegularGoalIDs).count
     }
 
     private func showRuleNotice(_ message: String) {
@@ -476,54 +501,22 @@ struct TodayStackDeckView: View {
 }
 
 private struct StarTapControl: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @GestureState private var pressed = false
     let starred: Bool
     let available: Bool
     let action: () -> Void
 
     var body: some View {
-        Image(systemName: starred ? "star.fill" : "star")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
-            .frame(width: 52, height: 52)
-            .background {
-                Circle()
-                    .fill(.black.opacity(pressed ? 0.16 : 0))
-                    .overlay {
-                        Circle()
-                            .stroke(.black.opacity(pressed ? 0.26 : 0), lineWidth: 3)
-                            .blur(radius: pressed ? 2 : 0)
-                            .offset(y: pressed ? 1.5 : 0)
-                    }
+        Button(action: action) {
+            Image(systemName: starred ? "star.fill" : "star")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
+                .frame(width: 52, height: 52)
+                .contentShape(Circle())
             }
-            .contentShape(Circle())
+            .buttonStyle(.plain)
             .opacity(available ? 1 : 0.42)
-            .scaleEffect(pressed && !reduceMotion ? 0.96 : 1)
-            .animation(
-                reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.34, dampingFraction: 0.55),
-                value: pressed
-            )
-            .highPriorityGesture(
-                DragGesture(minimumDistance: 0)
-                    .updating($pressed) { _, value, _ in
-                        value = true
-                    }
-                    .onEnded { value in
-                        guard abs(value.translation.width) < 12,
-                              abs(value.translation.height) < 12 else { return }
-                        action()
-                    },
-                including: .gesture
-            )
-            .sensoryFeedback(.impact(weight: .light), trigger: pressed) { _, isPressed in
-                isPressed
-            }
-            .accessibilityElement()
-            .accessibilityAddTraits(.isButton)
             .accessibilityLabel(starred ? "取消星标" : "设为星标")
             .accessibilityHint(starred ? "取消星标；普通名额已满时会同时取消选择" : "设为星标并加入今日选择，不占普通名额")
-            .accessibilityAction { action() }
     }
 }
 

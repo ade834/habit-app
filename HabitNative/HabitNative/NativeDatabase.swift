@@ -17,7 +17,7 @@ enum NativeDatabaseError: LocalizedError {
 
 /// The native app writes only to Application Support. The App Group database is an import source.
 struct NativeDatabase: Sendable {
-    static let schemaVersion = 12
+    static let schemaVersion = 13
     static let legacyGroup = "group.com.deshiru.habitapp"
 
     let fileURL: URL
@@ -70,6 +70,7 @@ struct NativeDatabase: Sendable {
                     "review_entries",
                     "point_transactions",
                     "habit_logs",
+                    "daily_selection_records",
                     "habit_selections"
                 ] {
                     try Self.execute("DELETE FROM \(table)", in: db)
@@ -183,7 +184,7 @@ struct NativeDatabase: Sendable {
         try execute("BEGIN IMMEDIATE", in: db)
         do {
             for sql in schemaV10 { try execute(sql, in: db) }
-            try execute("PRAGMA user_version = 12", in: db)
+            try execute("PRAGMA user_version = 13", in: db)
             try execute("COMMIT", in: db)
         } catch {
             try? execute("ROLLBACK", in: db)
@@ -230,8 +231,14 @@ struct NativeDatabase: Sendable {
                 try execute("INSERT OR IGNORE INTO challenge_daily_swaps(local_date, slot, card_index) SELECT local_date, slot, card_index FROM (SELECT local_date, card_index, ROW_NUMBER() OVER (PARTITION BY local_date ORDER BY rowid) AS slot FROM challenge_history) WHERE slot BETWEEN 2 AND 4", in: db)
                 try execute("INSERT OR IGNORE INTO challenge_daily_swaps(local_date, slot, card_index) SELECT local_date, 1, card_index FROM challenge_draws WHERE swap_count > 0 AND (SELECT COUNT(*) FROM challenge_daily_swaps WHERE challenge_daily_swaps.local_date=challenge_draws.local_date)=0", in: db)
             }
+            if version < 13 {
+                try execute(schemaV10[11], in: db)
+                // Restore today's already completed choices from existing logs.
+                // Backfill completed regular slots from prior point records; carried periodic goals stay exempt.
+                try execute("INSERT OR IGNORE INTO daily_selection_records(habit_id, local_date, counts_regular) SELECT l.habit_id, l.local_date, CASE WHEN COALESCE(p.amount, 0) > 0 AND NOT (l.habit_id IN ('H5','H7','H10','H11') AND COALESCE(date(s.active_on, 'unixepoch', 'localtime'), l.local_date) < l.local_date) THEN 1 ELSE 0 END FROM habit_logs l LEFT JOIN point_transactions p ON p.habit_log_id = l.id LEFT JOIN habit_selections s ON s.habit_id = l.habit_id", in: db)
+            }
             for sql in schemaV10 where sql.contains("CREATE INDEX") { try execute(sql, in: db) }
-            try execute("PRAGMA user_version = 12", in: db)
+            try execute("PRAGMA user_version = 13", in: db)
             try execute("COMMIT", in: db)
         } catch {
             try? execute("ROLLBACK", in: db)
@@ -250,7 +257,8 @@ struct NativeDatabase: Sendable {
         "CREATE TABLE IF NOT EXISTS travel_plans (year INTEGER NOT NULL PRIMARY KEY, destination TEXT NOT NULL, days INTEGER NOT NULL, focus TEXT NOT NULL, preparation TEXT NOT NULL DEFAULT '', planned_at INTEGER NOT NULL)",
         "CREATE TABLE IF NOT EXISTS missed_habit_records (habit_id TEXT NOT NULL, local_date TEXT NOT NULL, settled_on TEXT, PRIMARY KEY(habit_id, local_date))",
         "CREATE TABLE IF NOT EXISTS challenge_history (cycle INTEGER NOT NULL, card_index INTEGER NOT NULL, drawn_at INTEGER NOT NULL, local_date TEXT NOT NULL, PRIMARY KEY(cycle, card_index))",
-        "CREATE TABLE IF NOT EXISTS challenge_daily_swaps (local_date TEXT NOT NULL, slot INTEGER NOT NULL, card_index INTEGER NOT NULL, PRIMARY KEY(local_date, slot))"
+        "CREATE TABLE IF NOT EXISTS challenge_daily_swaps (local_date TEXT NOT NULL, slot INTEGER NOT NULL, card_index INTEGER NOT NULL, PRIMARY KEY(local_date, slot))",
+        "CREATE TABLE IF NOT EXISTS daily_selection_records (habit_id TEXT NOT NULL, local_date TEXT NOT NULL, counts_regular INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(habit_id, local_date))"
     ]
 
     private func verifyIntegrity(at url: URL) throws {
