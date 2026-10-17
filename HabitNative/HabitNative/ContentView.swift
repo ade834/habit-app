@@ -2255,7 +2255,6 @@ private struct PreviewGoalCard: View {
         .opacity(showsContent ? 1 : 0)
         .background {
             SelectedDeckCardSurface(
-                shape: RoundedRectangle(cornerRadius: 26, style: .continuous),
                 tint: cardTintColor
             )
                 .overlay {

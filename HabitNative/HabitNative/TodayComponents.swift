@@ -10,10 +10,11 @@ private struct HabitCardFlowerHead: View {
 
         PosyFlowerBloomCanvas(type: type, progress: 1)
             .frame(width: canvasSize, height: canvasSize)
-            .scaleEffect(150 / canvasSize)
-            .frame(width: 150, height: 150)
+            .scaleEffect(300 / canvasSize)
+            .frame(width: 300, height: 300)
             .saturation(0.75)
             .brightness(0.15)
+            .opacity(0.50)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
@@ -55,41 +56,37 @@ private struct PerspectiveCardShape: Shape {
     }
 }
 
-struct SelectedDeckCardSurface<S: Shape>: View {
-    let shape: S
+/// The owning card clips the complete surface and its content to one outline.
+struct SelectedDeckCardSurface: View {
     let tint: Color
 
     var body: some View {
-        shape
-            .fill(LinearGradient(stops: [
-                .init(color: tint.opacity(0.99), location: 0),
-                .init(color: tint.opacity(0.97), location: 0.48),
-                .init(color: tint.opacity(0.92), location: 1)
-            ], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(alignment: .top) {
-                GeometryReader { geometry in
-                    shape
-                        .fill(LinearGradient(
-                            stops: [
-                                .init(color: .white.opacity(0.28), location: 0),
-                                .init(color: .clear, location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ))
-                        .frame(height: geometry.size.height * 0.5)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                }
+        LinearGradient(stops: [
+                .init(color: tint.opacity(1), location: 0),
+                .init(color: tint.opacity(1), location: 0.48),
+                .init(color: tint.opacity(1), location: 1)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+            .overlay {
+                // Extend the highlight by 25% and soften its fade toward transparency.
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.28), location: 0),
+                        .init(color: .white.opacity(0.105), location: (1.0 / 6.0) * 1.25 * 0.5),
+                        .init(color: .clear, location: (1.0 / 6.0) * 1.25),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(0.15)
             }
-            .overlay(alignment: .bottom) {
-                shape
-                    .fill(LinearGradient(
-                        colors: [.clear, .black.opacity(0.12)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ))
+            .overlay {
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.12)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             }
-            .clipShape(shape)
     }
 }
 
@@ -212,6 +209,12 @@ struct TodayStackDeckView: View {
                                 .padding(.trailing, 59)
                             }
                             .clipShape(deckCardShape)
+                            .overlay {
+                                deckCardShape
+                                    .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
+                                    .allowsHitTesting(false)
+                            }
+                            // Transform the fill, mask and border together so their edges agree.
                             .matchedGeometryEffect(
                                 id: "selected-goal-card-\(goal.id)",
                                 in: selectionTransitionNamespace,
@@ -219,11 +222,6 @@ struct TodayStackDeckView: View {
                                 anchor: .center,
                                 isSource: isSelected
                             )
-                            .overlay {
-                                deckCardShape
-                                    .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
-                                    .allowsHitTesting(false)
-                            }
                             .scaleEffect(
                                 x: entry.scaleX
                                     * (bounceID == goal.id && !reduceMotion ? 1.025 : 1),
@@ -420,7 +418,7 @@ struct TodayStackDeckView: View {
 
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
         let tint = colorTheme.selectedDeckCardColor(at: goal.order - 1, count: colorRangeEndOrder)
-        return SelectedDeckCardSurface(shape: deckCardShape, tint: tint)
+        return SelectedDeckCardSurface(tint: tint)
     }
 
     private func goalCard(_ goal: Goal, isHero: Bool, selected: Bool, contentReveal: CGFloat) -> some View {
