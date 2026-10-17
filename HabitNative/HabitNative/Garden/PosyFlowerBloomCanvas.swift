@@ -1580,11 +1580,11 @@ public struct PosyFlowerBloomCanvas: View {
         for i in 0..<internalParticleCount {
             let goldenAngle = Double.pi * (3.0 - sqrt(5.0))
             let baseAngle = Double(i) * goldenAngle + phase * 0.35
-            
+
             // 径向距离限制在流体团内部 (3.5pt ~ 18.0pt * s)
             let rNorm = sqrt((Double(i) + 1.0) / Double(internalParticleCount)) // 0.22 ~ 1.0
             let rDist: CGFloat = CGFloat(3.5 + rNorm * 14.5) * CGFloat(b) * s
-            
+
             // 胞质微流动漂移
             let driftX = sin(phase * 1.5 + Double(i) * 2.1) * 2.2 * s
             let driftY = cos(phase * 1.8 + Double(i) * 1.7) * 2.2 * s
@@ -2437,4 +2437,3 @@ public struct PosyFlowerBloomCanvas: View {
         }
     }
 }
-

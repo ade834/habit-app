@@ -45,7 +45,7 @@ public struct PosyInteractiveStemFlower: View {
     @State private var activeFlowerDragTip: CGPoint? = nil
     @State private var dragStartTipPos: CGPoint? = nil
     @State private var isDraggingFlower: Bool = false
-    
+
     // 根部整体植物位置持久偏移 (拖拽根部放手后保留水平位置，垂直可记录区间为上下 10pt)
     @State private var persistentRootOffsetX: CGFloat = 0.0
     @State private var persistentRootOffsetY: CGFloat = 0.0
@@ -133,7 +133,7 @@ public struct PosyInteractiveStemFlower: View {
         let screenW = canvasSize.width > 0 ? canvasSize.width : 402.0
         let screenH = canvasSize.height > 0 ? canvasSize.height : 874.0
         let safeMargin: CGFloat = 10.0
-        
+
         // 固有形态伪随机化：同一种植物即使多次出现，也会因 seed 拥有独特的茎长与自然弯曲
         let seedD = Double(seed)
         let motion = PosyStemMotionProfile(seed: seed, floraIndex: PosyFloraType.allCases.firstIndex(of: type) ?? 0)
@@ -343,7 +343,7 @@ public struct PosyInteractiveStemFlower: View {
                             let finalRootY = max(basePosition.y - 10.0, min(basePosition.y + 10.0, targetY))
                             let deltaRootY = finalRootY - (basePosition.y + persistentRootOffsetY)
                             persistentRootOffsetY += deltaRootY
-                            
+
                             // 下端移动时上端保持相对形态与下端整体平移，无需对冲 persistentTipOffset
                             activeRootX = nil
                             activeRootY = nil

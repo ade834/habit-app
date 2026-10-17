@@ -43,4 +43,3 @@ import SQLite3
         print("PASS: 12 live plants, per-habit points, starred/periodic rules, live refresh, dormancy, five growth thresholds and unique species mapping")
     }
 }
-
