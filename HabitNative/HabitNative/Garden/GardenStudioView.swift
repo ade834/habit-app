@@ -60,7 +60,7 @@ public struct GardenStudioView: View {
     @State private var isMultiBouquetMode: Bool = true
     @State private var showControlDeck: Bool = true
     @State private var studioResetToken: Int = 0
-    
+
     // 模拟数据源（对应数据库真实模型 Goal / HabitGardenItem）
     @State private var simulatedPoints: Int = 8
     @State private var simulatedCompletions: Int = 12
@@ -803,7 +803,7 @@ public struct GardenStudioView: View {
                     let totalDuration = item.type.headWobbleDuration
                     let dampingTau = totalDuration / 3.8
                     let headDampingDecay = exp(-relTime / dampingTau)
-                    
+
                     let omega = item.type.headWobbleFrequency
                     let phase = Double(idx) * 1.35 + Double(item.seed) * 0.5
                     let wobble = sin(omega * relTime + phase) * headDampingDecay * (item.type.headWobbleAmplitude * lastReleaseWindIntensity * lastReleaseWindDirection)
@@ -1835,5 +1835,3 @@ public struct PosyMultiBouquetStaticView: View, Equatable {
         }
     }
 }
-
-

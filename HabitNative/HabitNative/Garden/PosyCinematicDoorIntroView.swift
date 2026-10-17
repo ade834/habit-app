@@ -96,7 +96,7 @@ public struct PosyCinematicDoorIntroView: View {
             width: currentDoorWidth,
             height: currentDoorHeight
         )
-        
+
         // 2. 门洞内部高斯模糊逆光强度计算 (越近越强烈，非线性加速达峰)
         // 0.00 -> 0.18: 远景阶段，清透自然 (closeness = 0.0)
         // 0.18 -> 0.46: 从容走近，门洞内部晨曦逆光雾气柔和充盈 (closeness: 0.0 -> 0.45)
@@ -642,5 +642,3 @@ public final class PosyFilmGrainTexture {
         return frames[idx]
     }
 }
-
-

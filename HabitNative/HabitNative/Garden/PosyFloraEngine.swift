@@ -433,4 +433,3 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         }
     }
 }
-

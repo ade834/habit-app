@@ -420,4 +420,3 @@ private struct CreatureState {
     // 初始入场
     var isReentering: Bool = false
 }
-
