@@ -1,11 +1,23 @@
 import SwiftUI
+import UIKit
 
+private enum ExecutionPageStyle {
+    static let headerTopInset: CGFloat = 28
+    static let headerHeightAllowance: CGFloat = 132
+    static let panelMinimumGap: CGFloat = 25
+    static let titleSize: CGFloat = 60
+    static let titleInk = Color.white.opacity(0.75)
+    static let bodyInk = Color(white: 0.23)
+}
 struct ExecutionView: View {
+    @Environment(\.habitColorTheme) private var colorTheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let goal: Goal?
+    let allGoals: [Goal]
     @Binding var selectedGoals: [Goal]
     @Binding var state: TodayGoalState
-    let selectionTransitionNamespace: Namespace.ID
     let onPrompt: (String) -> Void
+    let onExit: (Goal) -> Void
     @State private var responses: [String: String] = [:]
     @State private var reviewDate = Calendar.current.startOfDay(for: .now)
     @State private var travelPlan: TravelPlanRecord?
@@ -17,56 +29,98 @@ struct ExecutionView: View {
     @State private var accumulatedPauseSeconds = 0
     @State private var disconnectMinutes = 30
     @State private var saving = false
+    @State private var isCelebrating = false
+    @State private var completionButtonPressed = false
+    @State private var completionButtonCollapsed = false
+    @State private var completionButtonShowsCheck = false
+    @State private var completionButtonTitleFaded = false
+    @State private var completionButtonHighlighted = false
+    @State private var completionButtonTitleCount: Int?
+    @State private var completionBurstProgress: CGFloat = 0
+    @State private var completionExitProgress: CGFloat = 0
+    @State private var contentRevealed = false
+    @State private var isClosing = false
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(goal?.title ?? "没有可显示的目标")
-                    .font(.system(size: 30, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                if let goal {
-                    Text(goal.summary).font(.system(size: 16, weight: .medium)).foregroundStyle(.white.opacity(0.84))
-                    HabitExecutionForm(
-                        goalID: goal.id,
-                        responses: $responses,
-                        reviewDate: $reviewDate,
-                        travelPlan: travelPlan,
-                        challenge: challenge,
-                        disconnectStatus: disconnectStatus,
-                        timerStartedAt: timerStartedAt,
-                        timerSessionID: timerID,
-                        timerPausedAt: timerPausedAt,
-                        accumulatedPauseSeconds: accumulatedPauseSeconds,
-                        reviewCharacterCount: reviewCharacterCount,
-                        disconnectMinutes: $disconnectMinutes,
-                        startTimer: startTimer,
-                        toggleFocusTimer: toggleFocusTimer,
-                        endFocusTimerEarly: endFocusTimerEarly,
-                        swapChallenge: swapChallenge
-                    )
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        let canSubmit = !saving && timerReady(for: goal, at: context.date) && formReady(for: goal)
-                        Button(saving ? "正在保存…" : actionTitle(for: goal)) { submit(goal) }
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 54)
-                            .background(.ultraThinMaterial.opacity(0.72), in: Capsule())
-                            .overlay(Capsule().stroke(.white.opacity(0.72), lineWidth: 1.2))
-                            .disabled(!canSubmit)
-                            .opacity(canSubmit ? 1 : 0.55)
+        ZStack {
+            if goal != nil {
+                executionBackdrop
+                    .ignoresSafeArea()
+                    .opacity(1 - completionExitProgress)
+            }
+
+            GeometryReader { viewport in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Button(action: closeExecution) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Color.clear.frame(height: ExecutionPageStyle.headerTopInset)
+
+                                if let goal {
+                                    Text(goal.previewTitle)
+                                        .font(.system(size: ExecutionPageStyle.titleSize, weight: .semibold, design: .rounded))
+                                        .tracking(-1.8)
+                                        .foregroundStyle(colorTheme == .lavender ? .white : ExecutionPageStyle.titleInk)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.72)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(.top, -2)
+                                    Text(goal.previewSummary)
+                                        .font(.system(size: 17, weight: .medium))
+                                        .foregroundStyle(.white.opacity(colorTheme == .lavender ? 1 : 0.75))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(.top, 10)
+                                } else {
+                                    Text("没有可显示的目标")
+                                        .font(.title2)
+                                        .foregroundStyle(.white)
+                                        .padding(.top, 52)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isClosing || goal == nil)
+                        .accessibilityLabel("收起当前目标，返回已选择的目标")
+
+                        if let goal {
+                            Spacer(minLength: ExecutionPageStyle.panelMinimumGap)
+
+                            executionGlassPanel(
+                                for: goal,
+                                panelHeight: max(
+                                    320,
+                                    viewport.size.height
+                                        - ExecutionPageStyle.headerHeightAllowance
+                                        - ExecutionPageStyle.panelMinimumGap * 2
+                                )
+                            )
+                                .opacity(contentRevealed ? 1 : 0)
+                                .offset(y: isClosing ? viewport.size.height : (contentRevealed ? 0 : 18))
+
+                            Spacer(minLength: ExecutionPageStyle.panelMinimumGap)
+                        }
                     }
+                    .padding(.horizontal, 24)
+                    .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .leading)
                 }
+                .scrollDismissesKeyboard(.interactively)
+                .scaleEffect(
+                    x: 1 - completionExitProgress * 0.55,
+                    y: 1 - completionExitProgress * 0.85,
+                    anchor: .bottom
+                )
+                .offset(y: viewport.size.height * 0.88 * completionExitProgress)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 34, style: .continuous)
-                    .fill(LinearGradient(colors: [tint.opacity(0.9), tint.opacity(0.62), .white.opacity(0.25)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(.white.opacity(0.7), lineWidth: 1.3))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            if !reduceMotion { try? await Task.sleep(for: .milliseconds(190)) }
+            guard !Task.isCancelled else { return }
+            withAnimation(reduceMotion ? .none : .spring(response: 0.52, dampingFraction: 0.84)) {
+                contentRevealed = true
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
         }
         .task(id: goal?.id) { await loadPersistedTaskState() }
         .task(id: reviewDate) { await loadReviewForSelectedDate() }
@@ -82,27 +136,188 @@ struct ExecutionView: View {
                     guard value.startLocation.x <= 32,
                           translation.width >= 88,
                           abs(translation.height) < 90 else { return }
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
-                        state.mode = .homeSelected
-                    }
+                    closeExecution()
                 }
         )
         .onDisappear {
-            if let goal, goal.id == "H4", let timerID, !timerReady(for: goal) {
+            if let goal, goal.id == "H4", let timerID {
                 try? NativeDatabase().abandonDisconnectSession(timerID)
             }
         }
     }
 
-    private var tint: Color {
-        guard let value = goal?.tint else { return .pink }
-        return Color(red: value.red, green: value.green, blue: value.blue)
+    private func closeExecution() {
+        guard !isClosing, let goal else { return }
+        if reduceMotion {
+            onExit(goal)
+            return
+        }
+        withAnimation(.spring(response: 0.40, dampingFraction: 0.88)) {
+            isClosing = true
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(340))
+            guard !Task.isCancelled else { return }
+            onExit(goal)
+        }
+    }
+
+    @ViewBuilder
+    private var executionBackdrop: some View {
+        if let goal {
+            let appearance = GoalCardAppearance(goal: goal, goals: allGoals, theme: colorTheme)
+            let cardColor = appearance.baseColor
+            LinearGradient(
+                stops: [
+                    .init(color: cardColor, location: 0),
+                    .init(color: cardColor, location: 0.25),
+                    .init(color: cardColor.opacity(0.52), location: 0.45),
+                    .init(color: cardColor.opacity(0.20), location: 0.72),
+                    .init(color: cardColor.opacity(0.10), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        } else {
+            Color.clear
+        }
+    }
+
+    private func executionGlassPanel(for goal: Goal, panelHeight: CGFloat) -> some View {
+        let form = HabitExecutionForm(
+            goalID: goal.id,
+            responses: $responses,
+            reviewDate: $reviewDate,
+            travelPlan: travelPlan,
+            challenge: challenge,
+            disconnectStatus: disconnectStatus,
+            timerStartedAt: timerStartedAt,
+            timerSessionID: timerID,
+            timerPausedAt: timerPausedAt,
+            accumulatedPauseSeconds: accumulatedPauseSeconds,
+            reviewCharacterCount: reviewCharacterCount,
+            disconnectMinutes: $disconnectMinutes,
+            startTimer: startTimer,
+            toggleFocusTimer: toggleFocusTimer,
+            endFocusTimerEarly: endFocusTimerEarly,
+            swapChallenge: swapChallenge
+        )
+        let content = VStack(alignment: .leading, spacing: goal.id == "H4" ? 20 : 12) {
+            if goal.id == "H4" || goal.id == "H3" {
+                form
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: goal.id == "H3" ? .center : .topLeading)
+            } else {
+                ScrollView(showsIndicators: false) {
+                    form
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+            }
+
+            if goal.id != "H4" {
+                Spacer(minLength: 8)
+            }
+
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let isDisconnect = goal.id == "H4"
+                let disconnectStarted = isDisconnect && timerID != nil
+                let disconnectLocked = disconnectStatus.lockedUntil.map { context.date < $0 } ?? false
+                let disconnectFailed = isDisconnect && disconnectLocked
+                let canSubmit = !saving && timerReady(for: goal, at: context.date) && formReady(for: goal)
+                let canTap = isDisconnect ? !disconnectStarted && !disconnectLocked && !saving : canSubmit
+                let buttonTitle = isDisconnect
+                    ? (disconnectStarted ? "完成断网" : (disconnectFailed ? "明日更美好，晚安 zzZZ" : "开始睡前断网计时"))
+                    : (saving && !isCelebrating ? "正在保存…" : actionTitle(for: goal))
+                let displayedButtonTitle = completionButtonTitleCount.map { String(buttonTitle.prefix($0)) } ?? buttonTitle
+                ZStack {
+                    CompletionConfetti(progress: completionBurstProgress)
+                        .frame(height: 54)
+                        .allowsHitTesting(false)
+
+                    Button {
+                        if isDisconnect {
+                            startTimer(disconnectMinutes * 60, nil)
+                        } else {
+                            submit(goal)
+                        }
+                    } label: {
+                        ZStack {
+                            Text(displayedButtonTitle)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.08)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .opacity(completionButtonTitleFaded ? 0 : 1)
+                                .scaleEffect(completionButtonTitleFaded ? 0.94 : 1)
+                                .animation(.easeOut(duration: 0.18), value: completionButtonTitleFaded)
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .opacity(completionButtonShowsCheck ? 1 : 0)
+                                .scaleEffect(completionButtonShowsCheck ? 1 : 0.55)
+                                .animation(.easeOut(duration: 0.20), value: completionButtonShowsCheck)
+                        }
+                        .frame(maxWidth: completionButtonCollapsed ? 54 : .infinity, minHeight: 54)
+                        .background(colorTheme.selectedNavigationBackground, in: Capsule())
+                        .overlay {
+                            Capsule()
+                                .stroke(colorTheme.selectedNavigationBorder, lineWidth: 1)
+                        }
+                        .shadow(color: colorTheme.selectedNavigationForeground.opacity(completionButtonHighlighted ? 0.24 : 0), radius: 14, y: 2)
+                    }
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(colorTheme.selectedNavigationForeground)
+                        .frame(maxWidth: .infinity, minHeight: 54, alignment: .center)
+                        .scaleEffect(completionButtonPressed ? 0.94 : (completionButtonHighlighted ? 1.04 : 1))
+                        .animation(.spring(response: 0.36, dampingFraction: 0.72), value: completionButtonCollapsed)
+                        .animation(.spring(response: 0.40, dampingFraction: 0.70), value: completionButtonHighlighted)
+                        .disabled(!canTap)
+                        .opacity(disconnectStarted ? 0.68 : 1)
+                        .overlay {
+                            if !canTap && !isCelebrating && !disconnectStarted && !disconnectFailed {
+                                Capsule()
+                                    .fill(colorTheme.selectedNavigationBackground.opacity(0.45))
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .overlay {
+                            Text(displayedButtonTitle)
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(colorTheme.selectedNavigationForeground.opacity(0.25))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.08)
+                                .opacity(!canTap && !isCelebrating && !disconnectStarted && !disconnectFailed && !completionButtonTitleFaded ? 1 : 0)
+                                .allowsHitTesting(false)
+                        }
+                        .accessibilityLabel(completionButtonShowsCheck ? "已完成" : buttonTitle)
+                }
+                .frame(maxWidth: .infinity, minHeight: 54)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .frame(height: panelHeight, alignment: .topLeading)
+
+        return content
+        .background {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .opacity(0.20)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.white.opacity(0.08))
+                }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(.white.opacity(0.56), lineWidth: 1)
+        }
+        .padding(.horizontal, timerStartedAt == nil ? 0 : -12)
+        .animation(reduceMotion ? .none : .spring(response: 0.62, dampingFraction: 0.86), value: timerStartedAt != nil)
     }
 
     private func actionTitle(for goal: Goal) -> String {
         if goal.id == "H1" {
             return reviewCharacterCount >= 100 && Calendar.current.isDateInToday(reviewDate)
-                ? goal.completionLabel : "保存复盘"
+                ? goal.completionLabel : "保存草稿"
         }
         if goal.id == "H4" { return "完成断网" }
         if goal.id == "H11" { return travelPlan == nil ? "保存旅行计划" : "完成旅行" }
@@ -142,10 +357,13 @@ struct ExecutionView: View {
 
     private func startTimer(_ targetSeconds: Int, _ topic: String?) {
         do {
-            timerID = try NativeDatabase().startTimer(habitID: goal?.id ?? "", targetSeconds: targetSeconds, focusTopic: topic)
-            timerStartedAt = .now
-            timerPausedAt = nil
-            accumulatedPauseSeconds = 0
+            let sessionID = try NativeDatabase().startTimer(habitID: goal?.id ?? "", targetSeconds: targetSeconds, focusTopic: topic)
+            withAnimation(reduceMotion ? .none : .spring(response: 0.62, dampingFraction: 0.86)) {
+                timerID = sessionID
+                timerStartedAt = .now
+                timerPausedAt = nil
+                accumulatedPauseSeconds = 0
+            }
         } catch { show(error) }
     }
 
@@ -203,10 +421,31 @@ struct ExecutionView: View {
 
     private func monitorDisconnectCompletion() async {
         guard let goal, goal.id == "H4", let sessionID = timerID, let startedAt = timerStartedAt else { return }
-        let remaining = max(0, disconnectMinutes * 60 - Int(Date.now.timeIntervalSince(startedAt)))
-        if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
+        let remaining = max(0, Double(disconnectMinutes * 60) - Date.now.timeIntervalSince(startedAt))
+        if remaining > 0 { try? await Task.sleep(for: .milliseconds(Int(ceil(remaining * 1_000)) + 1_000)) }
         guard !Task.isCancelled, timerID == sessionID, timerStartedAt == startedAt else { return }
+        do {
+            guard let active = try NativeDatabase().activeTimer(habitID: "H4"), active.id == sessionID else {
+                timerID = nil
+                timerStartedAt = nil
+                disconnectStatus = try NativeDatabase().disconnectStatus()
+                return
+            }
+        } catch {
+            show(error)
+            return
+        }
         submit(goal)
+    }
+
+    private func interruptDisconnectTimer() {
+        guard goal?.id == "H4", let sessionID = timerID, !saving else { return }
+        do {
+            try NativeDatabase().abandonDisconnectSession(sessionID)
+            timerID = nil
+            timerStartedAt = nil
+            disconnectStatus = try NativeDatabase().disconnectStatus()
+        } catch { show(error) }
     }
 
     private func refreshDisconnectStatusAfterCooldown() async {
@@ -272,6 +511,7 @@ struct ExecutionView: View {
             payload = .challenge(cardIndex: challenge.cardIndex, primaryText: "", secondaryText: "")
         case "H4":
             guard let timerID else { notify("请先开始断网计时。"); return }
+            guard timerReady(for: goal) else { return }
             payload = .disconnect(sessionID: timerID)
         case "H11":
             payload = .travelPlan(
@@ -301,9 +541,20 @@ struct ExecutionView: View {
                 } else {
                     // A successful habit submission returns to the selected-habits
                     // deck so the user can immediately start another task.
+                    if Calendar.current.isDate(date, inSameDayAs: .now) {
+                        state.completedSelectedGoalIDs.insert(goal.id)
+                        state.selectedGoalIDs.insert(goal.id)
+                    }
                     selectedGoals = (try? await SharedHabitRepository().selectedGoals(for: .now)) ?? selectedGoals
-                    withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-                        state.mode = .homeSelected
+                    if !isClosing {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        await celebrateCompletion()
+                        if !isClosing {
+                            await collapseCompletedPage()
+                            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                                state.mode = .homeSelected
+                            }
+                        }
                     }
                 }
             } catch { notify(error.localizedDescription) }
@@ -314,12 +565,91 @@ struct ExecutionView: View {
     private func value(_ key: String) -> String { responses[key, default: ""].trimmingCharacters(in: .whitespacesAndNewlines) }
     private func show(_ error: Error) { notify(error.localizedDescription) }
 
+    private func celebrateCompletion() async {
+        if reduceMotion { return }
+        withAnimation(.easeOut(duration: 0.12)) {
+            isCelebrating = true
+            completionButtonPressed = true
+        }
+        try? await Task.sleep(for: .milliseconds(120))
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.78)) {
+            completionButtonPressed = false
+            completionButtonCollapsed = true
+            completionButtonTitleCount = goal.map { actionTitle(for: $0).count } ?? 1
+        }
+        while let count = completionButtonTitleCount, count > 1 {
+            try? await Task.sleep(for: .milliseconds(42))
+            withAnimation(.easeOut(duration: 0.06)) {
+                completionButtonTitleCount = count - 1
+            }
+        }
+        try? await Task.sleep(for: .milliseconds(80))
+        withAnimation(.easeOut(duration: 0.18)) {
+            completionButtonTitleFaded = true
+        }
+        try? await Task.sleep(for: .milliseconds(180))
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.72)) {
+            completionButtonShowsCheck = true
+        }
+        try? await Task.sleep(for: .milliseconds(150))
+        withAnimation(.spring(response: 0.40, dampingFraction: 0.68)) {
+            completionButtonHighlighted = true
+            completionBurstProgress = 1
+        }
+        try? await Task.sleep(for: .milliseconds(420))
+        withAnimation(.easeIn(duration: 0.62)) {
+            completionBurstProgress = 2
+        }
+        try? await Task.sleep(for: .milliseconds(620))
+    }
+
+    private func collapseCompletedPage() async {
+        guard !reduceMotion else { return }
+        withAnimation(.linear(duration: 0.46)) {
+            completionExitProgress = 1
+        }
+        try? await Task.sleep(for: .milliseconds(460))
+    }
+
     private func notify(_ message: String) {
         onPrompt(message)
     }
 }
 
+private struct CompletionConfetti: View {
+    let progress: CGFloat
+
+    private let colors: [Color] = [
+        Color(red: 1.00, green: 0.37, blue: 0.65),
+        Color(red: 1.00, green: 0.69, blue: 0.34),
+        Color(red: 0.55, green: 0.79, blue: 0.57),
+        Color(red: 0.58, green: 0.55, blue: 0.94),
+        Color(red: 0.46, green: 0.76, blue: 0.94)
+    ]
+
+    var body: some View {
+        GeometryReader { geometry in
+            ForEach(0..<42, id: \.self) { index in
+                let angle = Double(index) * .pi * 2 / 42 - .pi / 2
+                let radius = CGFloat(82 + index * 43 % 150)
+                let burst = min(progress, 1)
+                let fall = max(0, progress - 1)
+                let x = CGFloat(cos(angle)) * radius * burst + CGFloat(index % 5 - 2) * 22 * fall
+                let y = CGFloat(sin(angle)) * radius * burst + CGFloat(210 + index * 19 % 110) * fall
+
+                Circle()
+                    .fill(colors[index % colors.count])
+                    .frame(width: CGFloat(9 + index % 6 * 2), height: CGFloat(9 + index % 6 * 2))
+                    .opacity(min(progress * 8, 1) * (1 - fall))
+                    .position(x: geometry.size.width / 2 + x, y: geometry.size.height / 2 + y)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 private struct HabitExecutionForm: View {
+    @Environment(\.habitColorTheme) private var colorTheme
     let goalID: String
     @Binding var responses: [String: String]
     @Binding var reviewDate: Date
@@ -341,66 +671,108 @@ private struct HabitExecutionForm: View {
         VStack(alignment: .leading, spacing: 12) {
             switch goalID {
             case "H1":
-                DatePicker("复盘日期", selection: $reviewDate, in: reviewDateRange, displayedComponents: .date).tint(.white)
+                DatePicker("复盘日期", selection: $reviewDate, in: reviewDateRange, displayedComponents: .date)
+                    .tint(ExecutionPageStyle.bodyInk)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .background(.white.opacity(0.70), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.62), lineWidth: 1))
                 field("今天做了什么决定？", key: "decision")
                 field("结果怎么样？", key: "result")
                 field("下次想怎么改？", key: "improvement")
                 Text("有效字数：\(reviewCharacterCount) / 100（不计标点和空格）")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
             case "H2":
-                Text("选择当天推荐议题，也可以自行填写；完成 30 分钟，暂停累计不超过 5 分钟。")
-                ForEach(HabitTaskCatalog.thinkingTopics(for: .now), id: \.self) { topic in
-                    Button { responses["topic"] = topic } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: responses["topic"] == topic ? "largecircle.fill.circle" : "circle")
-                            Text(topic).multilineTextAlignment(.leading)
-                            Spacer(minLength: 0)
+                if timerStartedAt == nil {
+                    Text("选择当天推荐议题，也可以自行填写；完成 30 分钟，暂停累计不超过 5 分钟。")
+                    ForEach(HabitTaskCatalog.thinkingTopics(for: .now), id: \.self) { topic in
+                        Button { responses["topic"] = topic } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: responses["topic"] == topic ? "largecircle.fill.circle" : "circle")
+                                Text(topic).multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                            }
+                            .foregroundStyle(ExecutionPageStyle.bodyInk)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white.opacity(responses["topic"] == topic ? 0.95 : 0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(responses["topic"] == topic ? 0.8 : 0.32), lineWidth: 1))
                         }
-                        .foregroundStyle(.white)
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(responses["topic"] == topic ? 0.24 : 0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(responses["topic"] == topic ? 0.8 : 0.32), lineWidth: 1))
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                }
-                field("我有自己重要、值得想想的事", key: "topic")
-                if !responses["topic", default: ""].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("今天我为你推荐的思考是“\(responses["topic", default: ""].trimmingCharacters(in: .whitespacesAndNewlines))”。当然，你也可以有自己重要、值得想想的事。现在让我们开始吧。")
-                        .font(.system(size: 15, weight: .medium))
-                        .fixedSize(horizontal: false, vertical: true)
+                    field("我有自己重要、值得想想的事", key: "topic")
+                    if !responses["topic", default: ""].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("今天我为你推荐的思考是“\(responses["topic", default: ""].trimmingCharacters(in: .whitespacesAndNewlines))”。当然，你也可以有自己重要、值得想想的事。现在让我们开始吧。")
+                            .font(.system(size: 15, weight: .medium))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 timerPanel(title: "专注 30 分钟", duration: 1800, topic: responses["topic"])
             case "H3":
-                Text("随机问题 · 题库共 500 条").font(.footnote)
-                Text(challenge?.title ?? "正在载入今日挑战…").font(.title3.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 100)
-                Button(challenge.map { $0.swapCount < 3 ? "随机换题（还可获取 \(3 - $0.swapCount) 条新问题）" : "在今日抽取的 3 个问题中随机切换" } ?? "正在载入问题…") { swapChallenge() }
+                Text("随机问题")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.58))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+                Text(challenge?.title ?? "正在载入今日挑战…")
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .shadow(color: .white.opacity(0.22), radius: 12, y: 2)
+                Button(challenge.map { $0.swapCount < 3 ? "随机换题（还可获取 \(3 - $0.swapCount) 条新问题）" : "在今日抽取的 3 个问题中随机切换" } ?? "正在载入问题…") { swapChallenge() }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(white: 0.58))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 33)
                     .disabled(challenge == nil)
+                Spacer(minLength: 0)
             case "H4":
-                Text("离开此页面或重新启动 App 会使未完成计时失败；累计连续失败 3 次后冷却 10 小时。")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("离开页面或重启 App 计时失败")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.17))
+                    Text("累计失败 3 次后冷却 10 小时")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color(white: 0.34))
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
                 if disconnectStatus.consecutiveFailures > 0 {
                     Text(disconnectFailureMessage)
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(12)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color(white: 0.26))
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                Picker("断网时长", selection: $disconnectMinutes) { ForEach([15, 30, 60], id: \.self) { Text("\($0) 分钟").tag($0) } }.tint(.white).disabled(timerStartedAt != nil || isDisconnectLocked)
-                timerPanel(title: "睡前断网", duration: disconnectMinutes * 60, topic: nil)
+                Spacer(minLength: 0)
+                if timerStartedAt == nil {
+                    DisconnectDurationWheel(selection: $disconnectMinutes)
+                    .disabled(isDisconnectLocked)
+                }
+                if timerStartedAt != nil {
+                    timerPanel(title: "睡前断网", duration: disconnectMinutes * 60, topic: nil)
+                }
+                Spacer(minLength: 0)
             case "H5":
-                field("联系了谁？（最多 5 字）", key: "primary", limit: 5); field("你们聊了什么？（选填）", key: "secondary")
+                field("联系了谁？", key: "primary"); field("你们聊了什么？（选填）", key: "secondary")
             case "H6":
-                field("清理了哪个信息源？（最多 5 字）", key: "primary", limit: 5); field("为什么它不值得继续占用注意力？（选填）", key: "secondary")
+                field("清理了哪个信息源？", key: "primary"); field("为什么它不值得继续占用注意力？（选填）", key: "secondary")
             case "H7":
-                field("本周最大的财务发现（最多 5 字）", key: "primary", limit: 5); field("下周想调整什么？（选填）", key: "secondary")
+                field("本周最大的财务发现", key: "primary"); field("下周想调整什么？（选填）", key: "secondary")
                 field("资产投入（选填）", key: "firstValue"); field("消费消耗（选填）", key: "secondValue")
             case "H8":
-                field("你拒绝了什么？（最多 5 字）", key: "primary", limit: 5); field("你守住了哪条边界？（选填）", key: "secondary")
+                field("你拒绝了什么？", key: "primary"); field("你守住了哪条边界？（选填）", key: "secondary")
             case "H9":
-                field("这次输出讲清了什么？（最多 5 字）", key: "primary", limit: 5); field("你能讲给我听听么？", key: "secondary")
+                field("这次输出讲清了什么？", key: "primary"); field("你能讲给我听听么？", key: "secondary")
             case "H10":
-                field("读完了哪本跨界书？（最多 5 字）", key: "primary", limit: 5); field("最重要的一条收获（选填）", key: "secondary")
+                field("读完了哪本跨界书？", key: "primary"); field("最重要的一条收获（选填）", key: "secondary")
             case "H11":
                 if let travelPlan {
                     Text("本年度计划：\(travelPlan.destination) · \(travelPlan.days) 天\n\(travelPlan.focus)\n\(travelPlan.preparation)")
@@ -410,13 +782,13 @@ private struct HabitExecutionForm: View {
                     field("这趟旅行最想想清楚什么？", key: "focus"); field("准备事项（选填）", key: "preparation")
                 }
             case "H12":
-                field("今天必须承认的真话（最多 5 字）", key: "primary", limit: 5); field("明天采取什么行动？（选填）", key: "secondary")
+                field("今天必须承认的真话", key: "primary"); field("明天采取什么行动？（选填）", key: "secondary")
             default:
                 field("记录内容", key: "primary")
             }
         }
         .font(.system(size: 14, weight: .medium))
-        .foregroundStyle(.white.opacity(0.9))
+        .foregroundStyle(ExecutionPageStyle.bodyInk)
     }
 
     private var reviewDateRange: ClosedRange<Date> {
@@ -438,49 +810,227 @@ private struct HabitExecutionForm: View {
         disconnectStatus.lockedUntil.map { Date.now < $0 } ?? false
     }
 
-    private func field(_ label: String, key: String, limit: Int? = nil) -> some View {
-        TextField(
-            label,
-            text: Binding(get: { responses[key, default: ""] }, set: { value in
-                responses[key] = limit.map { String(value.prefix($0)) } ?? value
-            }),
-            prompt: Text(label).foregroundColor(Color(red: 0.25, green: 0.20, blue: 0.25).opacity(0.48))
+    private func field(_ label: String, key: String) -> some View {
+        let binding = Binding(
+            get: { responses[key, default: ""] },
+            set: { value in responses[key] = value }
         )
-        .foregroundColor(Color(red: 0.25, green: 0.20, blue: 0.25).opacity(0.75))
-        .tint(Color(red: 0.25, green: 0.20, blue: 0.25).opacity(0.75))
+        let expands = ["secondary", "summary", "preparation", "focus", "decision", "result", "improvement"].contains(key)
+        let expandedHeight: CGFloat = goalID == "H1" ? 95 : (goalID == "H11" ? 180 : 140)
+        let glassOpacity = expands ? 0.82 : 0.68
+
+        return Group {
+            if key == "days" || key.contains("Value") {
+                TextField(label, text: binding, prompt: Text(label).foregroundColor(Color(white: 0.38)))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                TextEditor(text: binding)
+                    .scrollContentBackground(.hidden)
+                    .scrollIndicators(.visible)
+                    .frame(height: expands ? expandedHeight : 76)
+                    .overlay(alignment: .topLeading) {
+                        if responses[key, default: ""].isEmpty {
+                            Text(label)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(Color(white: 0.38))
+                                .padding(.leading, 5)
+                                .padding(.top, 8)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .accessibilityLabel(label)
+            }
+        }
+        .font(.system(size: 16, weight: .medium))
+        .foregroundColor(Color(white: 0.18))
+        .tint(ExecutionPageStyle.bodyInk)
         .textFieldStyle(.plain)
+        .multilineTextAlignment(.leading)
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 14)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .opacity(glassOpacity)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.white.opacity(expands ? 0.24 : 0.18))
+                }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.white.opacity(0.76), lineWidth: 1)
+                .stroke(.white.opacity(0.52), lineWidth: 1)
         }
         .keyboardType(key == "days" ? .numberPad : (key.contains("Value") ? .decimalPad : .default))
     }
 
-    @ViewBuilder
     private func timerPanel(title: String, duration: Int, topic: String?) -> some View {
-        if let timerStartedAt {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let elapsedTo = timerPausedAt ?? context.date
-                let remaining = max(0, duration - Int(elapsedTo.timeIntervalSince(timerStartedAt)) + accumulatedPauseSeconds)
-                Text(remaining == 0 ? "计时完成，可以提交" : String(format: "剩余 %02d:%02d", remaining / 60, remaining % 60))
-                    .font(.system(.body, design: .monospaced))
+        let active = timerStartedAt != nil
+        return VStack(spacing: 0) {
+            if let timerStartedAt {
+                if goalID == "H2", let topic = topic?.trimmingCharacters(in: .whitespacesAndNewlines), !topic.isEmpty {
+                    Text("本次专注 · \(topic)")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.96))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.white.opacity(0.22), in: Capsule())
+                        .overlay(Capsule().stroke(.white.opacity(0.72), lineWidth: 1))
+                        .shadow(color: .white.opacity(0.30), radius: 12, y: 2)
+                        .padding(.bottom, 8)
+                }
+
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let elapsedTo = timerPausedAt ?? context.date
+                    let remaining = max(0, duration - Int(elapsedTo.timeIntervalSince(timerStartedAt)) + accumulatedPauseSeconds)
+                    GeometryReader { geometry in
+                        Text(String(format: "%02d:%02d", remaining / 60, remaining % 60))
+                            .font(.system(size: min(86, geometry.size.width * 0.26), weight: .light, design: .rounded).monospacedDigit())
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
+                            .contentTransition(.numericText(countsDown: true))
+                            .frame(width: geometry.size.width * 0.64, height: 70)
+                            .scaleEffect(x: 2, y: 2.5)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .frame(height: 240)
+                    .accessibilityLabel("剩余 \(remaining / 60) 分 \(remaining % 60) 秒")
+                }
+
+                if goalID == "H2", timerSessionID != nil {
+                    Button(timerPausedAt == nil ? "暂停计时" : "继续计时", action: toggleFocusTimer)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(ExecutionPageStyle.bodyInk)
+                        .padding(.horizontal, 30)
+                        .frame(height: 48)
+                        .glassEffect(.clear.tint(.white.opacity(0.12)).interactive(), in: Capsule())
+                        .frame(maxWidth: .infinity)
+                    Button("提前结束", action: endFocusTimerEarly)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ExecutionPageStyle.bodyInk.opacity(0.8))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+            } else {
+                let hasRequiredTopic = goalID != "H2" || !(topic?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                Button("开始\(title)计时") { startTimer(duration, topic) }
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(ExecutionPageStyle.bodyInk)
+                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .disabled(!hasRequiredTopic || isDisconnectLocked)
+                    .opacity(hasRequiredTopic && !isDisconnectLocked ? 1 : 0.55)
             }
-            if goalID == "H2", timerSessionID != nil {
-                Button(timerPausedAt == nil ? "暂停计时" : "继续计时", action: toggleFocusTimer).foregroundStyle(.white)
-                Button("提前结束", action: endFocusTimerEarly)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.86))
-            }
-        } else {
-            let hasRequiredTopic = goalID != "H2" || !(topic?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-            Button("开始\(title)计时") { startTimer(duration, topic) }
-                .foregroundStyle(.white)
-                .disabled(!hasRequiredTopic)
-                .opacity(hasRequiredTopic ? 1 : 0.55)
-                .disabled(goalID == "H4" && disconnectStatus.lockedUntil.map { Date.now < $0 } == true)
         }
+        .frame(maxWidth: .infinity, minHeight: active ? 340 : 58)
+        .background {
+            if !active {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.white.opacity(0.08))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.52), lineWidth: 1))
+            }
+        }
+    }
+}
+
+private struct DisconnectDurationWheel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Binding var selection: Int
+    @GestureState private var dragY: CGFloat = 0
+
+    private let options = [15, 30, 60]
+    private let rowSpacing: CGFloat = 72
+    private let dividerColor = Color(red: 0.78, green: 0.72, blue: 0.75)
+
+    var body: some View {
+        let selectedIndex = options.firstIndex(of: selection) ?? 1
+
+        ZStack {
+            divider
+                .offset(y: -rowSpacing / 2 + dragY)
+            divider
+                .offset(y: rowSpacing / 2 + dragY)
+
+            ForEach(-2...2, id: \.self) { position in
+                let index = wrapped(selectedIndex + position)
+                let distance = CGFloat(position) + dragY / rowSpacing
+                let depth = min(2, abs(distance))
+
+                Button("\(options[index]) 分钟") {
+                    withAnimation(wheelAnimation) { selection = options[index] }
+                }
+                .font(.system(size: 50, weight: .semibold, design: .rounded))
+                .foregroundStyle(labelColor(for: depth))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 64)
+                .scaleEffect(
+                    max(0.48, 1 - 0.26 * depth)
+                        * (1 + 0.15 * min(1, depth))
+                )
+                .rotation3DEffect(.degrees(Double(distance) * -17), axis: (x: 1, y: 0, z: 0), perspective: 0.65)
+                .opacity(max(0.60, 1 - 0.18 * Double(depth)))
+                .offset(y: distance * rowSpacing)
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 238)
+        .contentShape(Rectangle())
+        .clipped()
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 10)
+                .updating($dragY) { value, state, _ in state = value.translation.height }
+                .onEnded { value in
+                    let shift = value.translation.height
+                    guard abs(shift) >= 24 else { return }
+                    withAnimation(wheelAnimation) {
+                        selection = options[wrapped(selectedIndex + (shift < 0 ? 1 : -1))]
+                    }
+                }
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("断网时长")
+        .accessibilityValue("\(selection) 分钟")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: selection = options[wrapped(selectedIndex + 1)]
+            case .decrement: selection = options[wrapped(selectedIndex - 1)]
+            @unknown default: break
+            }
+        }
+    }
+
+    private var wheelAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.48, dampingFraction: 0.76)
+    }
+
+    private func wrapped(_ index: Int) -> Int {
+        (index % options.count + options.count) % options.count
+    }
+
+    private func labelColor(for depth: CGFloat) -> Color {
+        let clampedDepth = min(1, Double(depth))
+        let red = 1 - 0.30 * clampedDepth
+        let green = 0.84 - 0.14 * clampedDepth
+        let blue = 0.92 - 0.22 * clampedDepth
+        let previousBrightnessIncrease = 0.25
+        let additionalBrightnessIncrease = 0.15 * clampedDepth
+        let brightenedRed = red + (1 - red) * previousBrightnessIncrease
+        let brightenedGreen = green + (1 - green) * previousBrightnessIncrease
+        let brightenedBlue = blue + (1 - blue) * previousBrightnessIncrease
+        return Color(
+            red: brightenedRed + (1 - brightenedRed) * additionalBrightnessIncrease,
+            green: brightenedGreen + (1 - brightenedGreen) * additionalBrightnessIncrease,
+            blue: brightenedBlue + (1 - brightenedBlue) * additionalBrightnessIncrease
+        )
+    }
+
+    private var divider: some View {
+        Circle()
+            .fill(dividerColor)
+            .frame(width: 5, height: 5)
+            .allowsHitTesting(false)
     }
 }

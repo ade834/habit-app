@@ -4,3 +4,9 @@ DerivedData/
 build/
 outputs/*.mp4
 outputs/*.png
+
+# Local simulator captures and database snapshots
+current_sim.png
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

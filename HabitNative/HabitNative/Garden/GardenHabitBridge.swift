@@ -46,6 +46,7 @@ struct HabitGardenItem: Identifiable, Sendable {
     let habit: Goal
     var record: BloomRecord
     var points: Int
+    var growthValue: Int = 0
     var completions: Int
     var inactivityDays: Int
     var isDormant: Bool
@@ -55,19 +56,12 @@ struct HabitGardenItem: Identifiable, Sendable {
     var isDissolving: Bool
 
     var stageTitle: String {
-        switch targetLevel {
-        case 3: return "开花 Blooming"
-        case 2: return "花苞 Budding"
-        case 1: return "发芽 Sprouting"
-        case 0: return "埋种 Seeded"
-        case -1: return "枯萎 Wilting"
-        case -2: return "凋谢 Faded"
-        default: return "休眠 Gone"
-        }
+        return (isDormant ? "休眠 · " : "") + HabitGrowthRules.stage(for: growthValue)
     }
 
     var stageDescription: String {
         switch targetLevel {
+        case 4: return "繁茂形态。这是长期坚持留下的生长痕迹。"
         case 3: return "全盛绽放。这是你坚持打磨出的绚烂形态。"
         case 2: return "花苞饱满，正在积蓄绽放的力量。"
         case 1: return "已抽出一对嫩绿新芽，为你刚刚迈出的一步鼓劲。"
@@ -79,6 +73,7 @@ struct HabitGardenItem: Identifiable, Sendable {
     }
 
     var speciesChineseName: String {
+        if let flora = PosyFloraType(rawValue: record.species) { return flora.simpleName }
         switch record.species {
         case "peony": return "牡丹"
         case "orchid": return "兰花"
@@ -105,28 +100,12 @@ struct HabitGardenItem: Identifiable, Sendable {
     }
 
     var nextLevelRequirement: (current: Int, target: Int, progress: Double, description: String) {
-        switch targetLevel {
-        case 3:
-            return (current: max(6, completions), target: 6, progress: 1.0, description: "全盛绽放形态达成")
-        case 2:
-            let target = 6
-            let curr = max(3, completions)
-            let prog = Double(curr - 3) / 3.0
-            let remaining = max(1, target - completions)
-            return (current: curr, target: target, progress: min(1.0, max(0.15, prog)), description: "再打卡 \(remaining) 次进阶全盛绽放")
-        case 1:
-            let target = 3
-            let curr = max(1, completions)
-            let prog = Double(curr - 1) / 2.0
-            let remaining = max(1, target - completions)
-            return (current: curr, target: target, progress: min(1.0, max(0.25, prog)), description: "再打卡 \(remaining) 次孕育饱满花苞")
-        case 0:
-            return (current: completions, target: 1, progress: Double(completions) / 1.0, description: "今日打卡即可破土萌芽")
-        case -1:
-            return (current: completions, target: 1, progress: 0.25, description: "今日补卡浇水唤醒生机")
-        default:
-            return (current: completions, target: 1, progress: 0.1, description: "重新唤醒成长")
-        }
+        let thresholds = [0, 3, 10, 25, 60]
+        let level = HabitPlantGrowth.level(growthValue)
+        guard level < 4 else { return (growthValue, 60, 1, "繁茂形态已达成") }
+        let next = thresholds[level + 1]
+        let progress = Double(growthValue - thresholds[level]) / Double(next - thresholds[level])
+        return (growthValue, next, min(1, max(0, progress)), "再积累 \(next - growthValue) 养成值进阶")
     }
 }
 
@@ -135,12 +114,14 @@ struct HabitGardenItem: Identifiable, Sendable {
 final class GardenHabitViewModel: ObservableObject {
     @Published var items: [HabitGardenItem] = []
     @Published var selectedItem: HabitGardenItem?
-    @Published var focusedHabitId: String? = "H6"
+    @Published var focusedHabitId: String? = "H1"
     @Published var filterMode: GardenFilterMode = .all
     @Published var activeTabPill: GardenTabPill = .flowers
     @Published var windOffset: CGFloat = 0
     @Published var lastTouchedId: String? = nil
     @Published var bannerMessage: String? = nil
+    @Published var dataError: String? = nil
+    private var lastSnapshot: HabitGardenLiveSnapshot?
 
     private var debounceCancellable: AnyCancellable?
     private let positionsStorageKey = "garden_flower_positions_v1"
@@ -159,68 +140,36 @@ final class GardenHabitViewModel: ObservableObject {
     }
 
     func loadHabitsAndFlowers(goals: [Goal]) {
-        let activeGoals = goals.isEmpty ? InMemoryGoalRepository.goals : goals
-        let savedPositions = loadSavedPositions()
-
-        // Specific default positions per habit ID matching the POSY photo composition:
-        // H6 (dandelion): top-left sapphire puff
-        // H9 (lotus/teal): top-center radiant bloom
-        // H1 (peony): top-right warm rose bloom
-        // H3 (rose bud), H4 (lily bells), H7 (sprout), H2 (seed) spread naturally
-        let defaultPositionMap: [String: CGPoint] = [
-            "H6": CGPoint(x: 0.20, y: 0.33), // Top-left sapphire dandelion puff
-            "H9": CGPoint(x: 0.51, y: 0.36), // Top-center cyan/teal bloom
-            "H1": CGPoint(x: 0.82, y: 0.30), // Top-right magenta spiral rose
-            "H3": CGPoint(x: 0.34, y: 0.20), // Center-left rose bud
-            "H4": CGPoint(x: 0.67, y: 0.22), // Center-right lily bells
-            "H7": CGPoint(x: 0.42, y: 0.15), // Foreground-left sunflower sprout
-            "H2": CGPoint(x: 0.58, y: 0.14)  // Foreground-center orchid mound
-        ]
-
-        // Legacy points map aligning with Habit App data:
-        // H6 (dandelion), H1 (peony), H9 (lotus) at bloom (level 3)
-        // H3 (rose), H4 (lily) at bud (level 2)
-        // H7 (sunflower) at sprout (level 1)
-        // H2 (orchid) at seed (level 0)
-        let legacyMap: [String: (completions: Int, points: Int, inactive: Int)] = [
-            "H6": (8, 6, 0), // 管理信息摄入 -> 蒲公英 Dandelion (level 3 盛开!)
-            "H1": (7, 6, 0), // 每天100字复盘 -> 牡丹 Peony (level 3 盛开!)
-            "H9": (6, 5, 0), // 建立知识输出 -> 莲花 Lotus (level 3 盛开!)
-            "H3": (4, 2, 0), // 做一件不舒服的事 -> 月季 Rose (level 2 花苞)
-            "H4": (3, 1, 0), // 睡前断网 -> 铃兰 Lily (level 2 花苞)
-            "H7": (2, 0, 0), // 每周财务盘点 -> 向日葵 Sunflower (level 1 发芽)
-            "H2": (0, 0, 0)  // 30分钟深度思考 -> 兰花 Orchid (level 0 埋种)
-        ]
-
-        var newItems: [HabitGardenItem] = []
-        for goal in activeGoals {
-            let species = HabitSpeciesMapper.defaultSpecies(for: goal.id)
-            let legacy = legacyMap[goal.id] ?? (0, 0, 0)
-            let level = HabitSpeciesMapper.calculateStageLevel(
-                points: legacy.points,
-                completions: legacy.completions,
-                inactivityDays: legacy.inactive,
-                isDormant: false
-            )
-
-            let pos = savedPositions[goal.id] ?? defaultPositionMap[goal.id] ?? CGPoint(x: 0.5, y: 0.2)
-            let record = BloomRecord(id: goal.id, species: species, level: level, position: pos)
-
-            newItems.append(HabitGardenItem(
-                habit: goal,
-                record: record,
-                points: legacy.points,
-                completions: legacy.completions,
-                inactivityDays: legacy.inactive,
-                isDormant: false,
-                renderLevel: Double(level),
-                targetLevel: level,
-                lastLevelChangeTime: Date(),
-                isDissolving: false
-            ))
+        do {
+            let snapshot = try HabitGardenLiveSnapshot.read()
+            guard snapshot != lastSnapshot || items.isEmpty else { return }
+            let savedPositions = loadSavedPositions()
+            let oldItems = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+            items = SharedHabitRepository.catalog
+                .filter { snapshot.habitIDsWithGrowth.contains($0.id) }
+                .map { goal in
+                let flora = PosyFloraType.forHabit(goal.id)
+                let growth = snapshot.growth[goal.id, default: 0]
+                let level = HabitPlantGrowth.level(growth)
+                let record = BloomRecord(id: goal.id, species: flora.rawValue, level: min(3, level),
+                                         position: savedPositions[goal.id] ?? CGPoint(x: 0.5, y: 0.2))
+                return HabitGardenItem(habit: goal, record: record,
+                    points: snapshot.points[goal.id, default: 0], growthValue: growth,
+                    completions: snapshot.completions[goal.id, default: 0],
+                    inactivityDays: snapshot.inactiveDays, isDormant: snapshot.inactiveDays >= 7,
+                    renderLevel: oldItems[goal.id]?.renderLevel ?? Double(level), targetLevel: level,
+                    lastLevelChangeTime: oldItems[goal.id]?.lastLevelChangeTime ?? .now,
+                    isDissolving: false)
+            }
+            if focusedHabitId == nil || !items.contains(where: { $0.id == focusedHabitId }) {
+                focusedHabitId = items.first?.id
+            }
+            if let id = selectedItem?.id { selectedItem = items.first { $0.id == id } }
+            lastSnapshot = snapshot
+            dataError = nil
+        } catch {
+            dataError = "读取养成数据失败：\(error.localizedDescription)"
         }
-
-        self.items = newItems
     }
 
     // MARK: - Level Updates & Flap Protection (Spec Section 3)
@@ -263,37 +212,9 @@ final class GardenHabitViewModel: ObservableObject {
 
     // MARK: - Nurture / Water Action (浇水培育)
     func nurture(habitId: String) {
-        guard let index = items.firstIndex(where: { $0.id == habitId }) else { return }
-        var item = items[index]
-
-        item.points += 1
-        item.completions += 1
-        item.inactivityDays = 0
-        item.isDormant = false
-
-        let calculatedLevel = HabitSpeciesMapper.calculateStageLevel(
-            points: item.points,
-            completions: item.completions,
-            inactivityDays: 0,
-            isDormant: false
-        )
-
-        items[index] = item
-        updateLevel(for: habitId, newTarget: calculatedLevel)
-
-        if selectedItem?.id == habitId {
-            selectedItem = items[index]
-        }
-
-        // Trigger pleasant wind gust
-        withAnimation(.interpolatingSpring(stiffness: 120, damping: 8)) {
-            windOffset = 6.0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
-                self?.windOffset = 0
-            }
-        }
+        guard let item = items.first(where: { $0.id == habitId }) else { return }
+        bannerMessage = "请在今日完成「\(item.habit.previewTitle)」，完成后将自动更新养成值。"
+        loadHabitsAndFlowers(goals: [])
     }
 
     // MARK: - Position Updating & Debounced Persistence (Spec Section 7)
@@ -327,7 +248,7 @@ final class GardenHabitViewModel: ObservableObject {
 
     // MARK: - Double-tap Burst
     func triggerBurst(for habitId: String) {
-        guard let index = items.firstIndex(where: { $0.id == habitId }) else { return }
+        guard items.contains(where: { $0.id == habitId }) else { return }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
             windOffset = 8.0
         }
