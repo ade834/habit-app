@@ -28,8 +28,6 @@ extension Color {
 
     func desaturated(by amount: Double) -> Color {
         guard amount > 0.01 else { return self }
-        // Blend towards neutral warm gray
-        let gray = Color(red: 0.58, green: 0.54, blue: 0.50)
         return self.opacity(1.0 - amount * 0.7)
     }
 
@@ -37,8 +35,6 @@ extension Color {
         if desaturation <= 0.05 {
             return self
         }
-        // Tint towards dry withered flora tone
-        let dryTone = Color(red: 0.55, green: 0.48, blue: 0.38)
         let t = min(desaturation, 1.0)
         return self.opacity(1.0 - t * 0.5)
     }
@@ -604,7 +600,7 @@ private struct SpiralRoseHead: View {
                     var petalPath = Path()
                     petalPath.addEllipse(in: CGRect(x: -petalW / 2, y: -petalH, width: petalW, height: petalH))
 
-                    var petalTransform = CGAffineTransform(translationX: x, y: y)
+                    let petalTransform = CGAffineTransform(translationX: x, y: y)
                         .rotated(by: CGFloat(angle + Double.pi / 2))
 
                     let transformed = petalPath.applying(petalTransform)

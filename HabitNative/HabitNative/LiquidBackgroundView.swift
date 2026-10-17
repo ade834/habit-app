@@ -1,17 +1,58 @@
 import SwiftUI
 
 struct LiquidBackgroundView: View {
+    @Environment(\.habitColorTheme) private var colorTheme
     let reduceMotion: Bool
 
     var body: some View {
-        CanvasLiquidBackground(reduceMotion: reduceMotion)
+        CanvasLiquidBackground(reduceMotion: reduceMotion, colorTheme: colorTheme)
             .ignoresSafeArea()
     }
 }
 
-// 全屏磨砂玻璃流体光球背景：两个 6.5:3.5 主光球碰撞、融合、交换色位，旁侧有呼吸点缀光球。
+struct ColorThemeAtmosphereBase: View {
+    let colorTheme: HabitColorTheme
+
+    var body: some View {
+        if colorTheme == .lavender {
+            GeometryReader { proxy in
+                ZStack {
+                    let atmosphere = colorTheme.floatingOrbAtmosphere
+                    atmosphere.base
+
+                    LinearGradient(
+                        colors: atmosphere.gradientStops,
+                        startPoint: .topTrailing,
+                        endPoint: .bottomLeading
+                    )
+
+                    RadialGradient(
+                        colors: [atmosphere.lowerGlow[0].opacity(0.62), atmosphere.lowerGlow[1].opacity(0.34), .clear],
+                        center: UnitPoint(x: 0.30, y: 0.77),
+                        startRadius: 12,
+                        endRadius: max(proxy.size.width, proxy.size.height) * 0.72
+                    )
+
+                    RadialGradient(
+                        colors: [atmosphere.upperGlow.opacity(0.72), .clear],
+                        center: UnitPoint(x: 0.82, y: 0.16),
+                        startRadius: 8,
+                        endRadius: max(proxy.size.width, proxy.size.height) * 0.56
+                    )
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .clipped()
+            }
+        } else {
+            colorTheme.canvas
+        }
+    }
+}
+
+// 全屏磨砂玻璃流体光球背景：两个主光球碰撞、融合、交换色位，旁侧有呼吸点缀光球。
 private struct CanvasLiquidBackground: View {
     let reduceMotion: Bool
+    let colorTheme: HabitColorTheme
 
     var body: some View {
         TimelineView(.animation(minimumInterval: reduceMotion ? 60 : 1 / 45)) { timeline in
@@ -19,8 +60,8 @@ private struct CanvasLiquidBackground: View {
 
             GeometryReader { proxy in
                 ZStack {
-                    // 底层淡雅米桃暖光底色
-                    Color(red: 0.40, green: 0.40, blue: 0.43)
+                    // 紫色模式使用参考图的深棕到中棕柔焦底色，原色模式维持原底色。
+                    ColorThemeAtmosphereBase(colorTheme: colorTheme)
 
                     // 动态光球流体层
                     Canvas { context, size in
@@ -28,7 +69,7 @@ private struct CanvasLiquidBackground: View {
                     }
 
                     // 顶层极度通透的磨砂液态玻璃薄纱，彻底覆盖包括信号栏与时间栏在内的全屏
-                    FullFrostedVeil()
+                    FullFrostedVeil(colorTheme: colorTheme)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
@@ -50,13 +91,13 @@ private struct CanvasLiquidBackground: View {
         let morph2 = cos(time * 0.65) * 0.08 + sin(time * 0.82) * 0.05
         let collision = reduceMotion ? 0.72 : (sin(time * 0.42) + 1) * 0.5
 
-        // 主球视觉体量按 6.5:3.5；每次在中心融合后，两个色相交换各自的对角位置。
-        let pinkRadius = minDim * (0.68 + morph1)
+        // 两个主球在当前尺寸上各缩小 20%；融合后交换色相。
+        let pinkRadius = minDim * (0.68 + morph1) * 0.85 * 0.80
         let pinkCenter = CGPoint(
             x: width * (0.20 + 0.31 * collision),
             y: height * (0.80 - 0.30 * collision)
         )
-        let peachRadius = minDim * (0.43 + morph2)
+        let peachRadius = minDim * (0.43 + morph2) * 0.80
         let peachCenter = CGPoint(
             x: width * (0.84 - 0.31 * collision),
             y: height * (0.20 + 0.32 * collision)
@@ -68,28 +109,33 @@ private struct CanvasLiquidBackground: View {
         // 点缀光球2：左中上侧淡丁香粉雾
         // ----------------------------------------------------
         let floatAccent1Center = CGPoint(
-            x: width * 0.86 + cos(time * 1.14) * 29,
-            y: height * 0.18 + sin(time * 0.98) * 30
+            x: width * 0.78 + cos(time * 0.54) * 24,
+            y: height * 0.14 + sin(time * 0.48) * 24
         )
-        let floatAccent1Radius = minDim * (0.26 + sin(time * 1.28) * 0.09)
+        let floatAccent1Radius = minDim * (0.13 + sin(time * 0.78) * 0.025)
 
         let floatAccent2Center = CGPoint(
-            x: width * 0.14 + sin(time * 1.06) * 27,
-            y: height * 0.44 + cos(time * 1.20) * 28
+            x: width * 0.20 + sin(time * 0.46) * 22,
+            y: height * 0.55 + cos(time * 0.60) * 26
         )
-        let floatAccent2Radius = minDim * (0.21 + cos(time * 1.36) * 0.08)
+        let floatAccent2Radius = minDim * (0.10 + cos(time * 0.86) * 0.02)
 
-        // 柔和渲染模式与漫反射模糊（模糊度 50，色彩更富饱满层次感）
-        context.addFilter(.blur(radius: 50))
+        // 小光球使用独立的柔焦层，保留可辨认的装饰轮廓。
+        var accentContext = context
+        accentContext.addFilter(.blur(radius: 21.6))
 
         // 绘制点缀光球 1：右上角晨曦暖杏光
         drawSphere(
-            in: &context,
+            in: &accentContext,
             center: floatAccent1Center,
             radius: floatAccent1Radius,
             time: time,
             phase: 0.8,
-            colors: [
+            colors: colorTheme == .lavender ? [
+                colorTheme.accent.opacity(0.88),
+                colorTheme.accent.mix(with: colorTheme.companion, by: 0.20).opacity(0.65),
+                colorTheme.accent.mix(with: colorTheme.companion, by: 0.20).opacity(0.0)
+            ] : [
                 Color(red: 255 / 255, green: 220 / 255, blue: 175 / 255).opacity(0.88),
                 Color(red: 252 / 255, green: 180 / 255, blue: 135 / 255).opacity(0.65),
                 Color(red: 252 / 255, green: 180 / 255, blue: 135 / 255).opacity(0.0)
@@ -98,30 +144,31 @@ private struct CanvasLiquidBackground: View {
 
         // 绘制点缀光球 2：左中侧淡丁香粉紫雾
         drawSphere(
-            in: &context,
+            in: &accentContext,
             center: floatAccent2Center,
             radius: floatAccent2Radius,
             time: time,
             phase: 2.1,
-            colors: [
+            colors: colorTheme == .lavender ? [
+                colorTheme.companion.opacity(0.75),
+                colorTheme.companion.mix(with: colorTheme.accent, by: 0.18).opacity(0.50),
+                colorTheme.companion.mix(with: colorTheme.accent, by: 0.18).opacity(0.0)
+            ] : [
                 Color(red: 244 / 255, green: 175 / 255, blue: 224 / 255).opacity(0.75),
                 Color(red: 222 / 255, green: 140 / 255, blue: 202 / 255).opacity(0.50),
                 Color(red: 222 / 255, green: 140 / 255, blue: 202 / 255).opacity(0.0)
             ]
         )
 
-        let pinkPalette = [
-            Color(red: 240 / 255, green: 75 / 255, blue: 175 / 255).opacity(0.95),
-            Color(red: 208 / 255, green: 60 / 255, blue: 165 / 255).opacity(0.88),
-            Color(red: 175 / 255, green: 65 / 255, blue: 178 / 255).opacity(0.75),
-            Color(red: 175 / 255, green: 65 / 255, blue: 178 / 255).opacity(0.0)
-        ]
-        let peachPalette = [
-            Color(red: 255 / 255, green: 202 / 255, blue: 130 / 255).opacity(0.96),
-            Color(red: 255 / 255, green: 150 / 255, blue: 95 / 255).opacity(0.85),
-            Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.60),
-            Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255).opacity(0.0)
-        ]
+        context.addFilter(.blur(radius: 60))
+
+        let orbStops = colorTheme.floatingOrbSpherePalettes
+        let pinkFadeColor = colorTheme == .lavender ? colorTheme.companion : (orbStops.pink.last ?? .clear)
+        let peachFadeColor = colorTheme == .lavender ? colorTheme.accent : (orbStops.peach.last ?? .clear)
+        let pinkPalette = zip(orbStops.pink, [0.95, 0.88, 0.75]).map { $0.0.opacity($0.1) }
+            + [pinkFadeColor.opacity(0)]
+        let peachPalette = zip(orbStops.peach, [0.96, 0.85, 0.60]).map { $0.0.opacity($0.1) }
+            + [peachFadeColor.opacity(0)]
         let motionPhase = time * 0.42
         let exchangeSignal = sin((motionPhase - .pi / 2) / 2)
         let exchangeProgress = reduceMotion ? 0.0 : 0.5 + 0.5 * tanh(exchangeSignal * 4.2)
@@ -148,7 +195,11 @@ private struct CanvasLiquidBackground: View {
             let coreRadius = min(pinkRadius, peachRadius) * 0.70
             let pulse = (sin(time * 0.9) + 1.0) * 0.5
 
-            let blendGradient = Gradient(colors: [
+            let blendGradient = Gradient(colors: colorTheme == .lavender ? [
+                colorTheme.accent.mix(with: colorTheme.companion, by: 0.5).opacity(0.90 + pulse * 0.08),
+                colorTheme.companion.mix(with: colorTheme.accent, by: 0.48).opacity(0.62),
+                .clear
+            ] : [
                 Color(red: 255 / 255, green: 175 / 255, blue: 165 / 255).opacity(0.90 + pulse * 0.08),
                 Color(red: 245 / 255, green: 110 / 255, blue: 185 / 255).opacity(0.62),
                 .clear
@@ -206,25 +257,26 @@ private struct CanvasLiquidBackground: View {
                 gradient,
                 center: CGPoint(x: center.x - radius * 0.12, y: center.y - radius * 0.15),
                 startRadius: radius * 0.05,
-                endRadius: radius * 1.25
+                endRadius: radius * 1.50
             )
         )
     }
 
-    // 动态多段贝塞尔曲线模拟液体光球蠕动挤压形态（明显增大幅度与速度）
+    // 连续变化的低频波形让轮廓伸展、收缩并形成流体瓣。
     private func organicBlobPath(
         center: CGPoint,
         radius: CGFloat,
         time: TimeInterval,
         phase: Double
     ) -> Path {
-        let pointCount = 12
-        let wobble = 0.16 * sin(time * 0.72 + phase)
+        let pointCount = 24
+        let wobble = 0.24 * sin(time * 0.52 + phase)
         let points = (0..<pointCount).map { i -> CGPoint in
             let angle = Double(i) / Double(pointCount) * .pi * 2
-            let harmonic1 = sin(angle * 3 + time * 0.65 + phase) * 0.12
-            let harmonic2 = cos(angle * 2 - time * 0.55 + phase) * 0.10
-            let r = radius * (1.0 + harmonic1 + harmonic2)
+            let harmonic1 = sin(angle * 3 + time * 0.65 + phase) * 0.22
+            let harmonic2 = cos(angle * 2 - time * 0.55 + phase) * 0.17
+            let harmonic3 = sin(angle * 4 - time * 0.38 + phase) * 0.06
+            let r = radius * (1.0 + harmonic1 + harmonic2 + harmonic3)
             return CGPoint(
                 x: center.x + cos(angle) * r * (1.0 + wobble),
                 y: center.y + sin(angle) * r * (1.0 - wobble * 0.65)
@@ -247,19 +299,21 @@ private struct CanvasLiquidBackground: View {
 
 // 顶层全屏通透高质感磨砂玻璃罩 (iOS 27 Fluid Frost Veil)
 private struct FullFrostedVeil: View {
+    let colorTheme: HabitColorTheme
+
     var body: some View {
         ZStack {
             // 超轻薄半透磨砂材质，融合光影
             Rectangle()
-                .fill(.ultraThinMaterial.opacity(0.18))
+                .fill(.ultraThinMaterial.opacity(colorTheme == .lavender ? 0.04 : 0.18))
 
             // 柔和白色漫射光晕层，强化参考图的高级通透质感
             LinearGradient(
                 colors: [
-                    .white.opacity(0.35),
-                    Color(red: 252 / 255, green: 242 / 255, blue: 246 / 255).opacity(0.12),
+                    .white.opacity(colorTheme == .lavender ? 0.04 : 0.35),
+                    Color(red: 252 / 255, green: 242 / 255, blue: 246 / 255).opacity(colorTheme == .lavender ? 0.02 : 0.12),
                     .clear,
-                    .white.opacity(0.18)
+                    .white.opacity(colorTheme == .lavender ? 0.03 : 0.18)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -269,8 +323,8 @@ private struct FullFrostedVeil: View {
             VStack {
                 LinearGradient(
                     colors: [
-                        .white.opacity(0.42),
-                        .white.opacity(0.15),
+                        .white.opacity(colorTheme == .lavender ? 0.06 : 0.42),
+                        .white.opacity(colorTheme == .lavender ? 0.02 : 0.15),
                         .clear
                     ],
                     startPoint: .top,

@@ -103,7 +103,6 @@ extension NativeDatabase {
                     try finishTimer(sessionID: sessionID, at: .now, in: db)
                 case let (id, .activity(primary, secondary, first, second)) where ["H5", "H6", "H7", "H8", "H9", "H10", "H12"].contains(id):
                     guard !primary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw HabitSubmissionError.invalid("请填写必填内容。") }
-                    if id != "H11" && primary.count > 5 { throw HabitSubmissionError.invalid("主记录最多 5 个字。") }
                     if id == "H7" {
                         for value in [first, second].compactMap({ $0 }) where !value.isFinite {
                             throw HabitSubmissionError.invalid("资产和消费金额需为有效数字。")

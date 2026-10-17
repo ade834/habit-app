@@ -17,7 +17,7 @@ enum NativeDatabaseError: LocalizedError {
 
 /// The native app writes only to Application Support. The App Group database is an import source.
 struct NativeDatabase: Sendable {
-    static let schemaVersion = 13
+    static let schemaVersion = 16
     static let legacyGroup = "group.com.deshiru.habitapp"
 
     let fileURL: URL
@@ -54,6 +54,49 @@ struct NativeDatabase: Sendable {
         return try body(db)
     }
 
+    func saveMonthlyAIReport(analysis: String, encouragement: String, month: Date) throws {
+        try saveReviewReport(table: "monthly_ai_reports", keyColumn: "month_key", key: Self.monthKey(month), analysis: analysis, encouragement: encouragement)
+    }
+
+    func saveWeeklyAIReport(analysis: String, encouragement: String, week: Date) throws {
+        try saveReviewReport(table: "weekly_ai_reports", keyColumn: "week_key", key: Self.weekKey(week), analysis: analysis, encouragement: encouragement)
+    }
+
+    func reviewReport(table: String, keyColumn: String, key: String) throws -> (analysis: String, encouragement: String, updatedAt: Date)? {
+        guard [("monthly_ai_reports", "month_key"), ("weekly_ai_reports", "week_key")].contains(where: { $0.0 == table && $0.1 == keyColumn }) else { return nil }
+        return try withConnection { db -> (analysis: String, encouragement: String, updatedAt: Date)? in
+            let statement = try Self.prepare("SELECT analysis, encouragement, updated_at FROM \(table) WHERE \(keyColumn)=?", in: db)
+            defer { sqlite3_finalize(statement) }
+            let bindResult = key.withCString { sqlite3_bind_text(statement, 1, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
+            guard bindResult == SQLITE_OK else { throw NativeDatabaseError.unavailable("无法读取复盘报告。") }
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            return (
+                sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? "",
+                sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? "",
+                Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int64(statement, 2)))
+            )
+        }
+    }
+
+    private func saveReviewReport(table: String, keyColumn: String, key: String, analysis: String, encouragement: String) throws {
+        try withConnection { db in
+            try Self.execute("INSERT INTO \(table)(\(keyColumn), analysis, encouragement, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(\(keyColumn)) DO UPDATE SET analysis=excluded.analysis, encouragement=excluded.encouragement, updated_at=excluded.updated_at", bindings: [key, analysis, encouragement, "\(Int(Date.now.timeIntervalSince1970))"], in: db)
+        }
+    }
+
+    private static func monthKey(_ date: Date) -> String {
+        let parts = Calendar.current.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
+    }
+
+    private static func weekKey(_ date: Date) -> String {
+        let calendar = Calendar(identifier: .gregorian)
+        let weekday = calendar.component(.weekday, from: date)
+        let monday = calendar.date(byAdding: .day, value: -((weekday + 5) % 7), to: calendar.startOfDay(for: date)) ?? date
+        let parts = calendar.dateComponents([.year, .month, .day], from: monday)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
     /// Clears user habit data while preserving the one-time migration marker and schema.
     func clearAllUserData() throws {
         try withConnection { db in
@@ -68,6 +111,8 @@ struct NativeDatabase: Sendable {
                     "missed_habit_records",
                     "timer_sessions",
                     "review_entries",
+                    "monthly_ai_reports",
+                    "weekly_ai_reports",
                     "point_transactions",
                     "habit_logs",
                     "daily_selection_records",
@@ -123,7 +168,7 @@ struct NativeDatabase: Sendable {
             throw NativeDatabaseError.unavailable("无法创建 \(url.lastPathComponent)")
         }
         defer { sqlite3_close(db) }
-        try Self.createSchemaV10(in: db)
+        try Self.createSchema(in: db)
     }
 
     private func backupDatabase(from sourceURL: URL, to destinationURL: URL) throws {
@@ -172,7 +217,7 @@ struct NativeDatabase: Sendable {
         guard version <= Self.schemaVersion else { throw NativeDatabaseError.unsupportedSchema(version) }
         let hasTables = try Self.hasUserTables(in: db)
         if version == 0 && !hasTables {
-            try Self.createSchemaV10(in: db)
+            try Self.createSchema(in: db)
         } else if version < Self.schemaVersion {
             try Self.migrate(from: version, in: db)
         }
@@ -180,11 +225,11 @@ struct NativeDatabase: Sendable {
         try Self.execute("INSERT OR IGNORE INTO native_metadata(key, value) VALUES ('migration_source', 'app_group_snapshot')", in: db)
     }
 
-    private static func createSchemaV10(in db: OpaquePointer) throws {
+    private static func createSchema(in db: OpaquePointer) throws {
         try execute("BEGIN IMMEDIATE", in: db)
         do {
-            for sql in schemaV10 { try execute(sql, in: db) }
-            try execute("PRAGMA user_version = 13", in: db)
+            for sql in schemaStatements { try execute(sql, in: db) }
+            try execute("PRAGMA user_version = 16", in: db)
             try execute("COMMIT", in: db)
         } catch {
             try? execute("ROLLBACK", in: db)
@@ -196,9 +241,9 @@ struct NativeDatabase: Sendable {
         try execute("BEGIN IMMEDIATE", in: db)
         do {
             if version < 2 {
-                try execute(schemaV10[3], in: db) // review_entries
-                try execute(schemaV10[4], in: db) // timer_sessions
-                try execute(schemaV10[5], in: db) // challenge_draws
+                try createTable("review_entries", in: db) // review_entries
+                try createTable("timer_sessions", in: db) // timer_sessions
+                try createTable("challenge_draws", in: db) // challenge_draws
             }
             if try version >= 2 && version < 3 && !hasColumn("challenge_draws", "swap_count", in: db) {
                 try execute("ALTER TABLE challenge_draws ADD COLUMN swap_count INTEGER NOT NULL DEFAULT 0", in: db)
@@ -207,8 +252,8 @@ struct NativeDatabase: Sendable {
             if try version >= 2 && version < 4 && !hasColumn("timer_sessions", "focus_topic", in: db) {
                 try execute("ALTER TABLE timer_sessions ADD COLUMN focus_topic TEXT", in: db)
             }
-            if version < 5 { try execute(schemaV10[6], in: db) }
-            if version < 6 { try execute(schemaV10[7], in: db) }
+            if version < 5 { try createTable("habit_activity_entries", in: db) }
+            if version < 6 { try createTable("travel_plans", in: db) }
             if try version < 7 && !hasColumn("habit_selections", "is_starred", in: db) {
                 try execute("ALTER TABLE habit_selections ADD COLUMN is_starred INTEGER NOT NULL DEFAULT 0", in: db)
             }
@@ -218,27 +263,35 @@ struct NativeDatabase: Sendable {
                 }
                 try execute("UPDATE habit_selections SET active_on = enabled_at", in: db)
             }
-            if version < 9 { try execute(schemaV10[8], in: db) }
+            if version < 9 { try createTable("missed_habit_records", in: db) }
             if try version < 10 && !hasColumn("missed_habit_records", "settled_on", in: db) {
                 try execute("ALTER TABLE missed_habit_records ADD COLUMN settled_on TEXT", in: db)
             }
             if version < 11 {
-                try execute(schemaV10[9], in: db)
+                try createTable("challenge_history", in: db)
                 try execute("INSERT OR IGNORE INTO challenge_history(cycle, card_index, drawn_at, local_date) SELECT 1, card_index, 0, local_date FROM challenge_draws", in: db)
             }
             if version < 12 {
-                try execute(schemaV10[10], in: db)
+                try createTable("challenge_daily_swaps", in: db)
                 try execute("INSERT OR IGNORE INTO challenge_daily_swaps(local_date, slot, card_index) SELECT local_date, slot, card_index FROM (SELECT local_date, card_index, ROW_NUMBER() OVER (PARTITION BY local_date ORDER BY rowid) AS slot FROM challenge_history) WHERE slot BETWEEN 2 AND 4", in: db)
                 try execute("INSERT OR IGNORE INTO challenge_daily_swaps(local_date, slot, card_index) SELECT local_date, 1, card_index FROM challenge_draws WHERE swap_count > 0 AND (SELECT COUNT(*) FROM challenge_daily_swaps WHERE challenge_daily_swaps.local_date=challenge_draws.local_date)=0", in: db)
             }
             if version < 13 {
-                try execute(schemaV10[11], in: db)
+                try createTable("daily_selection_records", in: db)
                 // Restore today's already completed choices from existing logs.
                 // Backfill completed regular slots from prior point records; carried periodic goals stay exempt.
                 try execute("INSERT OR IGNORE INTO daily_selection_records(habit_id, local_date, counts_regular) SELECT l.habit_id, l.local_date, CASE WHEN COALESCE(p.amount, 0) > 0 AND NOT (l.habit_id IN ('H5','H7','H10','H11') AND COALESCE(date(s.active_on, 'unixepoch', 'localtime'), l.local_date) < l.local_date) THEN 1 ELSE 0 END FROM habit_logs l LEFT JOIN point_transactions p ON p.habit_log_id = l.id LEFT JOIN habit_selections s ON s.habit_id = l.habit_id", in: db)
             }
-            for sql in schemaV10 where sql.contains("CREATE INDEX") { try execute(sql, in: db) }
-            try execute("PRAGMA user_version = 13", in: db)
+            if version < 14 {
+                try createTable("weekly_ai_reports", in: db)
+                try execute("PRAGMA user_version = 14", in: db)
+            }
+            if version < 16 {
+                try execute("CREATE TABLE IF NOT EXISTS monthly_ai_reports (month_key TEXT NOT NULL PRIMARY KEY, analysis TEXT NOT NULL, encouragement TEXT NOT NULL, updated_at INTEGER NOT NULL)", in: db)
+                try execute("CREATE TABLE IF NOT EXISTS weekly_ai_reports (week_key TEXT NOT NULL PRIMARY KEY, analysis TEXT NOT NULL, encouragement TEXT NOT NULL, updated_at INTEGER NOT NULL)", in: db)
+            }
+            for sql in schemaStatements where sql.contains("CREATE INDEX") { try execute(sql, in: db) }
+            try execute("PRAGMA user_version = 16", in: db)
             try execute("COMMIT", in: db)
         } catch {
             try? execute("ROLLBACK", in: db)
@@ -246,11 +299,21 @@ struct NativeDatabase: Sendable {
         }
     }
 
-    private static let schemaV10 = [
+    private static func createTable(_ name: String, in db: OpaquePointer) throws {
+        guard let statement = schemaStatements.first(where: {
+            $0.hasPrefix("CREATE TABLE IF NOT EXISTS \(name) (")
+        }) else {
+            throw NativeDatabaseError.migration("缺少建表语句：\(name)")
+        }
+        try execute(statement, in: db)
+    }
+
+    private static let schemaStatements = [
         "CREATE TABLE IF NOT EXISTS habit_selections (habit_id TEXT NOT NULL PRIMARY KEY, commitment_note TEXT NOT NULL DEFAULT '', enabled_at INTEGER NOT NULL, is_starred INTEGER NOT NULL DEFAULT 0, active_on INTEGER)",
         "CREATE TABLE IF NOT EXISTS habit_logs (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, habit_id TEXT NOT NULL, local_date TEXT NOT NULL, timezone_offset_minutes INTEGER NOT NULL, created_at INTEGER NOT NULL, UNIQUE(habit_id, local_date))",
         "CREATE TABLE IF NOT EXISTS point_transactions (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, habit_log_id INTEGER NOT NULL UNIQUE REFERENCES habit_logs(id), amount INTEGER NOT NULL, created_at INTEGER NOT NULL)",
         "CREATE TABLE IF NOT EXISTS review_entries (local_date TEXT NOT NULL PRIMARY KEY, decision TEXT NOT NULL, result TEXT NOT NULL, improvement TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS monthly_ai_reports (month_key TEXT NOT NULL PRIMARY KEY, analysis TEXT NOT NULL, encouragement TEXT NOT NULL, updated_at INTEGER NOT NULL)",
         "CREATE TABLE IF NOT EXISTS timer_sessions (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, habit_id TEXT NOT NULL, target_seconds INTEGER NOT NULL, started_at INTEGER NOT NULL, paused_at INTEGER, accumulated_pause_seconds INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'running', ended_at INTEGER, focus_topic TEXT)",
         "CREATE TABLE IF NOT EXISTS challenge_draws (local_date TEXT NOT NULL PRIMARY KEY, card_index INTEGER NOT NULL, swap_used INTEGER NOT NULL DEFAULT 0, swap_count INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS habit_activity_entries (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, habit_id TEXT NOT NULL, period_key TEXT NOT NULL, primary_text TEXT NOT NULL, secondary_text TEXT NOT NULL DEFAULT '', first_value REAL, second_value REAL, completed_at INTEGER NOT NULL, UNIQUE(habit_id, period_key))",
@@ -258,7 +321,8 @@ struct NativeDatabase: Sendable {
         "CREATE TABLE IF NOT EXISTS missed_habit_records (habit_id TEXT NOT NULL, local_date TEXT NOT NULL, settled_on TEXT, PRIMARY KEY(habit_id, local_date))",
         "CREATE TABLE IF NOT EXISTS challenge_history (cycle INTEGER NOT NULL, card_index INTEGER NOT NULL, drawn_at INTEGER NOT NULL, local_date TEXT NOT NULL, PRIMARY KEY(cycle, card_index))",
         "CREATE TABLE IF NOT EXISTS challenge_daily_swaps (local_date TEXT NOT NULL, slot INTEGER NOT NULL, card_index INTEGER NOT NULL, PRIMARY KEY(local_date, slot))",
-        "CREATE TABLE IF NOT EXISTS daily_selection_records (habit_id TEXT NOT NULL, local_date TEXT NOT NULL, counts_regular INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(habit_id, local_date))"
+        "CREATE TABLE IF NOT EXISTS daily_selection_records (habit_id TEXT NOT NULL, local_date TEXT NOT NULL, counts_regular INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(habit_id, local_date))",
+        "CREATE TABLE IF NOT EXISTS weekly_ai_reports (week_key TEXT NOT NULL PRIMARY KEY, analysis TEXT NOT NULL, encouragement TEXT NOT NULL, updated_at INTEGER NOT NULL)"
     ]
 
     private func verifyIntegrity(at url: URL) throws {

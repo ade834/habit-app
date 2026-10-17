@@ -21,6 +21,10 @@ struct NativeDataLayerTests {
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM habit_logs", in: db) == 1, "backup imports historical logs")
             try expect(NativeDatabase.scalarText("SELECT value FROM native_metadata WHERE key='migration_state'", in: db) == "complete", "migration marker is recorded")
             try expect(NativeDatabase.scalarText("PRAGMA integrity_check", in: db) == "ok", "SQLite integrity check")
+            try expect(NativeDatabase.scalarInt("PRAGMA user_version", in: db) == NativeDatabase.schemaVersion, "legacy database reaches the current schema version")
+            for table in ["challenge_history", "challenge_daily_swaps", "daily_selection_records", "monthly_ai_reports", "weekly_ai_reports"] {
+                try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='\(table)'", in: db) == 1, "migration creates \(table) by name")
+            }
             try expect(NativeDatabase.scalarInt("SELECT COUNT(*) FROM challenge_history WHERE cycle=1 AND card_index=17", in: db) == 1, "migration carries previously shown H3 challenges into the no-repeat history")
             try NativeDatabase.execute("INSERT INTO habit_logs(habit_id, local_date, timezone_offset_minutes, created_at) VALUES ('H2','2026-10-11',480,200)", in: db)
         }

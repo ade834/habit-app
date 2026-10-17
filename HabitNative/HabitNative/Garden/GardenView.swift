@@ -3,136 +3,130 @@ import SwiftUI
 // MARK: - Main Garden View (Echoing POSY reference photo & Garden Spec)
 struct GardenView: View {
     @StateObject private var viewModel: GardenHabitViewModel
-    @State private var showCatalogSheet: Bool = false
-    @State private var showMeaningsModal: Bool = false
-    @State private var showQuickAffirmationToast: String? = nil
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var introVisible = true
+    let goals: [Goal]
+    let onStartHabit: ((Goal) -> Void)?
+    let onIntroVisibilityChange: ((Bool) -> Void)?
+    let onSharePhoto: ((UIImage) -> Void)?
 
-    init(goals: [Goal] = []) {
+    init(
+        goals: [Goal] = [],
+        onStartHabit: ((Goal) -> Void)? = nil,
+        onIntroVisibilityChange: ((Bool) -> Void)? = nil,
+        onSharePhoto: ((UIImage) -> Void)? = nil
+    ) {
+        self.goals = goals
+        self.onStartHabit = onStartHabit
+        self.onIntroVisibilityChange = onIntroVisibilityChange
+        self.onSharePhoto = onSharePhoto
         _viewModel = StateObject(wrappedValue: GardenHabitViewModel(goals: goals))
     }
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                // 1. Unified Liquid Background (Directly sharing "今日" page's dynamic liquid canvas)
-                UnifiedLiquidGardenBackground()
-                    .ignoresSafeArea()
+            ZStack(alignment: .bottom) {
+                // Reuse the root's full-screen liquid spheres without a second,
+                // independently sized canvas that would create rectangular seams.
+                Color.clear
 
-                // 2. Main Content Flow
-                VStack(spacing: 0) {
-                    // Top App Bar
-                    GardenTopBar(
-                        onSeePosyTapped: {
-                            showCatalogSheet = true
-                        },
-                        onHelpTapped: {
-                            showCatalogSheet = true
+                GardenStudioView(
+                    embedded: true,
+                    plantProgress: Dictionary(uniqueKeysWithValues: viewModel.items.map {
+                        ($0.record.species, HabitPlantGrowth.progress($0.growthValue))
+                    }),
+                    visibleFlora: Set(viewModel.items.map(\.record.species)),
+                    habitNames: Dictionary(uniqueKeysWithValues: viewModel.items.map {
+                        ($0.record.species, $0.habit.previewTitle)
+                    }),
+                    onSelectFlora: { flora in
+                        if let item = viewModel.items.first(where: { $0.record.species == flora.rawValue }) {
+                            viewModel.focusedHabitId = item.id
                         }
-                    )
-                    .padding(.horizontal, 22)
-                    .padding(.top, proxy.safeAreaInsets.top > 0 ? 6 : 14)
+                    },
+                    onIntroVisibilityChange: { isVisible in
+                        introVisible = isVisible
+                        onIntroVisibilityChange?(isVisible)
+                    },
+                    onSharePhoto: onSharePhoto
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
 
-                    // 3. Central Living Garden Stage with Procedural Flowers & Floating Vessel
-                    GardenStageView(
-                        viewModel: viewModel,
-                        stageSize: CGSize(width: proxy.size.width, height: proxy.size.height * 0.42)
-                    )
-                    .frame(height: proxy.size.height * 0.42)
-
-                    // 4. Over-vessel Segmented Capsule: "Flowers" & "Meanings"
-                    GardenSegmentedCapsule(activeTab: $viewModel.activeTabPill)
-                        .padding(.top, -16)
-
-                    // 5. Horizontal Habit Flower Progress Carousel Strip (实时进程走马灯栏)
-                    HabitFlowerProgressCarouselStrip(
-                        viewModel: viewModel,
-                        onNurture: { habitId in
-                            if let item = viewModel.items.first(where: { $0.id == habitId }) {
-                                viewModel.nurture(habitId: habitId)
-                                triggerQuickAffirmation("💧 已为「\(item.habit.title)」浇水培育！")
-                            }
-                        }
-                    )
-                    .padding(.top, 6)
-
-                    // 6. "Quick send" / Habit Affirmation Pills
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Quick send")
-                            .font(.system(size: 13, weight: .medium, design: .serif))
-                            .italic()
-                            .foregroundStyle(Color(red: 0.45, green: 0.38, blue: 0.42).opacity(0.75))
-                            .padding(.leading, 24)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 9) {
-                                QuickSendPill(title: "soon", meaning: "静待萌芽") {
-                                    triggerQuickAffirmation("🌱 保持节奏，静待萌芽")
-                                }
-                                QuickSendPill(title: "I'm sorry", meaning: "今天漏卡") {
-                                    triggerQuickAffirmation("💧 没关系，今天重新开始浇水")
-                                }
-                                QuickSendPill(title: "Good luck", meaning: "迎接挑战") {
-                                    triggerQuickAffirmation("✨ 祝你顺利突破舒适区")
-                                }
-                                QuickSendPill(title: "Well done", meaning: "盛开达成") {
-                                    triggerQuickAffirmation("🌸 坚持完成，繁花盛开！")
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                        }
-                    }
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 4)
+                if viewModel.items.isEmpty {
+                    EmptyGardenBloomHint()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 112)
+                        .opacity(introVisible ? 0 : 1)
+                        .allowsHitTesting(false)
+                        .animation(.easeOut(duration: 0.5), value: introVisible)
+                } else {
+                    HabitFlowerProgressCarouselStrip(viewModel: viewModel)
+                        // The stage now fills beneath the persistent navigation bar.
+                        // Keep this content above it without shrinking the stage.
+                        .padding(.bottom, 102)
+                        .opacity(introVisible ? 0 : 1)
+                        .allowsHitTesting(!introVisible)
+                        .animation(.easeOut(duration: 0.5), value: introVisible)
                 }
 
-                // Toast Feedback
-                if let toast = showQuickAffirmationToast {
-                    VStack {
-                        Spacer()
-                        Text(toast)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background(
-                                Capsule()
-                                    .fill(Color.black.opacity(0.72))
-                                    .shadow(radius: 8)
-                            )
-                            .padding(.bottom, 100)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
+                if let error = viewModel.dataError {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .padding(12)
+                        .background(.regularMaterial, in: Capsule())
+                        .frame(maxHeight: .infinity, alignment: .top)
                 }
             }
         }
-        // Detail sheet for individual tapped flower
-        .sheet(item: $viewModel.selectedItem) { item in
-            FlowerDetailSheetView(item: item) {
-                viewModel.nurture(habitId: item.id)
+        // Let the garden and its door transition paint through the home-indicator area.
+        .ignoresSafeArea(.container, edges: .bottom)
+        .task {
+            while !Task.isCancelled {
+                viewModel.loadHabitsAndFlowers(goals: goals)
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }
-        // Catalog & Rules sheet
-        .sheet(isPresented: $showCatalogSheet) {
-            GardenCatalogAndRulesSheet()
-        }
-        // Meanings explanation sheet
-        .sheet(isPresented: $showMeaningsModal) {
-            GardenMeaningsSheet(items: viewModel.items)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { viewModel.loadHabitsAndFlowers(goals: goals) }
         }
     }
+}
 
-    private func triggerQuickAffirmation(_ text: String) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            showQuickAffirmationToast = text
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-            withAnimation(.easeOut) {
-                if showQuickAffirmationToast == text {
-                    showQuickAffirmationToast = nil
+private struct EmptyGardenBloomHint: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shimmerEnd: CGFloat = 0
+
+    private let ink = Color(red: 1, green: 0.95, blue: 0.97)
+
+    var body: some View {
+        Text("你的坚持和付出\n终会破土开出花朵")
+            .font(.system(size: 18.7, weight: .heavy))
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 260)
+            .foregroundStyle(
+                LinearGradient(
+                    stops: [
+                        .init(color: ink.opacity(0.90), location: 0),
+                        .init(color: ink.opacity(0.90), location: 0.39),
+                        .init(color: ink.opacity(0.94), location: 0.46),
+                        .init(color: .white, location: 0.50),
+                        .init(color: ink.opacity(0.94), location: 0.54),
+                        .init(color: ink.opacity(0.90), location: 0.61),
+                        .init(color: ink.opacity(0.90), location: 1)
+                    ],
+                    startPoint: UnitPoint(x: reduceMotion ? 0 : shimmerEnd - 1, y: 0),
+                    endPoint: UnitPoint(x: reduceMotion ? 1 : shimmerEnd, y: 0)
+                )
+            )
+            .shadow(color: .black.opacity(0.184), radius: 3, x: 0, y: 2)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 2.45).repeatForever(autoreverses: false)) {
+                    shimmerEnd = 2
                 }
             }
-        }
     }
 }
 
@@ -165,7 +159,6 @@ private struct UnifiedLiquidGardenBackground: View {
 // MARK: - Habit Flower Progress Carousel Strip (横滑交互习惯花卉进程栏)
 private struct HabitFlowerProgressCarouselStrip: View {
     @ObservedObject var viewModel: GardenHabitViewModel
-    let onNurture: (String) -> Void
     @State private var currentIndex: Int = 0
 
     var body: some View {
@@ -173,16 +166,14 @@ private struct HabitFlowerProgressCarouselStrip: View {
             // Horizontal Paged Cards (横滑交互切换各习惯进程)
             TabView(selection: $currentIndex) {
                 ForEach(Array(viewModel.items.enumerated()), id: \.element.id) { index, item in
-                    HabitProgressGlassCard(item: item) {
-                        onNurture(item.id)
-                    }
+                    HabitProgressGlassCard(item: item)
                     .tag(index)
                     .padding(.horizontal, 18)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: 104)
-            .onChange(of: currentIndex) { newIdx in
+            .onChange(of: currentIndex) { _, newIdx in
                 if newIdx >= 0 && newIdx < viewModel.items.count {
                     let item = viewModel.items[newIdx]
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
@@ -190,8 +181,13 @@ private struct HabitFlowerProgressCarouselStrip: View {
                     }
                 }
             }
+            .onChange(of: viewModel.focusedHabitId) { _, id in
+                if let index = viewModel.items.firstIndex(where: { $0.id == id }), index != currentIndex {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { currentIndex = index }
+                }
+            }
 
-            // Paging Indicator Dots (7个习惯的微型流体指示胶囊)
+            // Paging Indicator Dots (12 个习惯的微型流体指示胶囊)
             HStack(spacing: 5) {
                 ForEach(0..<viewModel.items.count, id: \.self) { idx in
                     Capsule()
@@ -212,7 +208,6 @@ private struct HabitFlowerProgressCarouselStrip: View {
 // MARK: - Single Habit Progress Glass Card
 private struct HabitProgressGlassCard: View {
     let item: HabitGardenItem
-    let onNurture: () -> Void
 
     var body: some View {
         let req = item.nextLevelRequirement
@@ -220,7 +215,7 @@ private struct HabitProgressGlassCard: View {
         let cardAccent = Color(red: tint.red, green: tint.green, blue: tint.blue)
 
         VStack(alignment: .leading, spacing: 6) {
-            // Top Row: Habit Name, Flower Tag & Water Action
+            // Top Row: Habit Name and Flower Tag
             HStack(alignment: .center, spacing: 10) {
                 // Mini Flower Icon Badge
                 ZStack {
@@ -235,7 +230,7 @@ private struct HabitProgressGlassCard: View {
                 // Habit Title & Species Info
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(item.habit.title)
+                        Text(item.habit.previewTitle)
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(Color(red: 0.22, green: 0.18, blue: 0.22))
                             .lineLimit(1)
@@ -259,31 +254,6 @@ private struct HabitProgressGlassCard: View {
                 }
 
                 Spacer()
-
-                // "💧 浇水培育" Quick Action Pill
-                Button(action: onNurture) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "drop.fill")
-                            .font(.system(size: 10))
-                        Text("浇水")
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5.5)
-                    .background(
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [cardAccent, cardAccent.opacity(0.85)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .shadow(color: cardAccent.opacity(0.35), radius: 3, x: 0, y: 1.5)
-                    )
-                }
-                .buttonStyle(.plain)
             }
 
             // Bottom Row: Dynamic Progress Track & Numerical Ratio
@@ -311,7 +281,7 @@ private struct HabitProgressGlassCard: View {
                 .frame(height: 6)
 
                 HStack {
-                    Text("累计打卡 \(item.completions) 次 · \(item.points) 养成值")
+                    Text("打卡 \(item.completions) 次 · 积分 \(item.points) · 养成值 \(item.growthValue)")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Color(red: 0.45, green: 0.40, blue: 0.44).opacity(0.8))
 
@@ -327,12 +297,12 @@ private struct HabitProgressGlassCard: View {
         .padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 18)
-                .fill(.ultraThinMaterial.opacity(0.92))
+                .fill(Color.white.opacity(0.75))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
-                        .stroke(Color.white.opacity(0.75), lineWidth: 1)
+                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 3)
+                .shadow(color: Color.black.opacity(0.045), radius: 9, x: 0, y: 3)
         )
     }
 }

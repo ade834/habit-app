@@ -1,5 +1,24 @@
 import SwiftUI
 
+/// Uses the garden's mature flower head without running its wind or growth timeline.
+private struct HabitCardFlowerHead: View {
+    let habitID: String
+
+    var body: some View {
+        let type = PosyFloraType.forHabit(habitID)
+        let canvasSize: CGFloat = (type.isGiantFlora ? 240 : 120) * type.headScaleFactor
+
+        PosyFlowerBloomCanvas(type: type, progress: 1)
+            .frame(width: canvasSize, height: canvasSize)
+            .scaleEffect(150 / canvasSize)
+            .frame(width: 150, height: 150)
+            .saturation(0.75)
+            .brightness(0.15)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 private struct PerspectiveCardShape: Shape {
     var topRadius: CGFloat
     var bottomRadius: CGFloat
@@ -36,11 +55,55 @@ private struct PerspectiveCardShape: Shape {
     }
 }
 
+struct SelectedDeckCardSurface<S: Shape>: View {
+    let shape: S
+    let tint: Color
+
+    var body: some View {
+        shape
+            .fill(LinearGradient(stops: [
+                .init(color: tint.opacity(0.99), location: 0),
+                .init(color: tint.opacity(0.97), location: 0.48),
+                .init(color: tint.opacity(0.92), location: 1)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(alignment: .top) {
+                GeometryReader { geometry in
+                    shape
+                        .fill(LinearGradient(
+                            stops: [
+                                .init(color: .white.opacity(0.28), location: 0),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                        .frame(height: geometry.size.height * 0.5)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                shape
+                    .fill(LinearGradient(
+                        colors: [.clear, .black.opacity(0.12)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+            }
+            .clipShape(shape)
+    }
+}
+
 /// A looping perspective card stack with a large third card.
 struct TodayStackDeckView: View {
+    @Environment(\.habitColorTheme) private var colorTheme
     let goals: [Goal]
+    var colorRangeEndOrder = 12
     @Binding var state: TodayGoalState
     let selectionTransitionNamespace: Namespace.ID
+    var homeLaunchFrame: CGRect? = nil
+    @State private var homeEntrySettled = false
+    @State private var homeLiftedCards: Set<Int> = []
+    @State private var homeFlownCards: Set<Int> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var drag: CGFloat = 0
     @GestureState private var horizontalDrag: CGFloat = 0
@@ -48,7 +111,8 @@ struct TodayStackDeckView: View {
     @State private var bounceID: String?
     @State private var ruleNotice: String?
     @State private var ruleNoticeID = UUID()
-    @Namespace private var noticeMorph
+    @State private var ruleNoticePhase: RuleNoticeExpansionPhase = .capsule
+    @State private var ruleNoticeSourceFrame: CGRect = .zero
 
     private var focus: Int {
         goals.firstIndex { $0.id == state.focusedGoalID } ?? 0
@@ -75,17 +139,26 @@ struct TodayStackDeckView: View {
                 if ruleNotice == nil {
                     HStack(spacing: 5) {
                         Text("\(regularCount)").fontWeight(.semibold)
-                        Text("/ 3").foregroundStyle(.secondary)
+                        Text("/ 3")
                     }
                     .font(.system(size: 17))
+                    .foregroundStyle(colorTheme.card(colorTheme.cardBaseColor(at: 0, count: 2)))
                     .padding(.horizontal, 15).padding(.vertical, 9)
-                    .background(.white.opacity(0.78), in: Capsule())
-                    .matchedGeometryEffect(id: "rule-notice", in: noticeMorph)
+                    .background {
+                        GeometryReader { geometry in
+                            RuleNoticeBackground(shape: Capsule())
+                                .preference(
+                                    key: RuleNoticeSourceFrameKey.self,
+                                    value: geometry.frame(in: .global)
+                                )
+                        }
+                    }
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
                 } else {
                     Color.clear.frame(width: 68, height: 40)
                 }
             }
-            .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
+            .foregroundStyle(colorTheme == .lavender ? Color.white.opacity(0.94) : Color(red: 0.27, green: 0.23, blue: 0.29))
             .padding(.horizontal, 4)
             .padding(.top, 20)
 
@@ -108,13 +181,16 @@ struct TodayStackDeckView: View {
                         let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
                         if slot < visibleSlots {
                         let isHero = slot == min(2, visibleSlots - 1)
+                        let isCompleted = isCompletedToday(goal)
                         let isSelected = state.selectedGoalIDs.contains(goal.id)
+                            || state.completedSelectedGoalIDs.contains(goal.id)
+                        let entry = homeEntryPose(slot: slot, visibleSlots: visibleSlots, geometry: geometry, cardHeight: cardHeight, step: step)
                         let reveal = contentReveal(
                             slot: slot,
                             step: step,
                             height: cardHeight,
                             visibleSlots: visibleSlots,
-                            viewportHeight: geometry.size.height - 15
+                            viewportHeight: geometry.size.height
                         )
                         goalCard(goal, isHero: isHero, selected: isSelected, contentReveal: reveal)
                             .frame(width: geometry.size.width, height: cardHeight, alignment: .top)
@@ -122,8 +198,13 @@ struct TodayStackDeckView: View {
                             .overlay(alignment: .topTrailing) {
                                 HStack(spacing: 7) {
                                     if isSelected {
-                                        selectedBadge
+                                        if isCompleted {
+                                            completedBadge
+                                                .transition(.scale(scale: 0.72).combined(with: .opacity))
+                                        } else {
+                                            selectedBadge
                                             .transition(.scale(scale: 0.72).combined(with: .opacity))
+                                        }
                                     }
                                 }
                                 .frame(height: 52)
@@ -136,7 +217,7 @@ struct TodayStackDeckView: View {
                                 in: selectionTransitionNamespace,
                                 properties: .frame,
                                 anchor: .center,
-                                isSource: state.selectedGoalIDs.contains(goal.id)
+                                isSource: isSelected
                             )
                             .overlay {
                                 deckCardShape
@@ -144,12 +225,17 @@ struct TodayStackDeckView: View {
                                     .allowsHitTesting(false)
                             }
                             .scaleEffect(
-                                cardScale(slot: slot, visibleSlots: visibleSlots)
+                                x: entry.scaleX
+                                    * (bounceID == goal.id && !reduceMotion ? 1.025 : 1),
+                                y: entry.scaleY
                                     * (bounceID == goal.id && !reduceMotion ? 1.025 : 1),
                                 anchor: .top
                             )
+                            .rotationEffect(.degrees(entry.rotation), anchor: .top)
                             .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
-                            .offset(y: cardTop(slot: slot, step: step, height: cardHeight) + dragOffset(slot: slot))
+                            .offset(x: entry.x, y: entry.y + dragOffset(slot: slot))
+                            .transition(.identity)
+                            .opacity(homeLaunchFrame != nil && !reduceMotion && !homeEntrySettled && slot > 2 ? 0 : 1)
                             .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
                             .zIndex(Double(slot))
                             .contentShape(deckCardShape)
@@ -171,13 +257,13 @@ struct TodayStackDeckView: View {
                                         + dragOffset(slot: slot) + 31 * scale
                                 )
                                 .zIndex(100 + Double(slot))
+                                .opacity(homeLaunchFrame != nil && !reduceMotion && !homeEntrySettled ? 0 : 1)
+                                .animation(.easeOut(duration: 0.15), value: homeEntrySettled)
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
-                .frame(height: max(0, geometry.size.height - 15), alignment: .top)
-                .mask(deckBottomFadeMask)
-                .clipped()
+                .allowsHitTesting(homeLaunchFrame == nil || reduceMotion || homeEntrySettled)
                 .contentShape(Rectangle())
                 .simultaneousGesture(DragGesture(minimumDistance: 12)
                     .onChanged { value in
@@ -210,18 +296,47 @@ struct TodayStackDeckView: View {
                 .animation(spring, value: horizontalDrag == 0)
             }
             .frame(maxHeight: .infinity)
+            .task {
+                guard homeLaunchFrame != nil && !reduceMotion else {
+                    homeEntrySettled = true
+                    return
+                }
+                do {
+                    let flightSpeed = 2.75
+                    // Keep anticipation, stagger and landing in the same ratio as the flight.
+                    try await Task.sleep(for: .seconds(0.10 / flightSpeed))
+                    for slot in 0..<min(3, goals.count) {
+                        // Anticipation and an outward lift lead into the flight; the spring
+                        // eases into the landing with restrained follow-through.
+                        withAnimation(.easeInOut(duration: 0.20 / flightSpeed)) { _ = homeLiftedCards.insert(slot) }
+                        try await Task.sleep(for: .seconds(0.20 / flightSpeed))
+                        withAnimation(.spring(response: 0.80 / flightSpeed, dampingFraction: 0.88)) { _ = homeFlownCards.insert(slot) }
+                        try await Task.sleep(for: .seconds(0.32 / flightSpeed))
+                    }
+                    // Wait for the last card to land before unfolding the complete deck.
+                    try await Task.sleep(for: .seconds(0.60 / flightSpeed))
+                    withAnimation(.spring(response: 0.78, dampingFraction: 0.84)) { homeEntrySettled = true }
+                } catch { }
+            }
         }
         .padding(.horizontal, 24)
+        .onPreferenceChange(RuleNoticeSourceFrameKey.self) { frame in
+            guard frame.width > 0 else { return }
+            ruleNoticeSourceFrame = frame
+        }
         .animation(spring, value: state.focusedGoalID)
         .animation(spring, value: state.selectedGoalIDs)
         .animation(spring, value: state.starredGoalIDs)
         .overlay(alignment: .topTrailing) {
             if let ruleNotice {
-                RuleNoticeBanner(message: ruleNotice)
-                    .matchedGeometryEffect(id: "rule-notice", in: noticeMorph)
+                RuleNoticeBanner(
+                    message: ruleNotice,
+                    sourceFrame: ruleNoticeSourceFrame,
+                    phase: ruleNoticePhase
+                )
+                    .frame(height: 94)
                     .padding(.top, 84)
                     .padding(.horizontal, 24)
-                    .transition(.opacity)
                     .zIndex(500)
             }
         }
@@ -231,6 +346,38 @@ struct TodayStackDeckView: View {
                 state.focusedGoalID = firstGoal.id
             }
         }
+    }
+
+    private struct HomeEntryPose {
+        var scaleX: CGFloat
+        var scaleY: CGFloat
+        var x: CGFloat = 0
+        var y: CGFloat
+        var rotation: Double = 0
+    }
+
+    private func homeEntryPose(slot: Int, visibleSlots: Int, geometry: GeometryProxy, cardHeight: CGFloat, step: CGFloat) -> HomeEntryPose {
+        let finalScale = cardScale(slot: slot, visibleSlots: visibleSlots)
+        let finalY = cardTop(slot: slot, step: step, height: cardHeight)
+        guard let launch = homeLaunchFrame, !reduceMotion, !homeEntrySettled else {
+            return HomeEntryPose(scaleX: finalScale, scaleY: finalScale, y: finalY)
+        }
+        let heroSlot = min(2, visibleSlots - 1)
+        let landingY = cardTop(slot: max(0, heroSlot), step: step, height: cardHeight)
+        if homeFlownCards.contains(slot) || slot > 2 {
+            let stackScale: CGFloat = 1 - CGFloat(max(0, heroSlot - slot)) * 0.035
+            return HomeEntryPose(scaleX: stackScale, scaleY: stackScale, y: landingY - CGFloat(max(0, heroSlot - slot)) * 10)
+        }
+        let viewport = geometry.frame(in: .global)
+        let isLifted = homeLiftedCards.contains(slot)
+        let side: CGFloat = slot == 0 ? -1 : (slot == 1 ? 1 : 0)
+        return HomeEntryPose(
+            scaleX: launch.width / max(1, geometry.size.width),
+            scaleY: launch.height / max(1, cardHeight),
+            x: launch.midX - viewport.midX + (isLifted ? side * 24 : 0),
+            y: launch.minY - viewport.minY + CGFloat(slot - 2) * 8 - (isLifted ? 42 : 0),
+            rotation: isLifted ? Double(side) * 5 : 0
+        )
     }
 
     private func legend(_ title: String, color: Color) -> some View {
@@ -254,18 +401,26 @@ struct TodayStackDeckView: View {
         .accessibilityHidden(true)
     }
 
+    private var completedBadge: some View {
+        ZStack {
+            Circle()
+                .fill(LinearGradient(
+                    colors: [Color(red: 0.35, green: 0.94, blue: 0.73), Color(red: 0.12, green: 0.70, blue: 0.56)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 27, height: 27)
+        .allowsHitTesting(false)
+        .accessibilityLabel("已完成，保持选择")
+    }
+
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
-        let tint = Color(red: goal.tint.red, green: goal.tint.green, blue: goal.tint.blue)
-        return deckCardShape
-            .fill(LinearGradient(stops: [
-                .init(color: tint.opacity(0.99), location: 0),
-                .init(color: tint.opacity(0.97), location: 0.48),
-                .init(color: tint.opacity(0.92), location: 1)
-            ], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(alignment: .top) {
-                deckCardShape
-                    .fill(LinearGradient(colors: [.white.opacity(0.28), .clear, .black.opacity(0.12)], startPoint: .top, endPoint: .bottom))
-            }
+        let tint = colorTheme.selectedDeckCardColor(at: goal.order - 1, count: colorRangeEndOrder)
+        return SelectedDeckCardSurface(shape: deckCardShape, tint: tint)
     }
 
     private func goalCard(_ goal: Goal, isHero: Bool, selected: Bool, contentReveal: CGFloat) -> some View {
@@ -305,10 +460,14 @@ struct TodayStackDeckView: View {
                 ZStack {
                     Circle().fill(.white.opacity(0.18)).frame(width: 104, height: 104)
                     Circle().stroke(.white.opacity(0.58), lineWidth: 1.3).frame(width: 58, height: 58)
+                    Color.clear
+                        .frame(width: 104, height: 104)
+                        .overlay { HabitCardFlowerHead(habitID: goal.id) }
                     if selected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 22, weight: .medium))
                             .foregroundStyle(.white.opacity(0.94))
+                            .shadow(color: .black.opacity(0.45), radius: 3)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -329,7 +488,7 @@ struct TodayStackDeckView: View {
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.white.opacity(0.86))
+                    .foregroundStyle(.white.opacity(colorTheme == .lavender ? 1 : 0.86))
                     .padding(.horizontal, 24)
                     .padding(.top, 6)
                     .opacity(contentReveal)
@@ -390,19 +549,6 @@ struct TodayStackDeckView: View {
     private var periodicColor: Color { Color(red: 0.70, green: 0.58, blue: 0.91) }
     private var starredColor: Color { Color(red: 0.96, green: 0.36, blue: 0.24) }
 
-    private var deckBottomFadeMask: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: .white, location: 0),
-                .init(color: .white, location: 0.95),
-                .init(color: .white.opacity(0.72), location: 0.98),
-                .init(color: .clear, location: 1)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
     private func contentReveal(slot: Int, step: CGFloat, height: CGFloat, visibleSlots: Int, viewportHeight: CGFloat) -> CGFloat {
         let currentTop = cardTop(slot: slot, step: step, height: height)
         let nextTop = slot + 1 < visibleSlots
@@ -462,6 +608,10 @@ struct TodayStackDeckView: View {
     }
 
     private func toggle(_ goal: Goal) {
+        guard !isCompletedToday(goal) else {
+            showRuleNotice("你很棒，任务已经完成了")
+            return
+        }
         let wasSelected = state.selectedGoalIDs.contains(goal.id)
         guard wasSelected || !goal.countsTowardQuota || state.completedRegularGoalIDs.contains(goal.id) || regularCount < 3 else {
             showRuleNotice("当天最多选择 3 个普通或周期目标，请先取消一个再选择。")
@@ -486,16 +636,41 @@ struct TodayStackDeckView: View {
         return current.union(state.completedRegularGoalIDs).count
     }
 
+    private func isCompletedToday(_ goal: Goal) -> Bool {
+        goal.completedToday || state.completedSelectedGoalIDs.contains(goal.id)
+    }
+
     private func showRuleNotice(_ message: String) {
         let id = UUID()
         ruleNoticeID = id
-        withAnimation(.spring(response: 1.04, dampingFraction: 0.90, blendDuration: 0.32)) {
+        withTransaction(Transaction(animation: nil)) {
             ruleNotice = message
+            ruleNoticePhase = .capsule
         }
         Task { @MainActor in
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
+                ruleNoticePhase = .horizontal
+            }
+            try? await Task.sleep(for: .seconds(0.38))
+            guard ruleNoticeID == id else { return }
+            withAnimation(.spring(response: 0.48, dampingFraction: 0.90)) {
+                ruleNoticePhase = .expanded
+            }
             try? await Task.sleep(for: .seconds(5))
             guard ruleNoticeID == id else { return }
-            withAnimation(.spring(response: 0.92, dampingFraction: 0.92)) { ruleNotice = nil }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.90)) {
+                ruleNoticePhase = .horizontal
+            }
+            try? await Task.sleep(for: .seconds(0.42))
+            guard ruleNoticeID == id else { return }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.90)) {
+                ruleNoticePhase = .capsule
+            }
+            try? await Task.sleep(for: .seconds(0.34))
+            guard ruleNoticeID == id else { return }
+            withTransaction(Transaction(animation: nil)) {
+                ruleNotice = nil
+            }
         }
     }
 }
@@ -522,34 +697,92 @@ private struct StarTapControl: View {
 
 private struct RuleNoticeBanner: View {
     let message: String
+    let sourceFrame: CGRect
+    let phase: RuleNoticeExpansionPhase
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.system(size: 15, weight: .semibold))
-            Text(message)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
+        GeometryReader { geometry in
+            let targetFrame = geometry.frame(in: .global)
+            let startFrame = sourceFrame.width > 0
+                ? sourceFrame
+                : CGRect(x: targetFrame.maxX - 68, y: targetFrame.minY, width: 68, height: 40)
+            let size = backgroundSize(in: geometry.size, startFrame: startFrame)
+            let center = backgroundCenter(in: geometry.size, targetFrame: targetFrame, startFrame: startFrame, size: size)
+            let shape = RoundedRectangle(cornerRadius: min(size.height / 2, 26), style: .continuous)
+
+            ZStack(alignment: .topLeading) {
+                RuleNoticeBackground(shape: shape)
+                    .overlay {
+                        shape.stroke(.white.opacity(0.72), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.14), radius: 14, y: 7)
+                    .frame(width: size.width, height: size.height)
+                    .position(center)
+
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .fixedSize()
+                    Text(message)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .foregroundStyle(Color(red: 0.28, green: 0.20, blue: 0.24))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+                .opacity(phase == .expanded ? 1 : 0)
+            }
         }
-        .foregroundStyle(Color(red: 0.28, green: 0.20, blue: 0.24))
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, minHeight: 94, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .background(
-            LinearGradient(
-                colors: [.white.opacity(0.34), .white.opacity(0.10)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(.white.opacity(0.72), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.14), radius: 14, y: 7)
+        .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isStaticText)
+    }
+
+    private func backgroundSize(in bounds: CGSize, startFrame: CGRect) -> CGSize {
+        switch phase {
+        case .capsule:
+            return startFrame.size
+        case .horizontal:
+            return CGSize(width: bounds.width, height: startFrame.height)
+        case .expanded:
+            return bounds
+        }
+    }
+
+    private func backgroundCenter(in bounds: CGSize, targetFrame: CGRect, startFrame: CGRect, size: CGSize) -> CGPoint {
+        switch phase {
+        case .capsule:
+            return CGPoint(x: startFrame.midX - targetFrame.minX, y: startFrame.midY - targetFrame.minY)
+        case .horizontal:
+            return CGPoint(x: startFrame.maxX - targetFrame.minX - size.width / 2, y: startFrame.midY - targetFrame.minY)
+        case .expanded:
+            return CGPoint(x: bounds.width / 2, y: bounds.height / 2)
+        }
+    }
+}
+
+private enum RuleNoticeExpansionPhase: Equatable {
+    case capsule
+    case horizontal
+    case expanded
+}
+
+private struct RuleNoticeSourceFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next.width > 0 { value = next }
+    }
+}
+
+private struct RuleNoticeBackground<S: Shape>: View {
+    let shape: S
+
+    var body: some View {
+        shape
+            .fill(.white.opacity(0.90))
     }
 }

@@ -1,0 +1,12 @@
+.idea/
+.vscode/
+**/.dart_tool/
+**/build/
+**/GeneratedPluginRegistrant.*
+
+.DS_Store
+**/__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
