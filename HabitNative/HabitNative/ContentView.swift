@@ -1,6 +1,47 @@
 import SwiftUI
 import UIKit
 
+// MARK: - 电影感光影剧本配置 (Cinematic Lighting Script)
+public struct CinematicLightingScript: Sendable {
+    public let wallStops: [Color]
+    public let floorStops: [Color]
+    public let sunlightDiffuse: [Color]
+    public let sunlightBeam: [Color]
+    public let sunlightCore: [Color]
+    public let sunlightStartPoint: UnitPoint
+    public let sunlightEndPoint: UnitPoint
+    public let sunlightOpacity: Double
+    public let thresholdContactShadow: Color
+    public let interiorBacklightRamp: [Color]
+    public let interiorBacklightCore: [Color]
+
+    public init(
+        wallStops: [Color],
+        floorStops: [Color],
+        sunlightDiffuse: [Color],
+        sunlightBeam: [Color],
+        sunlightCore: [Color],
+        sunlightStartPoint: UnitPoint,
+        sunlightEndPoint: UnitPoint,
+        sunlightOpacity: Double,
+        thresholdContactShadow: Color,
+        interiorBacklightRamp: [Color],
+        interiorBacklightCore: [Color]
+    ) {
+        self.wallStops = wallStops
+        self.floorStops = floorStops
+        self.sunlightDiffuse = sunlightDiffuse
+        self.sunlightBeam = sunlightBeam
+        self.sunlightCore = sunlightCore
+        self.sunlightStartPoint = sunlightStartPoint
+        self.sunlightEndPoint = sunlightEndPoint
+        self.sunlightOpacity = sunlightOpacity
+        self.thresholdContactShadow = thresholdContactShadow
+        self.interiorBacklightRamp = interiorBacklightRamp
+        self.interiorBacklightCore = interiorBacklightCore
+    }
+}
+
 // Palette changes are limited to interface surfaces; garden artwork keeps its own colors.
 enum HabitColorTheme: String, CaseIterable, Identifiable {
     case original
@@ -9,23 +50,28 @@ enum HabitColorTheme: String, CaseIterable, Identifiable {
     static let storageKey = "appearance.colorTheme"
     var id: String { rawValue }
     var title: String { self == .original ? "原色" : "雾紫" }
-    var accent: Color { self == .original ? Color(red: 0.93, green: 0.22, blue: 0.65) : Color(red: 0.39, green: 0.23, blue: 0.64) }
-    var companion: Color { self == .original ? Color(red: 1, green: 0.57, blue: 0.34) : Color(red: 0.70, green: 0.53, blue: 0.91) }
-    var selectedNavigationForeground: Color {
-        self == .original ? Color(red: 0.18, green: 0.14, blue: 0.20) : Color(red: 0.84, green: 0.76, blue: 0.98)
-    }
-    var unselectedNavigationForeground: Color { Color(red: 0.24, green: 0.15, blue: 0.36) }
-    var selectedNavigationBackground: Color {
-        self == .original ? Color.white.opacity(0.82) : Color(red: 0.21, green: 0.20, blue: 0.22)
-    }
-    var selectedNavigationBorder: Color {
-        self == .original ? Color.white.opacity(0.90) : selectedNavigationForeground.opacity(0.54)
-    }
-    var deepInk: Color { .black }
-    var softSurface: Color { Color(red: 0.91, green: 0.87, blue: 0.96) }
-    var canvas: Color { self == .original ? .white : .black }
 
-    var floatingOrbSpherePalettes: (pink: [Color], peach: [Color]) {
+    // ==========================================
+    // MARK: - 面板 1：背景光球与底色 (Atmosphere & Orbs Panel)
+    // ==========================================
+    var accent: Color {
+        self == .original ? Color(red: 0.93, green: 0.22, blue: 0.65) : Color(red: 0.39, green: 0.23, blue: 0.64)
+    }
+    var companion: Color {
+        self == .original ? Color(red: 1.00, green: 0.57, blue: 0.34) : Color(red: 0.70, green: 0.53, blue: 0.91)
+    }
+
+    /// The two bottom-layer background orbs define the shared color sources.
+    var largeOrbPalette: [Color] { floatingOrbSpherePalettes.large }
+    var smallOrbPalette: [Color] { floatingOrbSpherePalettes.small }
+    var largeOrbCenterColor: Color { largeOrbPalette.first ?? accent }
+    var smallOrbCenterColor: Color { smallOrbPalette.first ?? companion }
+
+    /// Top-layer floating small orbs sample the centers of the two bottom orbs.
+    var floatingSmallOrb1Color: Color { largeOrbCenterColor }
+    var floatingSmallOrb2Color: Color { smallOrbCenterColor }
+
+    var floatingOrbSpherePalettes: (large: [Color], small: [Color]) {
         if self == .lavender {
             return (
                 [accent, accent.mix(with: companion, by: 0.24), accent.mix(with: companion, by: 0.54)],
@@ -33,8 +79,8 @@ enum HabitColorTheme: String, CaseIterable, Identifiable {
             )
         }
         return (
-            [Color(red: 240 / 255, green: 75 / 255, blue: 175 / 255), Color(red: 208 / 255, green: 60 / 255, blue: 165 / 255), Color(red: 175 / 255, green: 65 / 255, blue: 178 / 255)],
-            [Color(red: 255 / 255, green: 202 / 255, blue: 130 / 255), Color(red: 255 / 255, green: 150 / 255, blue: 95 / 255), Color(red: 242 / 255, green: 100 / 255, blue: 125 / 255)]
+            [Color(red: 240 / 255, green: 75 / 255, blue: 175 / 255), Color(red: 241 / 255, green: 92 / 255, blue: 180 / 255), Color(red: 246 / 255, green: 155 / 255, blue: 204 / 255)],
+            [Color(red: 255 / 255, green: 160 / 255, blue: 108 / 255), Color(red: 255 / 255, green: 177 / 255, blue: 135 / 255), Color(red: 255 / 255, green: 205 / 255, blue: 177 / 255)]
         )
     }
 
@@ -65,9 +111,130 @@ enum HabitColorTheme: String, CaseIterable, Identifiable {
     }
 
     var floatingOrbPalette: [Color] {
-        let palettes = floatingOrbSpherePalettes
-        return palettes.pink + palettes.peach
+        return largeOrbPalette + smallOrbPalette
     }
+
+    // ==========================================
+    // MARK: - 面板 3：导航栏专属对比与微呼应 (Navigation Bar Panel)
+    // ==========================================
+    var selectedNavigationForeground: Color {
+        self == .original ? .black : .white
+    }
+    var unselectedNavigationForeground: Color {
+        self == .original ? Color(white: 0.28) : Color(white: 0.84)
+    }
+    /// 导航栏保持中性液态玻璃材质
+    var selectedNavigationBackground: Color {
+        self == .original ? Color.white.opacity(0.68) : Color(red: 0.075, green: 0.045, blue: 0.12).opacity(0.46)
+    }
+    var selectedNavigationBorder: Color {
+        self == .original ? Color.white.opacity(0.90) : Color.white.opacity(0.24)
+    }
+    /// 微弱高光边缘或投影带有 10% 的光球伴随色轻微呼应
+    var navigationGlowTint: Color {
+        companion.opacity(0.10)
+    }
+    var deepInk: Color { .black }
+    var softSurface: Color { Color(red: 0.91, green: 0.87, blue: 0.96) }
+    var canvas: Color { self == .original ? .white : .black }
+
+    // ==========================================
+    // MARK: - 面板 4：电影感光影剧本 (Cinematic Lighting Script Panel)
+    // ==========================================
+    var cinematicLighting: CinematicLightingScript {
+        switch self {
+        case .original:
+            // 暖色调暖：纯正暖阳、琥珀与晨曦金橙光晕
+            return CinematicLightingScript(
+                wallStops: [
+                    Color(red: 0.040, green: 0.040, blue: 0.045),
+                    Color(red: 0.025, green: 0.025, blue: 0.028),
+                    Color(red: 0.012, green: 0.012, blue: 0.015)
+                ],
+                floorStops: [
+                    Color(red: 0.022, green: 0.022, blue: 0.025),
+                    Color(red: 0.010, green: 0.010, blue: 0.012),
+                    Color(red: 0.004, green: 0.004, blue: 0.006)
+                ],
+                sunlightDiffuse: [
+                    Color(red: 1.00, green: 0.60, blue: 0.16).opacity(0.75),
+                    Color(red: 1.00, green: 0.68, blue: 0.22).opacity(0.46),
+                    Color(red: 0.47, green: 0.28, blue: 0.13),
+                    Color(red: 0.010, green: 0.010, blue: 0.012)
+                ],
+                sunlightBeam: [
+                    Color(red: 1.00, green: 0.66, blue: 0.18).opacity(0.88),
+                    Color(red: 1.00, green: 0.72, blue: 0.26).opacity(0.62),
+                    Color(red: 0.50, green: 0.30, blue: 0.13),
+                    Color(red: 0.010, green: 0.010, blue: 0.012)
+                ],
+                sunlightCore: [
+                    Color(red: 1.00, green: 0.84, blue: 0.45).opacity(0.95),
+                    Color(red: 1.00, green: 0.70, blue: 0.22).opacity(0.76),
+                    Color(red: 0.53, green: 0.32, blue: 0.14),
+                    Color(red: 0.010, green: 0.010, blue: 0.012)
+                ],
+                sunlightStartPoint: .topTrailing,
+                sunlightEndPoint: .bottomLeading,
+                sunlightOpacity: 1.0,
+                thresholdContactShadow: Color.black.opacity(0.65),
+                interiorBacklightRamp: [
+                    Color(red: 1.00, green: 0.90, blue: 0.70),
+                    Color(red: 1.00, green: 0.76, blue: 0.38),
+                    Color(red: 1.00, green: 0.62, blue: 0.22),
+                    Color.clear
+                ],
+                interiorBacklightCore: [
+                    Color(red: 1.00, green: 0.96, blue: 0.85),
+                    Color(red: 1.00, green: 0.82, blue: 0.46),
+                    Color.clear
+                ]
+            )
+        case .lavender:
+            // 冷色调冷：静谧冷淡丁香月白、清幽冷紫与深木冷棕光影
+            return CinematicLightingScript(
+                wallStops: floatingOrbAtmosphere.gradientStops,
+                floorStops: floatingOrbAtmosphere.gradientStops,
+                sunlightDiffuse: [
+                    Color(red: 0.85, green: 0.75, blue: 1.00).opacity(0.72),
+                    Color(red: 0.69, green: 0.52, blue: 0.87).opacity(0.58),
+                    Color(red: 0.42, green: 0.28, blue: 0.38),
+                    Color(red: 0.060, green: 0.025, blue: 0.040)
+                ],
+                sunlightBeam: [
+                    Color(red: 0.88, green: 0.80, blue: 1.00).opacity(0.85),
+                    Color(red: 0.73, green: 0.57, blue: 0.93).opacity(0.70),
+                    Color(red: 0.46, green: 0.30, blue: 0.40),
+                    Color(red: 0.060, green: 0.025, blue: 0.040)
+                ],
+                sunlightCore: [
+                    Color(red: 0.96, green: 0.90, blue: 1.00).opacity(0.92),
+                    Color(red: 0.82, green: 0.68, blue: 0.96).opacity(0.72),
+                    Color(red: 0.50, green: 0.34, blue: 0.44),
+                    Color(red: 0.060, green: 0.025, blue: 0.040)
+                ],
+                sunlightStartPoint: UnitPoint(x: 0.5, y: 0.60),
+                sunlightEndPoint: UnitPoint(x: 0.5, y: 1.15),
+                sunlightOpacity: 0.55,
+                thresholdContactShadow: Color(red: 0.075, green: 0.032, blue: 0.040).opacity(0.65),
+                interiorBacklightRamp: [
+                    Color(red: 0.90, green: 0.84, blue: 1.00),
+                    Color(red: 0.78, green: 0.66, blue: 0.94),
+                    Color(red: 0.60, green: 0.45, blue: 0.80),
+                    Color.clear
+                ],
+                interiorBacklightCore: [
+                    Color(red: 0.95, green: 0.92, blue: 1.00),
+                    Color(red: 0.80, green: 0.70, blue: 0.96),
+                    Color.clear
+                ]
+            )
+        }
+    }
+
+    // ==========================================
+    // MARK: - 面板 2：卡片与质感派生 (Cards Panel)
+    // ==========================================
 
     func cardBaseColor(at index: Int, count: Int) -> Color {
         let endpoints = floatingOrbPalette.sorted { luminance($0) < luminance($1) }
@@ -358,6 +525,8 @@ struct ContentView: View {
         Task {
             do {
                 try NativeDatabase().clearAllUserData()
+                ReviewWritingDrafts.removeAll()
+                ReviewAICooldown.reset()
                 let date = Date.now
                 goals = try await repository.availableGoals(for: date)
                 selectedGoals = []
@@ -411,6 +580,7 @@ private struct TodayRootView: View {
     @State private var homeDeckOpening = false
     @State private var homeDeckGathered = false
     @State private var homeDeckLaunchFrame: CGRect = .zero
+    @State private var reviewReceiptPresentation = ReviewReceiptPresentation()
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
     private let fluidMorphAnimation = Animation.spring(response: 0.73, dampingFraction: 0.90, blendDuration: 0.05)
@@ -424,7 +594,14 @@ private struct TodayRootView: View {
             // 主内容区域（包含顶部和卡片/页面）
             VStack(spacing: 0) {
                 if state.tab == .today && !isExecuting && state.mode != .browsingDeck {
-                    TodayHeaderView(selectedCount: state.selectedGoalIDs.count, mode: state.mode, tuning: tuning, dashboard: dashboard)
+                    TodayHeaderView(
+                        selectedCount: state.selectedGoalIDs.count,
+                        mode: state.mode,
+                        tuning: tuning,
+                        dashboard: dashboard,
+                        pointsOpacity: 1 - Double(activeExecutionExpansionProgress),
+                        headerOpacity: 1 - Double(activeExecutionExpansionProgress)
+                    )
                         .offset(y: state.mode == .homeUnselected ? -25 : 0)
                         .transition(.asymmetric(
                             insertion: .offset(y: -220).combined(with: .opacity),
@@ -481,6 +658,8 @@ private struct TodayRootView: View {
                             allGoals: goals,
                             state: $state,
                             selectionTransitionNamespace: selectionTransitionNamespace,
+                            hiddenExecutionGoalID: executionExpansionIsReturning ? nil : expandingGoal?.id,
+                        executionExpansionProgress: activeExecutionExpansionProgress,
                             buttonRevealTrigger: selectedReturnButtonRevealTrigger,
                             onBrowseGoals: { browseGoals(returningTo: .homeSelected) },
                             onStartGoal: startExecution
@@ -516,7 +695,7 @@ private struct TodayRootView: View {
                             removal: .opacity
                         ))
                 } else if state.tab == .review {
-                    ReviewPage(goals: goals)
+                    ReviewPage(goals: goals, receiptPresentation: reviewReceiptPresentation)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.98)),
                             removal: .opacity
@@ -652,7 +831,24 @@ private struct TodayRootView: View {
                     .accessibilityAddTraits(.isStaticText)
             }
         }
+        .overlay {
+            ReviewReceiptOverlay(presentation: reviewReceiptPresentation)
+        }
+        .statusBarHidden(reviewReceiptPresentation.isActive)
+        .task {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-review-receipt-preview") {
+                state.tab = .review
+            }
+            #endif
+        }
         .animation(expandingGoal == nil ? (reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.62, dampingFraction: 0.82, blendDuration: 0.14)) : nil, value: state.mode)
+    }
+
+    // Completion and early timer exits can return without the card morph.
+    // A retained progress of 1 must never hide the stable Today screen.
+    private var activeExecutionExpansionProgress: CGFloat {
+        expandingGoal == nil ? 0 : expansionProgress
     }
 
     private func startExecution(_ goal: Goal) {
@@ -722,7 +918,14 @@ private struct TodayRootView: View {
         GeometryReader { geometry in
             let origin = geometry.frame(in: .global).origin
             let start = expansionStartFrame.offsetBy(dx: -origin.x, dy: -origin.y)
-            let target = CGRect(origin: .zero, size: geometry.size)
+            let hasCardArtwork = goal.cardArtworkAsset != nil
+            let target = CGRect(
+                origin: .zero,
+                size: CGSize(
+                    width: geometry.size.width,
+                    height: hasCardArtwork ? geometry.size.height / 3 : geometry.size.height
+                )
+            )
             let progress = expansionProgress
             let width = start.width + (target.width - start.width) * progress
             let height = start.height + (target.height - start.height) * progress
@@ -737,6 +940,9 @@ private struct TodayRootView: View {
             )
             let shape = RoundedRectangle(cornerRadius: 26 * (1 - progress), style: .continuous)
             let safeTop = max(geometry.safeAreaInsets.top, 62)
+            let startArtworkWidth = start.width * 2.1875
+            let targetArtworkWidth = geometry.size.width * 2.10
+            let artworkWidth = startArtworkWidth + (targetArtworkWidth - startArtworkWidth) * progress
             let textX = start.minX + 20 + (24 - start.minX - 20) * progress
             let textWidth = start.width - 40 + (target.width - 48 - start.width + 40) * progress
             let titleY = start.minY + 49 + (safeTop + 28 - start.minY - 49) * progress
@@ -745,10 +951,13 @@ private struct TodayRootView: View {
 
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .top) {
+                    // Keep the moving card's own surface solid while the cards
+                    // behind it fade with the same transition progress.
+                    tint
                     LinearGradient(stops: [
-                        .init(color: tint.opacity(0.99), location: 0),
-                        .init(color: tint.opacity(0.97), location: 0.48),
-                        .init(color: tint.opacity(0.92), location: 1)
+                        .init(color: .white.opacity(0.14), location: 0),
+                        .init(color: .white.opacity(0.06), location: 0.48),
+                        .init(color: .clear, location: 1)
                     ], startPoint: .topLeading, endPoint: .bottomTrailing)
                     Rectangle()
                         .fill(
@@ -760,9 +969,31 @@ private struct TodayRootView: View {
                         )
                         .frame(height: height * 0.43)
                         .opacity(progress)
+
                 }
                 .frame(width: width, height: height)
                 .clipShape(shape)
+                .overlay {
+                    if hasCardArtwork {
+                        GoalCardArtwork(goal: goal, widthScale: artworkWidth / max(width, 1))
+                            .clipShape(shape)
+                    }
+                }
+                .mask {
+                    if hasCardArtwork {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white, location: 0),
+                                .init(color: .white, location: 0.68),
+                                .init(color: .white.opacity(1 - progress), location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    } else {
+                        Color.white
+                    }
+                }
                 .opacity(1 - 0.05 * returnDetailOpacity)
                 .overlay {
                     ZStack {
@@ -1048,6 +1279,7 @@ private struct SettingsPanelMorph: AnimatableModifier {
 // MARK: - 设置专属流体形变展开面板 (Fluid Settings Panel with Interactive Pull-Down Dismiss)
 private struct FluidSettingsExpandedPanel: View {
     @AppStorage(HabitColorTheme.storageKey) private var colorTheme = HabitColorTheme.original
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     let fluidMorphAnimation: Animation
     let onDismiss: () -> Void
     let onClearData: () -> Void
@@ -1122,6 +1354,33 @@ private struct FluidSettingsExpandedPanel: View {
                     }
                 }
                 .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("声音反馈")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
+                    HStack(spacing: 12) {
+                        Image(systemName: soundEffectsEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(Color(red: 0.49, green: 0.34, blue: 0.53))
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("总体音效")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text("打字、打印与完成提示")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(red: 0.32, green: 0.28, blue: 0.33).opacity(0.68))
+                        }
+                        Spacer(minLength: 8)
+                        Toggle("总体音效", isOn: $soundEffectsEnabled)
+                            .labelsHidden()
+                            .tint(Color(red: 0.62, green: 0.39, blue: 0.70))
+                            .accessibilityIdentifier("settings.soundEffects")
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(.white.opacity(0.52), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
 
                 Button(role: .destructive) {
                     showingClearConfirmation = true
@@ -1239,6 +1498,8 @@ private struct AppTabPage: View {
 private struct GoalDeckView: View {
     let goals: [Goal]
     @Binding var state: TodayGoalState
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
+    @State private var cardMovementSound = AppSoundFeedback()
 
     private var focus: Int { max(0, goals.firstIndex(where: { $0.id == state.focusedGoalID }) ?? 0) }
 
@@ -1302,6 +1563,7 @@ private struct GoalDeckView: View {
     private func move(_ delta: Int) {
         guard !goals.isEmpty else { return }
         let next = (focus + delta + goals.count) % goals.count
+        cardMovementSound.play(.navigation, enabled: soundEffectsEnabled)
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { state.focusedGoalID = goals[next].id }
     }
 
@@ -1426,12 +1688,16 @@ private struct SelectedGoalView: View {
     let allGoals: [Goal]
     @Binding var state: TodayGoalState
     let selectionTransitionNamespace: Namespace.ID
+    let hiddenExecutionGoalID: String?
+    let executionExpansionProgress: CGFloat
     let buttonRevealTrigger: UUID
     let onBrowseGoals: () -> Void
     let onStartGoal: (Goal) -> Void
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     @GestureState private var dragX: CGFloat = 0
+    @State private var cardSwitchSound = AppSoundFeedback()
     @State private var departingGoal: Goal?
     @State private var departingOffsetX: CGFloat = 0
     @State private var stackStep = 1
@@ -1509,6 +1775,7 @@ private struct SelectedGoalView: View {
                     let cardIndex = item.index
                     let goal = item.goal
                     let isFront = depth == 0
+                    let isBottom = depth == visibleCount - 1
                     let direction: CGFloat = dragX < 0 ? -1 : 1
                     let pose = backOffsets[depth]
 
@@ -1584,11 +1851,15 @@ private struct SelectedGoalView: View {
                     }
                     .shadow(
                         color: Color(red: 0.42, green: 0.16, blue: 0.30)
-                            .opacity(isFront ? 0.17 : (depth == 1 ? 0.11 : 0.07)),
-                        radius: isFront ? 16 : (depth == 1 ? 12 : 9),
+                            .opacity((isFront ? 0.17 : (depth == 1 ? 0.11 : 0.07)) + (isBottom ? 0 : 0.04)),
+                        radius: (isFront ? 16 : (depth == 1 ? 12 : 9)) + (isBottom ? 0 : 4),
                         y: isFront ? 10 : (depth == 1 ? 7 : 5)
                     )
-                    .shadow(color: .black.opacity(isFront ? 0.035 : 0.02), radius: 3, y: 2)
+                    .shadow(color: .black.opacity((isFront ? 0.035 : 0.02) + (isBottom ? 0 : 0.008)), radius: isBottom ? 3 : 4.5, y: 2)
+                    // The expansion overlay takes ownership of the front card at
+                    // the same frame. Hide this source so it cannot remain as a
+                    // translucent duplicate while the overlay moves away.
+                    .opacity(goal.id == hiddenExecutionGoalID ? 0 : 1)
                     .zIndex(Double(visibleCount - depth))
                     .allowsHitTesting(isFront)
                     .accessibilityHidden(!isFront)
@@ -1625,8 +1896,8 @@ private struct SelectedGoalView: View {
                     .compositingGroup()
                     .rotationEffect(.degrees(Double(-departingOffsetX / 50)))
                     .offset(x: departingOffsetX)
-                    .shadow(color: Color(red: 0.42, green: 0.16, blue: 0.30).opacity(0.17), radius: 16, y: 10)
-                    .shadow(color: .black.opacity(0.035), radius: 3, y: 2)
+                    .shadow(color: Color(red: 0.42, green: 0.16, blue: 0.30).opacity(visibleCount > 1 ? 0.21 : 0.17), radius: visibleCount > 1 ? 20 : 16, y: 10)
+                    .shadow(color: .black.opacity(visibleCount > 1 ? 0.043 : 0.035), radius: visibleCount > 1 ? 4.5 : 3, y: 2)
                     .zIndex(100)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -1634,6 +1905,7 @@ private struct SelectedGoalView: View {
 
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .opacity(1 - executionExpansionProgress)
             .contentShape(Rectangle())
             .gesture(dragGesture)
             .accessibilityHint("向左或向右滑动切换今日目标")
@@ -1673,6 +1945,7 @@ private struct SelectedGoalView: View {
               departingGoal == nil else { return }
 
         let direction = value.translation.width < 0 ? 1 : -1
+        cardSwitchSound.play(.navigation, enabled: soundEffectsEnabled)
         stackStep = direction
         departingGoal = selected[activeIndex]
         departingOffsetX = rubberBand(value.translation.width, limit: 170)
@@ -1690,6 +1963,7 @@ private struct SelectedGoalView: View {
 
     private func startGoalWithDeckMotion(_ goal: Goal) {
         guard startDeckScale == 1 else { return }
+        cardSwitchSound.play(.goalStartClick, enabled: soundEffectsEnabled)
         guard !reduceMotion else {
             onStartGoal(goal)
             return
@@ -1750,6 +2024,7 @@ private struct SelectedGoalView: View {
     private func shift(by direction: Int) {
         guard selected.count > 1 else { return }
         let next = (activeIndex + direction + selected.count) % selected.count
+        cardSwitchSound.play(.navigation, enabled: soundEffectsEnabled)
         stackStep = direction
         withAnimation(deckSpring) { state.homeSelectedIndex = next }
     }
@@ -1846,6 +2121,8 @@ private struct TodayHeaderView: View {
     var mode: TodayMode = .homeUnselected
     var tuning: UITuningState = UITuningState()
     let dashboard: HabitDashboardSnapshot?
+    var pointsOpacity: Double = 1
+    var headerOpacity: Double = 1
 
     private var headerTitle: String {
         mode == .homeSelected ? "已选择\n今天的\n目标" : "选择\n今天的\n目标"
@@ -1863,6 +2140,7 @@ private struct TodayHeaderView: View {
                     .foregroundStyle(colorTheme == .lavender ? Color.white : Color(red: 0.22, green: 0.20, blue: 0.24))
                     .shadow(color: colorTheme == .lavender ? .black.opacity(0.52) : .clear, radius: 1.5, y: 1)
                     .fixedSize(horizontal: false, vertical: true)
+                    .opacity(headerOpacity)
 
                 Spacer(minLength: 4)
 
@@ -1878,6 +2156,7 @@ private struct TodayHeaderView: View {
                 .foregroundStyle(.white.opacity(colorTheme == .lavender ? 0.98 : 0.82))
                 .shadow(color: colorTheme == .lavender ? .black.opacity(0.52) : .clear, radius: 1.5, y: 1)
                 .fixedSize(horizontal: true, vertical: false)
+                .opacity(headerOpacity)
             }
 
             // 中间行：副标题与右侧积分胶囊垂直居中对齐
@@ -1889,6 +2168,7 @@ private struct TodayHeaderView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(headerOpacity)
 
                 Spacer(minLength: 8)
 
@@ -1905,12 +2185,14 @@ private struct TodayHeaderView: View {
                 .padding(.vertical, 6)
                 .background(.white.opacity(0.72), in: Capsule())
                 .overlay(Capsule().stroke(Color(red: 0.26, green: 0.52, blue: 0.38).opacity(0.25), lineWidth: 1))
+                .opacity(pointsOpacity)
             }
 
             // 昨天的回顾提示位（保持柔和淡粉底色与清晰呼吸空间）
             if mode == .homeUnselected {
                 YesterdayReviewBanner(missedCount: dashboard?.missedYesterday ?? 0)
                     .padding(.top, tuning.bannerPaddingTop)
+                    .opacity(headerOpacity)
             }
         }
         .padding(.horizontal, 22)
@@ -2061,6 +2343,17 @@ private struct HomePreviewDeckView: View {
         )
     }
 
+    private func previewCardShadow(upperIndex: Int, lowerIndex: Int, opacity: Double) -> some View {
+        let upperPose = poses[upperIndex]
+        let offset = shadowOffset(from: upperIndex, onto: lowerIndex)
+        return RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .fill(.black.opacity(opacity))
+            .frame(width: upperPose.width, height: tuning.cardHeight)
+            .blur(radius: CGFloat(upperIndex == 0 ? 4 : 7))
+            .rotationEffect(.degrees(cardRotation(upperIndex) - cardRotation(lowerIndex)))
+            .offset(x: offset.width, y: offset.height)
+    }
+
     var body: some View {
         ZStack {
             ForEach(Swift.Array(cards.enumerated()), id: \.element.id) { index, card in
@@ -2081,19 +2374,17 @@ private struct HomePreviewDeckView: View {
                     .overlay {
                         if index > 0 {
                             ZStack {
-                                ForEach(0..<index, id: \.self) { upperIndex in
-                                    let upperPose = poses[upperIndex]
-                                    let offset = shadowOffset(from: upperIndex, onto: index)
-                                    let shadowOpacity = upperIndex == 0 && index == 2 ? 0.15 : 0.30
-
-                                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                                        .fill(.black.opacity(shadowOpacity))
-                                        .frame(width: upperPose.width, height: tuning.cardHeight)
-                                        .blur(radius: CGFloat(upperIndex == 0 ? 4 : 7))
-                                        .rotationEffect(.degrees(cardRotation(upperIndex) - cardRotation(index)))
-                                        .offset(x: offset.width, y: offset.height)
+                                if index == 2 {
+                                    previewCardShadow(upperIndex: 0, lowerIndex: index, opacity: 0.15)
+                                    // Partially knock out the overlap so the lighter first-card shadow remains visible.
+                                    previewCardShadow(upperIndex: 1, lowerIndex: index, opacity: 0.30)
+                                        .blendMode(.destinationOut)
+                                    previewCardShadow(upperIndex: 1, lowerIndex: index, opacity: 0.30)
+                                } else {
+                                    previewCardShadow(upperIndex: 0, lowerIndex: index, opacity: 0.30)
                                 }
                             }
+                            .compositingGroup()
                             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                         }
                     }
@@ -2215,6 +2506,11 @@ private struct PreviewGoalCard: View {
         textScale > 1
     }
 
+    private var artworkGoal: Goal? {
+        guard let goalID = appearance?.goalID else { return nil }
+        return paletteGoals?.first(where: { $0.id == goalID })
+    }
+
     private var cardTintColor: Color {
         let goals = paletteGoals ?? SharedHabitRepository.catalog
         let ordered = goals.sorted { $0.order == $1.order ? $0.id < $1.id : $0.order < $1.order }
@@ -2257,6 +2553,12 @@ private struct PreviewGoalCard: View {
             SelectedDeckCardSurface(
                 tint: cardTintColor
             )
+                .overlay {
+                    if let artworkGoal, artworkGoal.cardArtworkAsset != nil {
+                        GoalCardArtwork(goal: artworkGoal, widthScale: 2.1875)
+                            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    }
+                }
                 .overlay {
                     if !usesSelectedDeckLayout && isPressed {
                         RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -2381,184 +2683,127 @@ private struct HomeCaptionView: View {
 private struct TodayBottomNavigationView: View {
     @Environment(\.habitColorTheme) private var colorTheme
     @Binding var tab: AppTab
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var animatedIndex: Double = 0
+    @State private var navigationSound = AppSoundFeedback()
+    @State private var settingsLocalFrame: CGRect = .zero
     let fluidMorphAnimation: Animation
     let onOpenSettings: () -> Void
 
-    // 水滴中心在各个 Tab 上的目标相对索引：今天(0.0), 养成物(1.0), 复盘(2.0)
-    @State private var animatedIndex: Double = 0.0
-
-    // 优雅放慢弹簧响应时间（0.62s 舒缓流体弹簧），让水滴形变与流动看得一清二楚，从容优雅
-    private let fluidSpring = Animation.spring(response: 0.62, dampingFraction: 0.86)
-
     var body: some View {
-        HStack(spacing: 12) {
-            // 左侧三个按键容器（极致通透的 iOS 27 水晶液态玻璃大胶囊，收窄宽度更精致）
-            ZStack(alignment: .leading) {
-                // 1. 胶囊外壳晶莹透明液态玻璃底座
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .overlay(Capsule().fill(Color.black.opacity(colorTheme == .lavender ? 0.12 : 0)))
-                    .opacity(colorTheme == .lavender ? 0.68 : 0.20)
-                    .overlay(
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        .white.opacity(colorTheme == .lavender ? 0.055 : 0.08),
-                                        .white.opacity(colorTheme == .lavender ? 0.018 : 0.025),
-                                        .clear,
-                                        .white.opacity(colorTheme == .lavender ? 0.065 : 0.10)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(
-                                LinearGradient(
-                                    colors: colorTheme == .lavender ? [.white.opacity(0.62), .white.opacity(0.15), .white.opacity(0.08), .white.opacity(0.42)] : [
-                                        .white.opacity(0.86),
-                                        .white.opacity(0.16),
-                                        .white.opacity(0.08),
-                                        .white.opacity(0.55)
-                                    ],
-                                    startPoint: .bottomLeading,
-                                    endPoint: .topTrailing
-                                ),
-                                lineWidth: 1.1
-                            )
-                    )
-                    .shadow(color: .white.opacity(colorTheme == .lavender ? 0.20 : 0.42), radius: 7, x: -3, y: 3)
-                    .shadow(color: Color.black.opacity(0.045), radius: 12, y: 6)
-
-                // 2. 空间连续滑动的动态水滴（在两按键之间约 20px 的过渡区自然扁平化，进入按钮恢复饱满）
-                GeometryReader { geo in
-                    let availableWidth = geo.size.width
-                    let itemWidth = availableWidth / 3
-
-                    FluidContinuousDropletView(
-                        progress: animatedIndex,
-                        itemWidth: itemWidth,
-                        totalHeight: geo.size.height,
-                        reduceMotion: reduceMotion
-                    )
-                    .allowsHitTesting(false)
-                }
-
-                // 3. 三个按键排布
-                HStack(spacing: 0) {
-                    ForEach([AppTab.today, .garden, .review], id: \.self) { itemTab in
-                        Button {
-                            switchTab(to: itemTab)
-                        } label: {
-                            NavigationItem(
-                                symbol: itemTab == .today ? "house" : (itemTab == .garden ? "leaf" : "list.bullet"),
-                                title: itemTab == .today ? "今天" : (itemTab == .garden ? "养成物" : "复盘"),
-                                selected: tab == itemTab
-                            )
-                        }
-                    }
-                }
-                .padding(5)
-            }
-            .clipShape(Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: colorTheme == .lavender ? [.white.opacity(0.62), .white.opacity(0.15), .white.opacity(0.42)] : [.white.opacity(0.74), .white.opacity(0.12), .white.opacity(0.40)],
-                            startPoint: .bottomLeading,
-                            endPoint: .topTrailing
-                        ),
-                        lineWidth: 1.1
-                    )
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 60) // 恢复舒适大气的底层导航栏高度
-            .onAppear {
-                animatedIndex = tabTargetIndex(for: tab)
-            }
-
-            // 右侧设置按钮（晶莹透亮圆形液态玻璃球，尺寸适配底层导航高度 60x60）
-            Button {
-                onOpenSettings()
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .overlay(Circle().fill(Color.black.opacity(colorTheme == .lavender ? 0.58 : 0)))
-                        .opacity(colorTheme == .lavender ? 1 : 0.20)
-                        .overlay(
-                            Circle()
-                                .fill(
-                                    RadialGradient(
-                                    colors: colorTheme == .lavender ? [.white.opacity(0.05), .white.opacity(0.01), .clear] : [.white.opacity(0.12), .white.opacity(0.025), .clear],
-                                        center: .bottomLeading,
-                                        startRadius: 3,
-                                        endRadius: 30
-                                    )
-                                )
-                        )
-                        .overlay(
-                            Circle()
-                                .stroke(
-                                    LinearGradient(
-                                        colors: colorTheme == .lavender ? [.white.opacity(0.22), .white.opacity(0.08), .black.opacity(0.12), .white.opacity(0.16)] : [
-                                            .white.opacity(0.86),
-                                            .white.opacity(0.18),
-                                            .white.opacity(0.08),
-                                            .white.opacity(0.55)
-                                        ],
-                                        startPoint: .bottomLeading,
-                                        endPoint: .topTrailing
-                                    ),
-                                    lineWidth: 1.2
-                                )
-                        )
-                        .shadow(color: .white.opacity(colorTheme == .lavender ? 0.08 : 0.42), radius: 7, x: -3, y: 3)
-                        .shadow(color: Color.black.opacity(0.045), radius: 12, y: 6)
-
-                    PrototypeIcon(kind: .settings, isEmphasized: true)
-                        .frame(width: 21, height: 21)
-                }
-                .frame(width: 60, height: 60)
-            }
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.preference(key: SettingsButtonFrameKey.self, value: geometry.frame(in: .global))
-                }
-            }
-            .buttonStyle(SettingsPressButtonStyle())
-            .accessibilityLabel("设置")
+        LiveOpticalNavigationHost {
+            navigationContent
+                .environment(\.habitColorTheme, colorTheme)
+                .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
         }
-        .padding(.horizontal, 16) // 最底层导航栏比例舒展大气
+        .frame(height: 60)
+        .background {
+            GeometryReader { geometry in
+                let origin = geometry.frame(in: .global).origin
+                Color.clear.preference(
+                    key: SettingsButtonFrameKey.self,
+                    value: settingsLocalFrame.offsetBy(dx: origin.x, dy: origin.y)
+                )
+            }
+        }
+        .padding(.horizontal, 16)
         .padding(.bottom, 22)
     }
 
-    private func tabTargetIndex(for t: AppTab) -> Double {
-        switch t {
-        case .today: return 0.0
-        case .garden: return 1.0
-        case .review: return 2.0
-        case .settings: return animatedIndex
+    private var navigationContent: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 12) {
+                ZStack(alignment: .leading) {
+                    GeometryReader { geometry in
+                        FluidOpticalSelectionView(
+                            progress: animatedIndex,
+                            itemWidth: geometry.size.width / 3,
+                            totalHeight: geometry.size.height,
+                            reduceMotion: reduceMotion
+                        )
+                        .allowsHitTesting(false)
+                    }
+                    HStack(spacing: 0) {
+                        ForEach([AppTab.today, .garden, .review], id: \.self) { itemTab in
+                            Button {
+                                switchTab(to: itemTab)
+                            } label: {
+                                NavigationItem(
+                                    symbol: itemTab == .today ? "house" : (itemTab == .garden ? "leaf" : "list.bullet"),
+                                    title: itemTab == .garden ? "养成物" : (itemTab == .review ? "复盘" : "今天"),
+                                    selected: tab == itemTab
+                                )
+                            }
+                            .buttonStyle(NavigationOpticalButtonStyle())
+                        }
+                    }
+                    .padding(5)
+                }
+                .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .glassEffect(.clear, in: Capsule())
+                .onAppear { animatedIndex = tabIndex }
+                .onChange(of: tab) { _, _ in
+                    withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.62, dampingFraction: 0.86)) {
+                        animatedIndex = tabIndex
+                    }
+                }
+
+                // The circular action shares the system Regular glass material.
+                Button {
+                    navigationSound.play(.settingsTap, enabled: soundEffectsEnabled)
+                    onOpenSettings()
+                } label: {
+                    PrototypeIcon(kind: .settings, isEmphasized: true)
+                        .frame(width: 21, height: 21)
+                        .frame(width: 46, height: 46)
+                }
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: SettingsButtonFrameKey.self, value: geometry.frame(in: .global))
+                    }
+                }
+                .buttonStyle(.glass(.regular))
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("设置")
+            }
+        }
+        .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
+        .onPreferenceChange(SettingsButtonFrameKey.self) { settingsLocalFrame = $0 }
+    }
+
+    private var tabIndex: Double {
+        index(for: tab)
+    }
+
+    private func index(for tab: AppTab) -> Double {
+        switch tab {
+        case .today: 0
+        case .garden: 1
+        case .review: 2
+        case .settings: animatedIndex
         }
     }
 
     private func switchTab(to newTab: AppTab) {
         guard tab != newTab else { return }
-        tab = newTab
-        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : fluidSpring) {
-            animatedIndex = tabTargetIndex(for: newTab)
+        let soundKind: AppSoundFeedback.Kind = switch newTab {
+        case .today: .navigationToday
+        case .garden: .navigationGarden
+        case .review: .navigationReview
+        case .settings: .navigation
+        }
+        navigationSound.play(soundKind, enabled: soundEffectsEnabled)
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.62, dampingFraction: 0.86)) {
+            tab = newTab
         }
     }
 }
 
-// MARK: - 连续线性动感水滴 (Fluid Continuous Droplet View)
-private struct FluidContinuousDropletView: View, Animatable {
-    @Environment(\.habitColorTheme) private var colorTheme
+/// Original navigation capsule geometry and continuous slider deformation.
+private struct FluidOpticalSelectionView: View, Animatable {
     var progress: Double
     let itemWidth: CGFloat
     let totalHeight: CGFloat
@@ -2569,101 +2814,47 @@ private struct FluidContinuousDropletView: View, Animatable {
         set { progress = newValue }
     }
 
-    // 计算当前离两按钮中点的距离，并将过渡区间精确拉宽至 20px
-    private var transitFactor: CGFloat {
-        let frac = progress - floor(progress)
-        let distToCenter = abs(frac - 0.5) // 中点为 0.0，按键中心为 0.5
-        // 20px 对应的相对索引跨度半宽 (20px / itemWidth / 2)
-        let halfTransitWidth = max(0.14, (20.0 / itemWidth) / 2.0)
-        guard distToCenter < halfTransitWidth else { return 0 }
-        let normalized = (halfTransitWidth - distToCenter) / halfTransitWidth
-        // 平滑三次缓动曲线（SmoothStep），过渡温润自然
-        return CGFloat(normalized * normalized * (3 - 2 * normalized))
-    }
-
     var body: some View {
-        let xPos = CGFloat(progress) * itemWidth
-        let dropletWidth = itemWidth - 4
-        let dropletOffsetX = xPos + 2
-        let scaleX = reduceMotion ? 1 : 1 + transitFactor * 0.18
-        let scaleY = reduceMotion ? 1 : 1 - transitFactor * 0.42
-
-        ZStack {
-            // 选中态采用调节杆滑钮的高透液态玻璃：主体近透明，只保留折射、边缘高光和微弱暗边。
-            Capsule()
-                .fill(colorTheme == .lavender ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.ultraThinMaterial))
-                .overlay(Capsule().fill(
-                    colorTheme.selectedNavigationBackground.opacity(colorTheme == .lavender ? 0.71 : 0)
-                ))
-                .glassEffect(
-                    .clear.tint(colorTheme.selectedNavigationBackground.opacity(colorTheme == .lavender ? 0.54 : 0.03)).interactive(),
-                    in: Capsule()
-                )
-
-            Capsule()
-                .fill(
-                    RadialGradient(
-                        colors: colorTheme == .lavender ? [.white.opacity(0.12), .white.opacity(0.035), .clear] : [.white.opacity(0.30), .white.opacity(0.08), .clear],
-                        center: .topLeading,
-                        startRadius: 1,
-                        endRadius: 42
-                    )
-                )
-
-            Capsule()
-                .strokeBorder(
-                    LinearGradient(
-                        colors: colorTheme == .lavender ? [
-                            .white.opacity(0.38),
-                            .white.opacity(0.16),
-                            .black.opacity(0.28),
-                            .white.opacity(0.20)
-                        ] : [
-                            .white.opacity(0.88),
-                            .white.opacity(0.24),
-                            .black.opacity(0.10),
-                            .white.opacity(0.46)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1.1
-                )
-
-        }
-        .frame(width: dropletWidth, height: totalHeight - 4)
-        .scaleEffect(x: scaleX, y: scaleY)
-        .offset(x: dropletOffsetX, y: 2)
-        .shadow(
-            color: (colorTheme == .original ? Color(red: 0.88, green: 0.65, blue: 0.75) : colorTheme.companion).opacity(0.20 + Double(transitFactor) * 0.14),
-            radius: 7 + transitFactor * 3,
-            y: 2.5 - transitFactor * 1.5
-        )
-        .shadow(color: Color.black.opacity(0.09), radius: 7, y: 3)
+        SavedOpticalNavigationSurface()
+            .frame(width: itemWidth - 4, height: totalHeight - 4)
+            .offset(x: CGFloat(progress) * itemWidth + 2, y: 2)
     }
 }
 
 private struct NavigationItem: View {
     @Environment(\.habitColorTheme) private var colorTheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selectionBounce = false
     let symbol: String
     let title: String
-    var selected = false
+    let selected: Bool
 
     var body: some View {
         VStack(spacing: 3) {
             PrototypeIcon(kind: iconKind, isEmphasized: selected)
                 .frame(width: 20, height: 20)
-                .scaleEffect(selected ? 1.08 : 0.95)
+                .scaleEffect(selectionBounce ? 0.82 : (selected ? 1.08 : 0.95))
             Text(title)
                 .font(.system(size: 11, weight: selected ? .semibold : .medium))
         }
         .foregroundStyle(selected
             ? colorTheme.selectedNavigationForeground
-            : (colorTheme == .lavender ? colorTheme.unselectedNavigationForeground : Color(red: 0.32, green: 0.28, blue: 0.34).opacity(0.75))
+            : colorTheme.unselectedNavigationForeground
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selected)
+        .onChange(of: selected) { _, isSelected in
+            guard isSelected, !reduceMotion else { return }
+            withAnimation(.spring(response: 0.16, dampingFraction: 0.56)) {
+                selectionBounce = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.075) {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.54)) {
+                    selectionBounce = false
+                }
+            }
+        }
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -2673,6 +2864,14 @@ private struct NavigationItem: View {
         case "leaf": .leaf
         default: .review
         }
+    }
+}
+
+private struct NavigationOpticalButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 1 - 0.117 : 1)
+            .animation(.spring(duration: 0.65, bounce: 0.143), value: configuration.isPressed)
     }
 }
 
@@ -2688,7 +2887,7 @@ private struct PrototypeIcon: View {
             let scale = min(size.width, size.height) / 24
             var context = context
             context.scaleBy(x: scale, y: scale)
-            let color = colorTheme == .lavender ? (isEmphasized ? colorTheme.selectedNavigationForeground : colorTheme.unselectedNavigationForeground) : Color(red: 0.31, green: 0.27, blue: 0.32)
+            let color = isEmphasized ? colorTheme.selectedNavigationForeground : colorTheme.unselectedNavigationForeground
 
             switch kind {
             case .home:
@@ -2746,106 +2945,18 @@ extension EnvironmentValues {
 
 // 今日、养成物和复盘共用的连续流体背景。
 struct TodayAmbientBackground: View {
-    @Environment(\.habitColorTheme) private var colorTheme
     let reduceMotion: Bool
     var onViewportChange: ((CGRect) -> Void)? = nil
 
     var body: some View {
         GeometryReader { viewport in
-            TimelineView(.animation(minimumInterval: reduceMotion ? 60 : 1 / 45)) { timeline in
-                let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                Canvas { context, size in
-                    draw(in: &context, size: size, time: time)
-                }
-                .frame(width: viewport.size.width, height: viewport.size.height)
-                .background {
-                    ColorThemeAtmosphereBase(colorTheme: colorTheme)
-                }
-            }
+            LiquidBackgroundView(reduceMotion: reduceMotion)
             .onGeometryChange(for: CGRect.self) { _ in viewport.frame(in: .global) } action: { frame in
                 onViewportChange?(frame)
             }
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)
-    }
-
-    private func draw(in context: inout GraphicsContext, size: CGSize, time: TimeInterval) {
-        let minDim = min(size.width, size.height)
-        let travel = reduceMotion ? 0.48 : 0.5 + 0.5 * sin(time * 0.34)
-        let collision = smoothstep(0.08, 0.92, travel)
-        let exchange = smoothstep(0.38, 0.62, collision)
-
-        let largeRadius = minDim * (1.225 + 0.04375 * sin(time * 0.47))
-        let smallRadius = minDim * (0.6125 + 0.0245 * cos(time * 0.53))
-        let largeCenter = CGPoint(
-            x: size.width * (0.17 + 0.36 * collision),
-            y: size.height * (0.82 - 0.35 * collision)
-        )
-        let smallCenter = CGPoint(
-            x: size.width * (0.86 - 0.34 * collision),
-            y: size.height * (0.18 + 0.35 * collision)
-        )
-
-        let violet = colorTheme.accent
-        let deepViolet = colorTheme.companion
-        let largeColor = violet.mix(with: deepViolet, by: exchange)
-        let smallColor = deepViolet.mix(with: violet, by: exchange)
-
-        context.addFilter(.blur(radius: 52))
-        drawSphere(in: &context, center: largeCenter, radius: largeRadius, color: largeColor)
-        drawSphere(in: &context, center: smallCenter, radius: smallRadius, color: smallColor)
-
-        let distance = hypot(smallCenter.x - largeCenter.x, smallCenter.y - largeCenter.y)
-        let overlap = 1 - smoothstep(
-            (largeRadius + smallRadius) * 0.62,
-            (largeRadius + smallRadius) * 1.08,
-            distance
-        )
-        let midpoint = CGPoint(
-            x: largeCenter.x * 0.55 + smallCenter.x * 0.45,
-            y: largeCenter.y * 0.55 + smallCenter.y * 0.45
-        )
-        let coreRadius = smallRadius * (0.48 + overlap * 0.26)
-        context.opacity = overlap * 0.72
-        context.fill(
-            Path(ellipseIn: CGRect(x: midpoint.x - coreRadius, y: midpoint.y - coreRadius, width: coreRadius * 2, height: coreRadius * 2)),
-            with: .radialGradient(
-                Gradient(colors: [deepViolet.mix(with: violet, by: 0.5).opacity(0.9), .clear]),
-                center: midpoint,
-                startRadius: 4,
-                endRadius: coreRadius
-            )
-        )
-        context.opacity = 1
-
-        drawAccent(in: &context, center: CGPoint(x: size.width * 0.88 + cos(time * 0.9) * 22, y: size.height * 0.26 + sin(time * 0.82) * 24), radius: minDim * 0.17, color: deepViolet.opacity(0.42))
-        drawAccent(in: &context, center: CGPoint(x: size.width * 0.12 + sin(time * 0.84) * 20, y: size.height * 0.48 + cos(time * 0.92) * 22), radius: minDim * 0.13, color: violet.opacity(0.36))
-    }
-
-    private func drawSphere(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat, color: Color) {
-        let rect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        context.fill(
-            Path(ellipseIn: rect),
-            with: .radialGradient(
-                Gradient(colors: [color.opacity(0.96), color.opacity(0.72), color.opacity(0)]),
-                center: CGPoint(x: center.x - radius * 0.12, y: center.y - radius * 0.14),
-                startRadius: radius * 0.04,
-                endRadius: radius
-            )
-        )
-    }
-
-    private func drawAccent(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat, color: Color) {
-        context.fill(
-            Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)),
-            with: .radialGradient(Gradient(colors: [color, .clear]), center: center, startRadius: 2, endRadius: radius)
-        )
-    }
-
-    private func smoothstep(_ edge0: CGFloat, _ edge1: CGFloat, _ value: CGFloat) -> CGFloat {
-        let x = min(1, max(0, (value - edge0) / max(0.0001, edge1 - edge0)))
-        return x * x * (3 - 2 * x)
     }
 }
 

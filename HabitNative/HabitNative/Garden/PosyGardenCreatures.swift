@@ -12,6 +12,8 @@ public struct PosyCreaturesView: View {
     let canvasWidth: CGFloat
     let canvasHeight: CGFloat
     let isSnapshot: Bool
+    let isWindActive: Bool
+    let windVector: CGVector
 
     // 蝴蝶独立航行状态机
     @State private var butterflyState = CreatureState(
@@ -25,12 +27,22 @@ public struct PosyCreaturesView: View {
         isInitialized: false
     )
 
-    public init(elapsed: Double, windSpeed: Double, canvasWidth: CGFloat, canvasHeight: CGFloat, isSnapshot: Bool = false) {
+    public init(
+        elapsed: Double,
+        windSpeed: Double,
+        canvasWidth: CGFloat,
+        canvasHeight: CGFloat,
+        isSnapshot: Bool = false,
+        isWindActive: Bool = false,
+        windVector: CGVector = .zero
+    ) {
         self.elapsed = elapsed
         self.windSpeed = windSpeed
         self.canvasWidth = canvasWidth
         self.canvasHeight = canvasHeight
         self.isSnapshot = isSnapshot
+        self.isWindActive = isWindActive
+        self.windVector = windVector
     }
 
     public var body: some View {
@@ -40,7 +52,20 @@ public struct PosyCreaturesView: View {
         }
         .frame(width: canvasWidth, height: canvasHeight)
         .onAppear {
-            if !isSnapshot { setupInitialFlightPlans() }
+            if !isSnapshot {
+                setupInitialFlightPlans()
+                if isWindActive {
+                    triggerWindEviction(now: elapsed)
+                }
+            }
+        }
+        .onChange(of: isWindActive) { oldVal, newVal in
+            guard !isSnapshot else { return }
+            if newVal && !oldVal {
+                triggerWindEviction(now: elapsed)
+            } else if !newVal && oldVal {
+                triggerWindReturn(now: elapsed)
+            }
         }
         .allowsHitTesting(!isSnapshot)
     }
@@ -76,7 +101,8 @@ public struct PosyCreaturesView: View {
     @ViewBuilder
     private var butterflyNode: some View {
         let (pos, isVisible, rot) = calculateCreatureTransform(state: butterflyState, isBee: false)
-        let wingFlap = sin(elapsed * 22.0)
+        let isStruggling = butterflyState.isWindEvicted && !butterflyState.isWindReturning
+        let wingFlap = isStruggling ? sin(elapsed * 24.0) : sin(elapsed * 16.0)
 
         if isVisible {
             Button(action: {
@@ -131,7 +157,8 @@ public struct PosyCreaturesView: View {
     @ViewBuilder
     private var beeNode: some View {
         let (pos, isVisible, rot) = calculateCreatureTransform(state: beeState, isBee: true)
-        let wingVibrate = sin(elapsed * 36.0)
+        let isStruggling = beeState.isWindEvicted && !beeState.isWindReturning
+        let wingVibrate = isStruggling ? sin(elapsed * 38.0) : sin(elapsed * 24.0)
 
         if isVisible {
             Button(action: {
@@ -265,8 +292,160 @@ public struct PosyCreaturesView: View {
         }
     }
 
+    // MARK: - 风动逃逸与返场机制 (起风先大幅晃动后飞出屏幕外，风停后再飞回)
+    private func triggerWindEviction(now: Double) {
+        // 蜜蜂：先晃动 0.70 秒后加速飞出屏幕外
+        let beePos = calculateCurrentPos(state: beeState, isBee: true)
+        beeState.isWindEvicted = true
+        beeState.isWindReturning = false
+        beeState.windReactionStart = now
+        beeState.windOriginPos = beePos
+        beeState.windExitPos = pickWindExit(from: beePos, windVector: windVector)
+        beeState.isFlying = false
+        beeState.isOffscreenCycle = false
+
+        // 蝴蝶：身形轻盈，晃动 0.90 秒后顺风翻滚飞出屏幕外
+        let butterflyPos = calculateCurrentPos(state: butterflyState, isBee: false)
+        butterflyState.isWindEvicted = true
+        butterflyState.isWindReturning = false
+        butterflyState.windReactionStart = now + 0.06
+        butterflyState.windOriginPos = butterflyPos
+        butterflyState.windExitPos = pickWindExit(from: butterflyPos, windVector: windVector)
+        butterflyState.isFlying = false
+        butterflyState.isOffscreenCycle = false
+    }
+
+    private func triggerWindReturn(now: Double) {
+        // 确保生灵无论何时风停，都完整经历“晃动后飞出屏幕外”，绝不半空中突兀折返
+        let beeGustTotal: Double = 0.70 + 0.70
+        let beeEarliestReturn = beeState.windReactionStart + beeGustTotal
+        let beeStart = max(now, beeEarliestReturn) + 0.35
+        let beeTarget = pickRandomGardenSpot(excluding: beeState.anchorPos)
+
+        beeState.isWindReturning = true
+        beeState.windReturnStart = beeStart
+        beeState.windReturnDuration = 2.0
+        beeState.windReturnFrom = pickOffscreenEntry()
+        beeState.windReturnTo = beeTarget
+        beeState.anchorPos = beeTarget
+
+        let butterflyGustTotal: Double = 0.90 + 0.85
+        let butterflyEarliestReturn = butterflyState.windReactionStart + butterflyGustTotal
+        let butterflyStart = max(now, butterflyEarliestReturn) + 0.75
+        let butterflyTarget = pickRandomGardenSpot(excluding: butterflyState.anchorPos)
+
+        butterflyState.isWindReturning = true
+        butterflyState.windReturnStart = butterflyStart
+        butterflyState.windReturnDuration = 2.4
+        butterflyState.windReturnFrom = pickOffscreenEntry()
+        butterflyState.windReturnTo = butterflyTarget
+        butterflyState.anchorPos = butterflyTarget
+    }
+
+    private func calculateCurrentPos(state: CreatureState, isBee: Bool) -> CGPoint {
+        if state.isWindReturning && elapsed >= state.windReturnStart {
+            let p = min(1.0, max(0.0, (elapsed - state.windReturnStart) / state.windReturnDuration))
+            let ease = 1.0 - pow(1.0 - p, 3)
+            let arc = -sin(p * .pi) * (isBee ? 28.0 : 38.0)
+            return CGPoint(
+                x: state.windReturnFrom.x + (state.windReturnTo.x - state.windReturnFrom.x) * ease,
+                y: state.windReturnFrom.y + (state.windReturnTo.y - state.windReturnFrom.y) * ease + arc
+            )
+        }
+        if state.isFlying && elapsed < state.flyStart + state.flyDuration {
+            let p = min(1.0, max(0.0, (elapsed - state.flyStart) / state.flyDuration))
+            let ease = p * p * (3.0 - 2.0 * p)
+            let arc = -sin(p * .pi) * 38.0
+            return CGPoint(
+                x: state.flyFrom.x + (state.flyTo.x - state.flyFrom.x) * ease,
+                y: state.flyFrom.y + (state.flyTo.y - state.flyFrom.y) * ease + arc
+            )
+        }
+        return computeHover(center: state.anchorPos, isBee: isBee).pos
+    }
+
+    private func pickWindExit(from currentPos: CGPoint, windVector: CGVector) -> CGPoint {
+        let dirX = windVector.dx
+        let dirY = windVector.dy
+        let len = hypot(dirX, dirY)
+
+        let unitX = len > 0.05 ? (dirX / len) : (currentPos.x < canvasWidth * 0.5 ? 1.0 : -1.0)
+        let unitY = len > 0.05 ? (dirY / len) : -0.35
+
+        let exitDist: CGFloat = max(canvasWidth, canvasHeight) * 0.95
+        var exitX = currentPos.x + CGFloat(unitX) * exitDist
+        let exitY = currentPos.y + CGFloat(unitY) * exitDist - 70.0
+
+        if unitX >= 0 {
+            exitX = max(exitX, canvasWidth + 140)
+        } else {
+            exitX = min(exitX, -140)
+        }
+        return CGPoint(x: exitX, y: exitY)
+    }
+
     // MARK: - 实时坐标与姿态计算 (纯函数无状态副作用)
     private func calculateCreatureTransform(state: CreatureState, isBee: Bool) -> (pos: CGPoint, isVisible: Bool, rot: Double) {
+        // 0. 风动逃逸机制 (起风先晃动后飞出屏幕外，风停后再飞回)
+        if state.isWindEvicted {
+            let gustDuration: Double = isBee ? 0.70 : 0.90
+            let fleeDuration: Double = isBee ? 0.70 : 0.85
+
+            if !state.isWindReturning {
+                let dt = elapsed - state.windReactionStart
+                if dt < 0 {
+                    return (state.windOriginPos, true, 0.0)
+                } else if dt < gustDuration {
+                    // 阶段 1: 被风吹时晃动挣扎 (减慢 50% 震动频率 + 微减晃动幅度)
+                    let p = max(0.0, dt / gustDuration)
+                    let freq = isBee ? 23.0 : 18.0
+                    let ampX: CGFloat = isBee ? 16.0 : 20.0
+                    let ampY: CGFloat = isBee ? 13.0 : 16.0
+                    let shiverX = CGFloat(sin(dt * freq)) * ampX * CGFloat(1.0 - p * 0.25)
+                    let shiverY = CGFloat(cos(dt * (freq * 0.85))) * ampY * CGFloat(1.0 - p * 0.25)
+                    let driftX = CGFloat(windVector.dx) * CGFloat(p * 18.0)
+                    let driftY = CGFloat(windVector.dy) * CGFloat(p * 14.0)
+                    let pos = CGPoint(
+                        x: state.windOriginPos.x + shiverX + driftX,
+                        y: state.windOriginPos.y + shiverY + driftY
+                    )
+                    let rot = sin(dt * 15.0) * (isBee ? 26.0 : 32.0)
+                    return (pos, true, rot)
+                } else if dt < gustDuration + fleeDuration {
+                    // 阶段 2: 晃动之后加速飞出屏幕外
+                    let fleeT = min(1.0, max(0.0, (dt - gustDuration) / fleeDuration))
+                    let ease = fleeT * fleeT
+                    let arc = -sin(fleeT * .pi) * (isBee ? 18.0 : 26.0)
+                    let x = state.windOriginPos.x + (state.windExitPos.x - state.windOriginPos.x) * ease
+                    let y = state.windOriginPos.y + (state.windExitPos.y - state.windOriginPos.y) * ease + arc
+                    let rot = (isBee ? 38.0 : -30.0) + sin(dt * 12.0) * 10.0
+                    return (CGPoint(x: x, y: y), true, rot)
+                } else {
+                    // 阶段 3: 飞出屏幕外后，在屏外静默等待风停
+                    return (CGPoint(x: -400, y: -400), false, 0.0)
+                }
+            } else {
+                // 返场阶段
+                if elapsed < state.windReturnStart {
+                    return (CGPoint(x: -400, y: -400), false, 0.0)
+                }
+                let dt = elapsed - state.windReturnStart
+                if dt < state.windReturnDuration {
+                    // 阶段 4: 等风停之后再飞回来
+                    let p = min(1.0, max(0.0, dt / state.windReturnDuration))
+                    let ease = 1.0 - pow(1.0 - p, 3)
+                    let arc = -sin(p * .pi) * (isBee ? 28.0 : 38.0)
+                    let x = state.windReturnFrom.x + (state.windReturnTo.x - state.windReturnFrom.x) * ease
+                    let y = state.windReturnFrom.y + (state.windReturnTo.y - state.windReturnFrom.y) * ease + arc
+                    let rot = sin(elapsed * 4.0) * (isBee ? 14.0 : 18.0)
+                    return (CGPoint(x: x, y: y), true, rot)
+                } else {
+                    // 返场完成：重置为正常悬停
+                    let hover = computeHover(center: state.windReturnTo, isBee: isBee)
+                    return (hover.pos, true, hover.rot)
+                }
+            }
+        }
         // 1. 离场循环（惊飞 -> 屏外等 5 秒 -> 屏外顺滑飞入）
         if state.isOffscreenCycle {
             if elapsed < state.fleeStart + state.fleeDuration {
@@ -327,14 +506,14 @@ public struct PosyCreaturesView: View {
     private func computeHover(center: CGPoint, isBee: Bool) -> (pos: CGPoint, rot: Double) {
         let t = elapsed
         if isBee {
-            let hx = cos(t * 2.8) * 16.0 + sin(t * 1.1) * 8.0
-            let hy = sin(t * 2.1) * 12.0 + cos(t * 1.4) * 6.0
-            let rot = cos(t * 1.8) * 14.0
+            let hx = cos(t * 1.8) * 12.0 + sin(t * 0.8) * 6.0
+            let hy = sin(t * 1.4) * 9.0 + cos(t * 0.9) * 4.5
+            let rot = cos(t * 1.2) * 10.0
             return (CGPoint(x: center.x + CGFloat(hx), y: center.y + CGFloat(hy)), rot)
         } else {
-            let hx = sin(t * 1.6) * 20.0 + cos(t * 0.7) * 10.0
-            let hy = cos(t * 1.3) * 15.0 + sin(t * 0.9) * 8.0
-            let rot = sin(t * 1.2) * 18.0
+            let hx = sin(t * 1.1) * 15.0 + cos(t * 0.5) * 7.5
+            let hy = cos(t * 0.9) * 11.0 + sin(t * 0.6) * 6.0
+            let rot = sin(t * 0.8) * 12.0
             return (CGPoint(x: center.x + CGFloat(hx), y: center.y + CGFloat(hy)), rot)
         }
     }
@@ -349,11 +528,11 @@ public struct PosyCreaturesView: View {
             (0.62, 0.34),
             (0.78, 0.28),
             (0.85, 0.36),
-            // 空阔微域 (中高空与微风区)
-            (0.20, 0.18),
-            (0.40, 0.15),
-            (0.65, 0.16),
-            (0.82, 0.20),
+            // 空阔微域 (中空与微风区，严格保持在导航标题栏与状态栏下方)
+            (0.20, 0.24),
+            (0.38, 0.22),
+            (0.65, 0.22),
+            (0.82, 0.24),
             (0.30, 0.50),
             (0.70, 0.48)
         ]
@@ -419,4 +598,15 @@ private struct CreatureState {
 
     // 初始入场
     var isReentering: Bool = false
+
+    // 风动逃逸与返场机制 (起风先大幅晃动后飞出屏幕外，风停后再飞回)
+    var isWindEvicted: Bool = false
+    var isWindReturning: Bool = false
+    var windReactionStart: Double = 0
+    var windOriginPos: CGPoint = .zero
+    var windExitPos: CGPoint = .zero
+    var windReturnStart: Double = 0
+    var windReturnDuration: Double = 2.0
+    var windReturnFrom: CGPoint = .zero
+    var windReturnTo: CGPoint = .zero
 }
