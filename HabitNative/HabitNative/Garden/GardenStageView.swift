@@ -3,9 +3,11 @@ import SwiftUI
 // MARK: - Garden Interactive Stage View
 struct GardenStageView: View {
     @ObservedObject var viewModel: GardenHabitViewModel
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     let stageSize: CGSize
 
     @State private var dragOffsets: [String: CGSize] = [:]
+    @State private var interactionSound = AppSoundFeedback()
     @State private var draggingId: String? = nil
     @State private var tickerPhase: Double = 0
     @State private var beePosition: CGPoint = CGPoint(x: 160, y: 140)
@@ -64,6 +66,7 @@ struct GardenStageView: View {
                         windSway: sway + Double(viewModel.windOffset * 0.03),
                         breathingPhase: breathing,
                         onTap: {
+                            interactionSound.play(.gardenSelect, enabled: soundEffectsEnabled)
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                                 viewModel.selectedItem = item
                                 viewModel.focusedHabitId = item.id

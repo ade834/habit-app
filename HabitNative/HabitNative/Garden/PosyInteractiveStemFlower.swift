@@ -30,9 +30,12 @@ public struct PosyInteractiveStemFlower: View {
     public let progress: Double        // 生长阶段 0.0 ~ 1.0
     public let basePosition: CGPoint   // 根部初始基准坐标
     public let stemHeight: CGFloat     // 茎秆高度
-    public let ambientSway: Double     // 茎秆结构性风动弯曲与位移
-    public let windAlignment: Double   // Signed applied wind, separate from idle sway
-    public let headWobble: Double      // 花头专属低阻尼惯性自振与滞后晃动 (实现茎杆停下花头继续摇曳)
+    public let ambientSway: Double     // 茎秆结构性风动弯曲与位移 (水平 X)
+    public let ambientSwayY: Double    // 茎秆垂直风动弯曲与位移 (垂直 Y)
+    public let windAlignment: Double   // Signed applied wind, separate from idle sway (X)
+    public let windAlignmentY: Double  // Signed applied wind (Y)
+    public let headWobble: Double      // 花头专属低阻尼惯性自振与滞后晃动 (X)
+    public let headWobbleY: Double     // 花头专属低阻尼惯性自振与滞后晃动 (Y)
     public let breathingPhase: Double  // 呼吸振幅
     public let seed: Int
     public let initialPlacement: PosyPlantPlacement
@@ -58,6 +61,8 @@ public struct PosyInteractiveStemFlower: View {
     @State private var showLabel: Bool = false
     @State private var stemWindOffset: Double = 0
     @State private var stemWindVelocity: Double = 0
+    @State private var stemWindOffsetY: Double = 0
+    @State private var stemWindVelocityY: Double = 0
     @State private var rootWindAngle: Double = 0
     @State private var rootWindVelocity: Double = 0
     @State private var flutterEnergy: Double = 0
@@ -83,6 +88,9 @@ public struct PosyInteractiveStemFlower: View {
         ambientSway: Double = 0,
         windAlignment: Double = 0,
         headWobble: Double = 0,
+        ambientSwayY: Double = 0,
+        windAlignmentY: Double = 0,
+        headWobbleY: Double = 0,
         breathingPhase: Double = 0,
         seed: Int = 1,
         initialPlacement: PosyPlantPlacement = .zero,
@@ -98,8 +106,11 @@ public struct PosyInteractiveStemFlower: View {
         self.basePosition = basePosition
         self.stemHeight = stemHeight
         self.ambientSway = ambientSway
+        self.ambientSwayY = ambientSwayY
         self.windAlignment = windAlignment
+        self.windAlignmentY = windAlignmentY
         self.headWobble = headWobble
+        self.headWobbleY = headWobbleY
         self.breathingPhase = breathingPhase
         self.seed = seed
         self.initialPlacement = initialPlacement
@@ -187,11 +198,11 @@ public struct PosyInteractiveStemFlower: View {
         let alignment = windBlend * windBlend * (3 - 2 * windBlend)
         let opposingLean = restingLean * windAlignment < 0 ? restingLean * alignment : 0
         // Wind supplies flex as well as base rotation, including when it has
-        // just straightened a plant's original opposing lean.
-        let windFlex = Double(currentGrowthHeight) * 0.14 * sqrt(type.stemFlexFactor)
+        // just straightened a plant's original opposing lean (150% movement range).
+        let windFlex = Double(currentGrowthHeight) * 0.21 * sqrt(type.stemFlexFactor)
             * tanh(windAlignment * 3) * motion.response
         let targetWindOffset = ambientSway * Double(currentGrowthHeight) * 0.60 * motion.response - opposingLean + windFlex
-        let targetRootAngle = max(-0.30, min(0.30, windAlignment * type.stemFlexFactor * motion.tiltResponse))
+        let targetRootAngle = max(-0.45, min(0.45, windAlignment * type.stemFlexFactor * motion.tiltResponse))
         let motionTime = elapsed > 0 ? elapsed : breathingPhase / 2
         let flutterScale = isAnySelfDragging ? 0 : min(1.2, flutterEnergy)
         let flutterAmplitude = CGFloat(flutterScale * motion.flutterAmplitude) * min(1.25, currentGrowthHeight / 180)
@@ -202,9 +213,10 @@ public struct PosyInteractiveStemFlower: View {
         let rotatedLean = CGFloat(restingLean) * CGFloat(cos(baseAngle)) - restingDY * CGFloat(sin(baseAngle))
         let rotatedHeight = CGFloat(restingLean) * CGFloat(sin(baseAngle)) + restingDY * CGFloat(cos(baseAngle))
         let windDisplacement: CGFloat = isAnySelfDragging ? 0 : CGFloat(stemWindOffset)
+        let windDisplacementY: CGFloat = isAnySelfDragging ? 0 : CGFloat(stemWindOffsetY)
         let currentRestingTip = CGPoint(
             x: rootPoint.x + rotatedLean + windDisplacement + tipFlutter + shake.stemWiggle.width + dragReleaseOffset.width,
-            y: rootPoint.y + rotatedHeight + shake.stemWiggle.height + dragReleaseOffset.height
+            y: rootPoint.y + rotatedHeight + windDisplacementY + shake.stemWiggle.height + dragReleaseOffset.height
         )
 
         // 3. 拖拽时的实际花头坐标：
@@ -236,6 +248,12 @@ public struct PosyInteractiveStemFlower: View {
         let restSupport = initialPlacement.restSupportFraction ?? 0.375
         let windSupport = initialPlacement.windSupportFraction ?? 0.10
         let currentSupport = restSupport + (windSupport - restSupport) * smoothSupportBlend
+
+        // 茎杆坐标点方向位移系数：随风向产生柔韧弯曲与拱形位移，同时保持自然晃动
+        let windBowScale = CGFloat(currentGrowthHeight) * 0.15
+        let currentWindBowX = CGFloat(ambientSway) * windBowScale * 0.65
+        let currentWindBowY = CGFloat(ambientSwayY) * windBowScale * 0.50
+
         let curve = PosyWindStemCurve(
             root: rootPoint,
             tip: tipPoint,
@@ -243,7 +261,9 @@ public struct PosyInteractiveStemFlower: View {
             ripple: flutterAmplitude * 0.65 * CGFloat(motion.noise(at: motionTime, channel: 3)),
             supportedFraction: CGFloat(currentSupport),
             restingSupportFraction: CGFloat(restSupport),
-            windBlend: CGFloat(smoothSupportBlend)
+            windBlend: CGFloat(smoothSupportBlend),
+            windBowX: currentWindBowX,
+            windBowY: currentWindBowY
         )
         let tipTangent = curve.tangent(at: 1)
         let stemTangentAngle = Double(atan2(tipTangent.x, -tipTangent.y))
@@ -379,6 +399,8 @@ public struct PosyInteractiveStemFlower: View {
             guard !isAnySelfDragging else {
                 stemWindOffset = 0
                 stemWindVelocity = 0
+                stemWindOffsetY = 0
+                stemWindVelocityY = 0
                 rootWindAngle = 0
                 rootWindVelocity = 0
                 flutterEnergy = 0
@@ -394,11 +416,19 @@ public struct PosyInteractiveStemFlower: View {
                 position: stemWindOffset, velocity: stemWindVelocity, target: targetWindOffset,
                 omega: omega, dampingRatio: motion.dampingRatio, dt: dt
             )
+            let windFlexY = Double(currentGrowthHeight) * 0.18 * sqrt(type.stemFlexFactor)
+                * tanh(windAlignmentY * 3) * motion.response
+            let targetWindOffsetY = ambientSwayY * Double(currentGrowthHeight) * 0.50 * motion.response + windFlexY
+            (stemWindOffsetY, stemWindVelocityY) = PosyStemMotionProfile.advanceSpring(
+                position: stemWindOffsetY, velocity: stemWindVelocityY, target: targetWindOffsetY,
+                omega: omega, dampingRatio: motion.dampingRatio, dt: dt
+            )
             (rootWindAngle, rootWindVelocity) = PosyStemMotionProfile.advanceSpring(
                 position: rootWindAngle, velocity: rootWindVelocity, target: targetRootAngle,
                 omega: omega * 0.82, dampingRatio: motion.dampingRatio + 0.08, dt: dt
             )
-            flutterEnergy += (abs(windAlignment) - flutterEnergy) * (1 - exp(-dt * 7))
+            let appliedEnergy = hypot(windAlignment, windAlignmentY)
+            flutterEnergy += (appliedEnergy - flutterEnergy) * (1 - exp(-dt * 7))
             let releaseX = PosyStemMotionProfile.advanceSpring(
                 position: Double(dragReleaseOffset.width), velocity: Double(dragReleaseVelocity.width),
                 target: 0, omega: 11, dampingRatio: 0.46, dt: dt
@@ -603,6 +633,7 @@ public struct PosyInteractiveStemFlower: View {
                 }
         )
         .onTapGesture(count: 1) {
+            triggerDisneyReaction(elapsed: elapsed)
             onSelected?()
             withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
                 showLabel.toggle()
@@ -613,6 +644,7 @@ public struct PosyInteractiveStemFlower: View {
         .accessibilityIdentifier("posy-flower-\(type.rawValue)")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
+            triggerDisneyReaction(elapsed: elapsed)
             onSelected?()
             showLabel.toggle()
         }
@@ -769,15 +801,31 @@ public struct PosyInteractiveStemFlower: View {
                 scaleY = 1.0 + CGFloat(wobble)
                 hopY = 0.0
             }
+
+        case .playfulNod:
+            // 规则 4: 俏皮轻快点头回旋 (左右俏皮摆头 + 欢快微跳)
+            let decay = exp(-t * 3.4)
+            hopY = -sin(t * 16.0) * CGFloat(decay) * 9.0
+            scaleX = 1.0 + CGFloat(sin(t * 18.0) * decay * 0.12)
+            scaleY = 1.0 - CGFloat(sin(t * 18.0) * decay * 0.12)
+
+        case .bloomPulse:
+            // 规则 5: 呼吸光晕绽放律动 (向外蓬松脉动 + 轻灵自旋)
+            let decay = exp(-t * 2.8)
+            let pulse = sin(t * 12.0) * decay * 0.20
+            scaleX = 1.0 + CGFloat(pulse)
+            scaleY = 1.0 + CGFloat(pulse)
+            flutter = sin(t * 28.0) * decay * 0.60
         }
 
         return (waggle, scaleX, scaleY, hopY, jitter, flutter)
     }
 
-    // MARK: - 触发迪士尼灵动双击反馈 (摇摇头 + 洒几滴水 / 触电轻颤 / 挤压拉伸收缩)
+    // MARK: - 触发迪士尼灵动点击反馈 (随机轮换，不顺序产生，不连续重复)
     private func triggerDisneyReaction(elapsed: Double) {
         disneyAnimStartTime = elapsed
-        let chosenRule = PosyDisneyRule.allCases.randomElement() ?? .dewSplash
+        let candidateRules = PosyDisneyRule.allCases.filter { $0 != activeDisneyRule }
+        let chosenRule = candidateRules.randomElement() ?? PosyDisneyRule.allCases.randomElement() ?? .dewSplash
         activeDisneyRule = chosenRule
 
         if chosenRule == .dewSplash {
@@ -814,6 +862,8 @@ public enum PosyDisneyRule: Int, CaseIterable {
     case dewSplash = 0        // 规则 1: 晶莹露珠飞溅 (洒几滴水)
     case squishyShiver = 1    // 规则 2: 触电轻颤微抖 (每个小元素高频颤抖)
     case squashAndStretch = 2 // 规则 3: 经典挤压与拉伸收缩 (预备收缩 + 弹起延展回弹)
+    case playfulNod = 3       // 规则 4: 俏皮轻快点头回旋 (左右俏皮摆头 + 欢快微跳)
+    case bloomPulse = 4       // 规则 5: 呼吸光晕绽放律动 (向外蓬松脉动 + 轻灵自旋)
 }
 
 // MARK: - 水滴微粒模型
@@ -936,6 +986,8 @@ private struct PosyWindStemCurve {
     var supportedFraction: CGFloat = 5.0 / 12.0
     var restingSupportFraction: CGFloat = 0.375
     var windBlend: CGFloat = 0
+    var windBowX: CGFloat = 0
+    var windBowY: CGFloat = 0
 
     // Spread the resting bend across the whole stem instead of delaying almost
     // all deflection until above the support region. Stored support still sets
@@ -961,18 +1013,21 @@ private struct PosyWindStemCurve {
     }
 
     func point(at t: CGFloat) -> CGPoint {
-        CGPoint(
+        let bellyArc = sin(.pi * t)
+        return CGPoint(
             x: root.x + rootLean * t + (tip.x - root.x - rootLean) * bend(at: t)
-                + ripple * t * sin(.pi * t),
-            y: root.y + (tip.y - root.y) * t
+                + ripple * t * bellyArc + windBowX * bellyArc,
+            y: root.y + (tip.y - root.y) * t + windBowY * bellyArc
         )
     }
 
     func tangent(at t: CGFloat) -> CGPoint {
-        CGPoint(
+        let bellyArcDerivative = .pi * cos(.pi * t)
+        return CGPoint(
             x: rootLean + (tip.x - root.x - rootLean) * bendDerivative(at: t)
-                + ripple * (sin(.pi * t) + .pi * t * cos(.pi * t)),
-            y: tip.y - root.y
+                + ripple * (sin(.pi * t) + .pi * t * cos(.pi * t))
+                + windBowX * bellyArcDerivative,
+            y: (tip.y - root.y) + windBowY * bellyArcDerivative
         )
     }
 }

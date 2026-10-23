@@ -2,8 +2,18 @@
 **/xcuserdata/
 DerivedData/
 build/
+build_test/
+exported_flora_stages/
 outputs/*.mp4
 outputs/*.png
+
+# Local API credentials and environment configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 # Local simulator captures and database snapshots
 current_sim.png

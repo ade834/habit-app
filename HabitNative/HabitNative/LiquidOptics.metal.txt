@@ -1,0 +1,67 @@
+#include <metal_stdlib>
+
+using namespace metal;
+
+float roundedBox(float2 p, float2 b, float r) {
+    float2 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+float smoothUnion(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b-a) / k, 0.0, 1.0);
+    return mix(b,a,h) - k*h*(1.0-h);
+}
+float field(float2 p, float2 center, float shape, float scale, float curve, float multi, float separation, float fusion, float aspect) {
+    float2 halfSize = float2(shape > 0.5 && shape < 1.5 ? 50.0 : 50.0 * aspect,50.0)*scale;
+    float radius = shape > 1.5 ? min(curve,halfSize.y) : halfSize.y;
+    float d = roundedBox(p-center,halfSize,radius);
+    if (multi > 0.5) {
+        d = smoothUnion(d,roundedBox(p-center-float2(separation,0),halfSize,radius),max(fusion,1.0));
+        d = smoothUnion(d,roundedBox(p-center+float2(separation,0),halfSize,radius),max(fusion,1.0));
+    }
+    return d;
+}
+half4 sampleLayer(texture2d<half> layer, float2 p, float2 size) {
+ constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
+ return layer.sample(s,p/size);
+}
+half4 blurred(texture2d<half> layer, float2 p, float radius, float2 size) {
+    p = clamp(p,float2(1),size-1);
+    half4 c = sampleLayer(layer,p,size)*half(0.25);
+    for (int i=0; i<12; i++) {
+        float a = float(i)*6.2831853/12.0;
+        float2 delta = float2(cos(a),sin(a))*radius*(i%2==0 ? 1.0 : 0.5);
+        c += sampleLayer(layer,clamp(p+delta,float2(1),size-1),size)*half(0.0625);
+    }
+    return c;
+}
+struct VertexOut { float4 position [[position]]; float2 uv; };
+vertex VertexOut fullScreen(uint id [[vertex_id]]) {
+ float2 p = float2((id << 1) & 2, id & 2);
+ return {float4(p*float2(2,-2)+float2(-1,1),0,1),p};
+}
+struct Uniforms { float2 size; float2 center; float shape; float scale; float refraction; float blur; float thickness; float curve; float highlight; float dispersion; float multi; float separation; float fusion; float aspect; };
+fragment half4 liquidOptics(VertexOut in [[stage_in]], texture2d<half> layer [[texture(0)]], constant Uniforms &u [[buffer(0)]]) {
+ float2 size=u.size, center=u.center, p=in.uv*size;
+ float shape=u.shape, scale=u.scale, refraction=u.refraction, blur=u.blur, thickness=u.thickness, curve=u.curve, highlight=u.highlight, dispersion=u.dispersion, multi=u.multi, separation=u.separation, fusion=u.fusion, aspect=u.aspect;
+    half4 original = sampleLayer(layer,p,size);
+    float d = field(p,center,shape,scale,curve,multi,separation,fusion,aspect);
+    if (d > 1.0) return original;
+    float dx = field(p+float2(0.5,0),center,shape,scale,curve,multi,separation,fusion,aspect)-field(p-float2(0.5,0),center,shape,scale,curve,multi,separation,fusion,aspect);
+    float dy = field(p+float2(0,0.5),center,shape,scale,curve,multi,separation,fusion,aspect)-field(p-float2(0,0.5),center,shape,scale,curve,multi,separation,fusion,aspect);
+    float2 normal = float2(dx,dy)/max(length(float2(dx,dy)),0.001);
+    // Curvature changes the cross-section profile as well as rectangle corner radius.
+    float profile = mix(1.8,0.35,clamp((curve-4.0)/56.0,0.0,1.0));
+    float edge = pow(clamp(1.0+d/max(thickness,1.0),0.0,1.0),profile);
+    float2 uv = p-normal*refraction*edge;
+    half4 c = blurred(layer,uv,blur,size);
+    if (dispersion > 0.01) {
+        c.r = blurred(layer,uv-normal*dispersion*edge,blur,size).r;
+        c.b = blurred(layer,uv+normal*dispersion*edge,blur,size).b;
+    }
+    float rim = exp(-abs(d)/1.4);
+    float light = pow(max(dot(normal,normalize(float2(-0.6,-0.8))),0.0),3.0);
+    float specular = highlight*(rim*0.65 + light*edge*0.6);
+    c.rgb = c.rgb*half(1.0-edge*0.10) + half3(specular);
+    c.a = 1.0;
+    return mix(original,c,half(1.0-smoothstep(-0.7,0.7,d)));
+}

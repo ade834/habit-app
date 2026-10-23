@@ -17,6 +17,7 @@ import UIKit
 
 public struct PosyCinematicDoorIntroView: View {
     public let usesLavenderPalette: Bool
+    public let lightingScript: CinematicLightingScript
     public let progress: Double             // 0.0 (远景暗室门扉) -> 1.0 (完全穿门展开)
     public let canvasSize: CGSize
     public let doorLayoutHeight: CGFloat?
@@ -41,6 +42,28 @@ public struct PosyCinematicDoorIntroView: View {
         onSkip: @escaping () -> Void
     ) {
         self.usesLavenderPalette = usesLavenderPalette
+        self.lightingScript = usesLavenderPalette ? HabitColorTheme.lavender.cinematicLighting : HabitColorTheme.original.cinematicLighting
+        self.progress = progress
+        self.canvasSize = canvasSize
+        self.doorLayoutHeight = doorLayoutHeight
+        self.interiorSnapshot = interiorSnapshot
+        self.elapsed = elapsed
+        self.safeAreaTop = safeAreaTop
+        self.onSkip = onSkip
+    }
+
+    init(
+        theme: HabitColorTheme,
+        progress: Double,
+        canvasSize: CGSize,
+        doorLayoutHeight: CGFloat? = nil,
+        interiorSnapshot: UIImage? = nil,
+        elapsed: Double,
+        safeAreaTop: CGFloat = 54,
+        onSkip: @escaping () -> Void
+    ) {
+        self.usesLavenderPalette = (theme == .lavender)
+        self.lightingScript = theme.cinematicLighting
         self.progress = progress
         self.canvasSize = canvasSize
         self.doorLayoutHeight = doorLayoutHeight
@@ -250,11 +273,7 @@ public struct PosyCinematicDoorIntroView: View {
         InvertedArchedDoorShape(doorRect: doorRect, archRadius: archRadius)
             .fill(
                 LinearGradient(
-                    colors: usesLavenderPalette ? HabitColorTheme.lavender.floatingOrbAtmosphere.gradientStops : [
-                        Color(red: 0.040, green: 0.040, blue: 0.045),
-                        Color(red: 0.025, green: 0.025, blue: 0.028),
-                        Color(red: 0.012, green: 0.012, blue: 0.015)
-                    ],
+                    colors: lightingScript.wallStops,
                     startPoint: .top,
                     endPoint: .bottom
                 ),
@@ -272,11 +291,7 @@ public struct PosyCinematicDoorIntroView: View {
         }
             .fill(
             LinearGradient(
-                colors: usesLavenderPalette ? HabitColorTheme.lavender.floatingOrbAtmosphere.gradientStops : [
-                    Color(red: 0.022, green: 0.022, blue: 0.025),
-                    Color(red: 0.010, green: 0.010, blue: 0.012),
-                    Color(red: 0.004, green: 0.004, blue: 0.006)
-                ],
+                colors: lightingScript.floorStops,
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -314,10 +329,6 @@ public struct PosyCinematicDoorIntroView: View {
         let beamTailY = max(canvasSize.height + 180, doorBottom + 270 * min(2.0, doorScale))
         let beamLength = beamTailY - doorBottom
         let beamSpread = beamLength / 270
-        // Path gradients use the full canvas as their coordinate space. Anchor
-        // the lavender ramp to the sill so it does not start in the brown stop.
-        let lavenderLightStart = UnitPoint(x: 0.5, y: doorBottom / canvasSize.height)
-        let lavenderLightEnd = UnitPoint(x: 0.5, y: beamTailY / canvasSize.height)
 
         // 地面斜射夕阳光池多边形 (真实的地面透视投影，阳光斜着照在左边，严格限制在地面区域)：
         let floorPool = Path { path in
@@ -333,19 +344,9 @@ public struct PosyCinematicDoorIntroView: View {
         floorPool
             .fill(
                 LinearGradient(
-                    colors: usesLavenderPalette ? [
-                        Color(red: 0.85, green: 0.75, blue: 1.00).opacity(0.72),
-                        Color(red: 0.69, green: 0.52, blue: 0.87).opacity(0.58),
-                        Color(red: 0.48, green: 0.31, blue: 0.23),
-                        Color(red: 0.075, green: 0.032, blue: 0.030)
-                    ] : [
-                        Color(red: 1.00, green: 0.60, blue: 0.16).opacity(0.75), // 门槛处浓郁暖橙 (#FF9929)
-                        Color(red: 1.00, green: 0.68, blue: 0.22).opacity(0.46), // 中部金橙 (#FFAD38)
-                        Color(red: 0.47, green: 0.28, blue: 0.13), // 尾部向暗室地面渐隐
-                        Color(red: 0.010, green: 0.010, blue: 0.012)
-                    ],
-                    startPoint: usesLavenderPalette ? lavenderLightStart : .topTrailing,
-                    endPoint: usesLavenderPalette ? lavenderLightEnd : .bottomLeading
+                    colors: lightingScript.sunlightDiffuse,
+                    startPoint: lightingScript.sunlightStartPoint,
+                    endPoint: lightingScript.sunlightEndPoint
                 )
             )
             .blur(radius: 9.0)
@@ -354,19 +355,9 @@ public struct PosyCinematicDoorIntroView: View {
         floorPool
             .fill(
                 LinearGradient(
-                    colors: usesLavenderPalette ? [
-                        Color(red: 0.84, green: 0.73, blue: 1.00).opacity(0.84),
-                        Color(red: 0.73, green: 0.57, blue: 0.93).opacity(0.70),
-                        Color(red: 0.52, green: 0.35, blue: 0.26),
-                        Color(red: 0.075, green: 0.032, blue: 0.030)
-                    ] : [
-                        Color(red: 1.00, green: 0.66, blue: 0.18).opacity(0.88), // 主受光暖橙 (#FFA82E)
-                        Color(red: 1.00, green: 0.72, blue: 0.26).opacity(0.62), // 透亮金橙
-                        Color(red: 0.50, green: 0.30, blue: 0.13), // 尾部保持不透明
-                        Color(red: 0.010, green: 0.010, blue: 0.012)
-                    ],
-                    startPoint: usesLavenderPalette ? lavenderLightStart : .topTrailing,
-                    endPoint: usesLavenderPalette ? lavenderLightEnd : .bottomLeading
+                    colors: lightingScript.sunlightBeam,
+                    startPoint: lightingScript.sunlightStartPoint,
+                    endPoint: lightingScript.sunlightEndPoint
                 )
             )
             .blur(radius: 5.0)
@@ -381,24 +372,14 @@ public struct PosyCinematicDoorIntroView: View {
         }
         .fill(
             LinearGradient(
-                colors: usesLavenderPalette ? [
-                    Color(red: 0.94, green: 0.86, blue: 1.0).opacity(0.88),
-                    Color(red: 0.79, green: 0.65, blue: 0.96).opacity(0.68),
-                    Color(red: 0.57, green: 0.39, blue: 0.29),
-                    Color(red: 0.075, green: 0.032, blue: 0.030)
-                ] : [
-                    Color(red: 1.00, green: 0.84, blue: 0.45).opacity(0.95), // 高亮带中心亮金橙 (#FFD673)
-                    Color(red: 1.00, green: 0.70, blue: 0.22).opacity(0.76), // 亮核主体暖橙 (#FFB238)
-                    Color(red: 0.53, green: 0.32, blue: 0.14), // 尾部深暖橙渐隐
-                    Color(red: 0.010, green: 0.010, blue: 0.012)
-                ],
-                startPoint: usesLavenderPalette ? lavenderLightStart : .topTrailing,
-                endPoint: usesLavenderPalette ? lavenderLightEnd : .bottomLeading
+                colors: lightingScript.sunlightCore,
+                startPoint: lightingScript.sunlightStartPoint,
+                endPoint: lightingScript.sunlightEndPoint
             )
         )
         .blur(radius: 3.0)
         }
-        .opacity(usesLavenderPalette ? 0.5 : 1.0)
+        .opacity(lightingScript.sunlightOpacity)
 
         // 4. 门槛紧贴地面的投影刻线 (Threshold Contact Shadow)
         Path { path in
@@ -406,7 +387,7 @@ public struct PosyCinematicDoorIntroView: View {
             path.addLine(to: CGPoint(x: doorRight + 15, y: doorBottom))
         }
         .stroke(
-            (usesLavenderPalette ? Color(red: 0.075, green: 0.032, blue: 0.030) : Color.black).opacity(0.65),
+            lightingScript.thresholdContactShadow,
             lineWidth: 2.2
         )
     }
@@ -421,14 +402,11 @@ public struct PosyCinematicDoorIntroView: View {
         if closeness > 0.01 {
             let pCloseness = CGFloat(closeness)
             ZStack {
-                // 1. 门洞上部自然晨曦逆光漫射层 (从拱门顶端向下漫射的柔和晨曦金霞，随走近自然泛起)
+                // 1. 门洞上部自然逆光漫射层 (根据主题剧本独立展现晨曦金暖或冷月微紫，随走近自然泛起)
                 LinearGradient(
-                    colors: [
-                        Color(red: 1.00, green: 0.90, blue: 0.70).opacity(0.38 * closeness),
-                        Color(red: 1.00, green: 0.76, blue: 0.38).opacity(0.22 * closeness),
-                        Color(red: 1.00, green: 0.62, blue: 0.22).opacity(0.08 * closeness),
-                        Color.clear
-                    ],
+                    colors: lightingScript.interiorBacklightRamp.map { color in
+                        color == .clear ? .clear : color.opacity(0.38 * closeness)
+                    },
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -436,11 +414,9 @@ public struct PosyCinematicDoorIntroView: View {
 
                 // 2. 门洞上方圆拱处高斯逆光光晕核心 (太阳自然入射形成的柔和散斑，越近越充盈)
                 RadialGradient(
-                    colors: [
-                        Color(red: 1.00, green: 0.96, blue: 0.85).opacity(0.42 * closeness),
-                        Color(red: 1.00, green: 0.82, blue: 0.46).opacity(0.18 * closeness),
-                        Color.clear
-                    ],
+                    colors: lightingScript.interiorBacklightCore.map { color in
+                        color == .clear ? .clear : color.opacity(0.42 * closeness)
+                    },
                     center: UnitPoint(x: 0.5, y: 0.20),
                     startRadius: 0,
                     endRadius: doorRect.width * (0.40 + 0.35 * pCloseness)

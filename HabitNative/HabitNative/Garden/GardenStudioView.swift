@@ -38,6 +38,38 @@ private enum GardenPlantPlacementStore {
     }
 }
 
+// MARK: - 8向风向枚举与几何投影 (8-Directional Wind System)
+public enum PosyWindDirection8: Int, CaseIterable, Equatable {
+    case east = 0       // 右 (0°)
+    case southEast = 1  // 右下 (45°)
+    case south = 2      // 下 (90°)
+    case southWest = 3  // 左下 (135°)
+    case west = 4       // 左 (180°)
+    case northWest = 5  // 左上 (225° / -135°)
+    case north = 6      // 上 (270° / -90°)
+    case northEast = 7  // 右上 (315° / -45°)
+
+    public var unitVector: CGVector {
+        switch self {
+        case .east:      return CGVector(dx: 1.0, dy: 0.0)
+        case .southEast: return CGVector(dx: 0.70710678, dy: 0.70710678)
+        case .south:     return CGVector(dx: 0.0, dy: 1.0)
+        case .southWest: return CGVector(dx: -0.70710678, dy: 0.70710678)
+        case .west:      return CGVector(dx: -1.0, dy: 0.0)
+        case .northWest: return CGVector(dx: -0.70710678, dy: -0.70710678)
+        case .north:     return CGVector(dx: 0.0, dy: -1.0)
+        case .northEast: return CGVector(dx: 0.70710678, dy: -0.70710678)
+        }
+    }
+
+    public static func from(dx: CGFloat, dy: CGFloat) -> PosyWindDirection8 {
+        var angle = atan2(Double(dy), Double(dx))
+        if angle < 0 { angle += 2.0 * .pi }
+        let sector = Int((angle + (.pi / 8.0)) / (.pi / 4.0)) % 8
+        return PosyWindDirection8(rawValue: sector) ?? .east
+    }
+}
+
 // MARK: - 植物养成与美学独立实验室 (Garden Studio View)
 /// 本轮核心优化：
 /// 1. 修复点击/长按空白吹风 Bug：空白背景手势与植物实时风力双向响应，点击或按住空白即刻吹风并按植物各自特性强烈互动！
@@ -55,7 +87,9 @@ public struct GardenStudioView: View {
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.habitBackgroundFrame) private var backgroundFrame
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     @State private var selectedFlora: PosyFloraType = .mimosa
+    @State private var windSound = AppSoundFeedback()
     @State private var growthProgress: Double = 0.95
     @State private var isMultiBouquetMode: Bool = true
     @State private var showControlDeck: Bool = true
@@ -65,17 +99,37 @@ public struct GardenStudioView: View {
     @State private var simulatedPoints: Int = 8
     @State private var simulatedCompletions: Int = 12
 
-    // 交互风力与微粒系统：长按模拟强风过境，点击生成光晕粒子
+    // 交互风力与微粒系统：持续按压 0.25 秒以上触发吹风与微粒位移
+    private let windPressTriggerThreshold: Double = 0.25
     @State private var blankTouchStartTime: Double? = nil
     @State private var blankTouchStartPos: CGPoint? = nil
     @State private var isPressingBlank: Bool = false
-    @State private var windDirection: Double = 1.0            // +1.0 向右吹，-1.0 向左吹
+    @State private var hasTriggeredWindThisTouch: Bool = false
+    @State private var windTriggerTimerWorkItem: DispatchWorkItem? = nil
+
+    // 八向风向平滑插值与防误触死区
+    @State private var windDirection: Double = 1.0            // +1.0 向右吹，-1.0 向左吹 (兼容标量)
+    @State private var targetWindVector: CGVector = CGVector(dx: 1.0, dy: 0.0)
+    @State private var directionChangeStartVector: CGVector = CGVector(dx: 1.0, dy: 0.0)
+    @State private var directionChangeStartTime: Double = 0.0 // 换向起点时间戳
+    @State private var lastDragPoint: CGPoint? = nil          // 手指上一帧拖拽坐标
+    @State private var accumulatedDragVector: CGVector = .zero // 累积 2D 拖拽位移 (死区防抖)
+    private let dragDirectionHysteresisThreshold: CGFloat = 32.0 // 换向触发死区 (32pt，防敏感抖动)
+
+    // 流动位移分段积分基准
+    @State private var flowSegmentStartTime: Double = 0.0     // 当前风向流动段起始时间
+
     @State private var lastReleaseTime: Double = -100.0       // 最近一次放手时间戳
     @State private var lastReleaseWindIntensity: Double = 0.0 // 放手瞬间风力强度 (0.0 ~ 1.0)
-    @State private var lastReleaseWindDirection: Double = 1.0
-    @State private var baseWindFlowOffset: Double = 0.0       // 持续累积的风向位移量 (用于连续环绕入屏)
+    @State private var lastReleaseWindVector: CGVector = CGVector(dx: 1.0, dy: 0.0)
+    @State private var baseWindFlowOffsetX: Double = 0.0      // 持续累积的风向水平位移量
+    @State private var baseWindFlowOffsetY: Double = 0.0      // 持续累积的风向垂直位移量
     @State private var touchDragLocation: CGPoint? = nil
     @State private var touchDragDistance: CGFloat = 0.0       // 手指滑动距离 (滑动越长，风力与抖动越大)
+
+    // 右上角吹风气泡提示胶囊
+    @State private var isWindHintVisible: Bool = false
+    @State private var windHintDismissWorkItem: DispatchWorkItem? = nil
 
     // 拖拽防背景误触标志位 (仅被拖拽花朵自身静止动画，其他花朵与生灵照旧运行)
     @State private var isAnyFlowerDragging: Bool = false
@@ -112,13 +166,14 @@ public struct GardenStudioView: View {
             let canvasWidth = proxy.size.width
             let canvasHeight = proxy.size.height
             let stageFrame = proxy.frame(in: .global)
-            let viewport = embedded && !backgroundFrame.isEmpty ? backgroundFrame : stageFrame
+            let viewport = !backgroundFrame.isEmpty ? backgroundFrame : stageFrame
             let particleCanvasFrame = CGRect(
                 x: viewport.minX - stageFrame.minX,
                 y: viewport.minY - stageFrame.minY,
                 width: viewport.width,
                 height: viewport.height
             )
+            let effectiveSafeAreaTop = resolvedSafeAreaTop(proxyTop: proxy.safeAreaInsets.top)
 
             TimelineView(.animation) { timeline in
                 let elapsed = timeline.date.timeIntervalSinceReferenceDate
@@ -179,19 +234,17 @@ public struct GardenStudioView: View {
                     }
 
                     // 2. 核心植物展示舞台 (Stage)
+                    let isWindActiveFromPress = isPressingBlank && (max(0.0, elapsed - (blankTouchStartTime ?? elapsed)) >= windPressTriggerThreshold)
+                    let isWindActive = isWindActiveFromPress || isContinuousWindEnabled
+
                     // 1. 计算长按与手指滑动蓄积的主动风力强度 (风力整体 0.5x，0.0 ~ 1.2)
                     let currentWindPower: Double = {
-                            if isPressingBlank || isContinuousWindEnabled {
-                                if isContinuousWindEnabled && !isPressingBlank { return 0.5 }
-                                let pressDuration = max(0.0, elapsed - (blankTouchStartTime ?? elapsed))
-                                if pressDuration < 0.16 {
-                                    return 0.0 // 刚按下 0.16s 内先等待点击判定
-                                }
-                                let timeRamp = min(1.0, (pressDuration - 0.16) / 0.40)
-                                // 手指滑动距离越长，风力越大：基础风力 0.45 + 滑动加成 (整体缩放至 0.5x)
+                            if isContinuousWindEnabled { return 0.5 }
+                            let pressDuration = blankTouchStartTime != nil ? max(0.0, elapsed - blankTouchStartTime!) : 0.0
+                            if isPressingBlank && pressDuration >= windPressTriggerThreshold {
+                                let timeRamp = min(1.0, (pressDuration - windPressTriggerThreshold) / 0.40)
                                 let dragRatio = min(1.8, Double(touchDragDistance / 90.0))
-                                let combinedPower = timeRamp * (0.45 + 0.95 * dragRatio) * 0.5
-                                return max(0.0, min(1.2, combinedPower))
+                                return max(0.0, min(1.2, timeRamp * (0.45 + 0.95 * dragRatio) * 0.5))
                             } else {
                                 let relTime = max(0.0, elapsed - lastReleaseTime)
                                 return lastReleaseWindIntensity * exp(-relTime * 2.2)
@@ -207,27 +260,13 @@ public struct GardenStudioView: View {
                         return 0.85 + 0.45 * (wave1 + wave2 + wave3) // 动态起伏区间 0.40 ~ 1.30
                     }()
 
-                    let activeWindDirection = isPressingBlank || isContinuousWindEnabled ? windDirection : lastReleaseWindDirection
-                    let dynamicGustWind = currentWindPower * gustTurbulence * activeWindDirection
+                    let smoothVector = currentSmoothWindVector(at: elapsed)
+                    let activeWindVector = isWindActive ? smoothVector : lastReleaseWindVector
+                    let dynamicGustWindX = currentWindPower * gustTurbulence * activeWindVector.dx
+                    let dynamicGustWindY = currentWindPower * gustTurbulence * activeWindVector.dy
 
-                    // 3. 背景微球随风位移计算 (连续流动，整体 0.5x 流速)：
-                    let currentFlowOffset: Double = {
-                        if isPressingBlank || isContinuousWindEnabled {
-                            if isContinuousWindEnabled && !isPressingBlank {
-                                return baseWindFlowOffset + windDirection * 175.0 * max(0, elapsed - (continuousWindStartTime ?? elapsed))
-                            }
-                            let pressDuration = max(0.0, elapsed - (blankTouchStartTime ?? elapsed))
-                            let t = max(0.0, pressDuration - 0.16)
-                            let dragRatio = min(1.8, Double(touchDragDistance / 90.0))
-                            let pressFlow = windDirection * (175.0 * (1.0 + dragRatio * 0.6)) * t
-                            return baseWindFlowOffset + pressFlow
-                        } else {
-                            let relTime = max(0.0, elapsed - lastReleaseTime)
-                            // 放手后惯性减速并收敛：\int_0^{relTime} exp(-2.2 \tau) d\tau = (1 - exp(-2.2 * relTime)) / 2.2
-                            let releaseInertiaDistance = (1.0 - exp(-relTime * 2.2)) / 2.2 * 175.0 * lastReleaseWindIntensity * lastReleaseWindDirection
-                            return baseWindFlowOffset + releaseInertiaDistance
-                        }
-                    }()
+                    // 3. 背景微球随风 2D 位移计算 (连续流动，整体 0.5x 流速，未满 0.25 秒按压不产生位移；风停后保持在新位置，不回到原位)：
+                    let (currentFlowOffsetX, currentFlowOffsetY) = currentFlowOffset(at: elapsed)
 
                     ZStack(alignment: .bottom) {
                         if introProgress < 0.78 {
@@ -262,8 +301,10 @@ public struct GardenStudioView: View {
                                 canvasHeight: canvasHeight,
                                 particleCanvasFrame: particleCanvasFrame,
                                 elapsed: elapsed,
-                                currentFlowOffset: currentFlowOffset,
-                                dynamicGustWind: dynamicGustWind,
+                                currentFlowOffsetX: currentFlowOffsetX,
+                                currentFlowOffsetY: currentFlowOffsetY,
+                                dynamicGustWindX: dynamicGustWindX,
+                                dynamicGustWindY: dynamicGustWindY,
                                 currentWindPower: currentWindPower,
                                 introProgress: introProgress
                             )
@@ -274,7 +315,8 @@ public struct GardenStudioView: View {
                         if introProgress >= 0.78 {
                             PosyAmbientBokehParticles(
                                 elapsed: elapsed,
-                                flowOffset: currentFlowOffset
+                                flowOffsetX: currentFlowOffsetX,
+                                flowOffsetY: currentFlowOffsetY
                             )
                             // 使用根背景的实际屏幕边界，不依赖嵌套安全区的 inset。
                             .frame(width: particleCanvasFrame.width, height: particleCanvasFrame.height)
@@ -283,8 +325,8 @@ public struct GardenStudioView: View {
                         }
                     }
                     .coordinateSpace(name: "GardenStudioCanvas")
-                    // 空白区域触控层：短促轻点触发散花光晕粒子；手指长按与拖拽激发生动多频阵风！
-                    .contentShape(Rectangle())
+                    // 空白区域触控层：短促轻点触发散花光晕粒子；手指长按与拖拽激发生动多频阵风！全屏幕触控覆盖
+                    .contentShape(Path(particleCanvasFrame))
                 .gesture(
                     DragGesture(minimumDistance: 0, coordinateSpace: .named("GardenStudioCanvas"))
                         .onChanged { value in
@@ -293,11 +335,25 @@ public struct GardenStudioView: View {
                             if blankTouchStartTime == nil {
                                 blankTouchStartTime = now
                                 blankTouchStartPos = value.startLocation
+                                lastDragPoint = value.location
+                                accumulatedDragVector = .zero
                                 isPressingBlank = true
-                                // 将上次放手后的惯性滑行正式并入 baseWindFlowOffset，确保连续性
-                                let relTime = max(0.0, now - lastReleaseTime)
-                                let releaseInertiaDistance = (1.0 - exp(-relTime * 2.2)) / 2.2 * 350.0 * lastReleaseWindIntensity * lastReleaseWindDirection
-                                baseWindFlowOffset += releaseInertiaDistance
+                                hasTriggeredWindThisTouch = false
+
+                                // 启动 0.25 秒长按吹风定时器（即使手指完全静止也能精准触发）
+                                let startPos = value.startLocation
+                                let timerItem = DispatchWorkItem {
+                                    guard self.isPressingBlank, !self.hasTriggeredWindThisTouch else { return }
+                                    self.hasTriggeredWindThisTouch = true
+                                    self.windSound.startWindLoop(enabled: self.soundEffectsEnabled)
+                                    let fireTime = Date().timeIntervalSinceReferenceDate
+                                    self.flowSegmentStartTime = fireTime
+                                    let initialDirX = (startPos.x < canvasWidth * 0.5) ? 1.0 : -1.0
+                                    self.updateTargetWindVector(to: CGVector(dx: initialDirX, dy: 0.0), elapsed: fireTime)
+                                    self.showWindHint()
+                                }
+                                windTriggerTimerWorkItem = timerItem
+                                DispatchQueue.main.asyncAfter(deadline: .now() + windPressTriggerThreshold, execute: timerItem)
                             }
                             touchDragLocation = value.location
 
@@ -306,36 +362,85 @@ public struct GardenStudioView: View {
                             let dragDist = hypot(translation.width, translation.height)
                             touchDragDistance = dragDist
 
-                            if pressDuration > 0.16 || dragDist > 10 {
-                                if abs(translation.width) > 6 {
-                                    windDirection = translation.width > 0 ? 1.0 : -1.0
-                                } else {
-                                    windDirection = (value.location.x < canvasWidth * 0.55) ? 1.0 : -1.0
+                            // 手指微位移累计与八向死区检测 (防抖动，不敏感情感式跟随)
+                            if let prevPoint = lastDragPoint {
+                                let dx = value.location.x - prevPoint.x
+                                let dy = value.location.y - prevPoint.y
+                                accumulatedDragVector.dx += dx
+                                accumulatedDragVector.dy += dy
+
+                                let dragMag = hypot(accumulatedDragVector.dx, accumulatedDragVector.dy)
+                                if dragMag >= dragDirectionHysteresisThreshold {
+                                    let dir8 = PosyWindDirection8.from(dx: accumulatedDragVector.dx, dy: accumulatedDragVector.dy)
+                                    let newUnitVec = dir8.unitVector
+                                    let dot = newUnitVec.dx * targetWindVector.dx + newUnitVec.dy * targetWindVector.dy
+                                    if dot < 0.82 { // 夹角约 35 度以上才触发换向，防敏感
+                                        updateTargetWindVector(to: newUnitVec, elapsed: now)
+                                    }
+                                    accumulatedDragVector = .zero
+                                }
+                            }
+                            lastDragPoint = value.location
+
+                            if pressDuration >= windPressTriggerThreshold {
+                                if !hasTriggeredWindThisTouch {
+                                    hasTriggeredWindThisTouch = true
+                                    windSound.startWindLoop(enabled: soundEffectsEnabled)
+                                    flowSegmentStartTime = now
+                                    windTriggerTimerWorkItem?.cancel()
+                                    windTriggerTimerWorkItem = nil
+                                    showWindHint()
+
+                                    // 初始风向判定
+                                    if hypot(translation.width, translation.height) >= dragDirectionHysteresisThreshold {
+                                        let dir8 = PosyWindDirection8.from(dx: translation.width, dy: translation.height)
+                                        updateTargetWindVector(to: dir8.unitVector, elapsed: now)
+                                    } else {
+                                        let initialDirX = (value.location.x < canvasWidth * 0.5) ? 1.0 : -1.0
+                                        updateTargetWindVector(to: CGVector(dx: initialDirX, dy: 0.0), elapsed: now)
+                                    }
                                 }
                             }
                         }
                         .onEnded { value in
+                            windTriggerTimerWorkItem?.cancel()
+                            windTriggerTimerWorkItem = nil
+                            windSound.stopWindLoop()
+
                             guard !isAnyFlowerDragging else { return }
                             let now = Date().timeIntervalSinceReferenceDate
                             let pressDuration = now - (blankTouchStartTime ?? now)
                             let dragDist = hypot(value.translation.width, value.translation.height)
 
-                            if pressDuration < 0.20 && dragDist < 12 {
-                                // 短促点击：生成浅玫红/浅橙带光晕漂浮粒子
-                                spawnFloatingParticles(at: value.location)
+                            if pressDuration < windPressTriggerThreshold {
+                                if dragDist < 12 {
+                                    // 短促点击（持续按压未满 0.25 秒）：在初始触碰点精准生成浅玫红/浅橙带光晕漂浮粒子
+                                    let tapOrigin = value.startLocation
+                                    let (flowX, flowY) = currentFlowOffset(at: now)
+                                    spawnFloatingParticles(at: tapOrigin, flowOffsetX: flowX, flowOffsetY: flowY)
+                                }
+                                // 未满 0.25 秒绝对不触发任何吹风与风力惯性，不修改 baseWindFlowOffset 和 lastReleaseTime
                             } else {
-                                // 长按与手指滑动模拟风吹结束：整体风力 0.5x
-                                let t = max(0.0, pressDuration - 0.16)
-                                let timeRamp = min(1.0, t / 0.40)
+                                // 持续按压 >= 0.25 秒：吹风结束，计算释放惯性与风力衰减 (整体风力 0.5x)
+                                let finalVector = currentSmoothWindVector(at: now)
+                                let segStart = max((blankTouchStartTime ?? now) + windPressTriggerThreshold, flowSegmentStartTime)
+                                let segDt = max(0.0, now - segStart)
+                                let timeRamp = min(1.0, (pressDuration - windPressTriggerThreshold) / 0.40)
                                 let dragRatio = min(1.8, Double(dragDist / 90.0))
                                 let releasePower = max(0.0, min(1.2, timeRamp * (0.45 + 0.95 * dragRatio) * 0.5))
 
-                                let pressFlowDelta = windDirection * (175.0 * (1.0 + dragRatio * 0.6)) * t
-                                baseWindFlowOffset += pressFlowDelta
+                                let speed = 175.0 * (1.0 + dragRatio * 0.6)
+                                let pressFlowDeltaX = finalVector.dx * speed * segDt
+                                let pressFlowDeltaY = finalVector.dy * speed * segDt
+                                let relTime = max(0.0, now - lastReleaseTime)
+                                let inertiaDecay = (1.0 - exp(-relTime * 2.2)) / 2.2 * 175.0 * lastReleaseWindIntensity
+
+                                baseWindFlowOffsetX += (pressFlowDeltaX + inertiaDecay * lastReleaseWindVector.dx)
+                                baseWindFlowOffsetY += (pressFlowDeltaY + inertiaDecay * lastReleaseWindVector.dy)
 
                                 lastReleaseTime = now
                                 lastReleaseWindIntensity = releasePower
-                                lastReleaseWindDirection = windDirection
+                                lastReleaseWindVector = finalVector
                             }
 
                             blankTouchStartTime = nil
@@ -343,6 +448,10 @@ public struct GardenStudioView: View {
                             isPressingBlank = false
                             touchDragLocation = nil
                             touchDragDistance = 0.0
+                            lastDragPoint = nil
+                            accumulatedDragVector = .zero
+                            hasTriggeredWindThisTouch = false
+                            flowSegmentStartTime = 0.0
                         }
                 )
                 .scaleEffect(gardenScale, anchor: stageAnchor)
@@ -351,12 +460,6 @@ public struct GardenStudioView: View {
                 // resolve the correction under the existing white-light transition.
                 .offset(y: embedded ? -proxy.safeAreaInsets.top * max(0, 1 - introProgress / 0.72) : 0)
                 .allowsHitTesting(introProgress >= 0.92)
-
-                // 3. 顶部轻量状态与模式指示器 (入场完成前淡隐防遮挡)
-                topHeaderBar(safeAreaTop: proxy.safeAreaInsets.top, canvasWidth: canvasWidth, canvasHeight: canvasHeight)
-                    .opacity(introProgress >= 0.90 ? (introProgress - 0.90) / 0.10 : 0.0)
-                    .offset(y: introProgress >= 0.90 ? 0 : -30)
-                    .zIndex(4000)
 
                 // 4. 底部控制面板与轻量展开入口 (入场完成前淡隐防遮挡)
                 if showControlDeck && !embedded {
@@ -399,6 +502,13 @@ public struct GardenStudioView: View {
                 }
             }
             .frame(width: canvasWidth, height: canvasHeight)
+            // 3. 顶部独立层：标题与操作按钮严格遵守 Apple 安全范围规则，置于系统栏下方独立分层渲染
+            .overlay(alignment: .top) {
+                topHeaderBar(safeAreaTop: effectiveSafeAreaTop, canvasWidth: canvasWidth, canvasHeight: canvasHeight)
+                    .opacity(introProgress >= 0.90 ? (introProgress - 0.90) / 0.10 : 0.0)
+                    .offset(y: introProgress >= 0.90 ? 0 : -30)
+                    .zIndex(5000)
+            }
             // Keep the portal out of the ZStack's layout calculation. Its
             // safe-area-spanning bounds used to move the entire live stage
             // when the portal disappeared at the end of the intro.
@@ -461,6 +571,19 @@ public struct GardenStudioView: View {
                     let h = canvasHeight > 50 ? canvasHeight : 852.0
                     spawnFloatingParticles(at: CGPoint(x: w * 0.32, y: h * 0.35))
                     spawnFloatingParticles(at: CGPoint(x: w * 0.68, y: h * 0.28))
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.25, y: 28.0)) // 顶栏状态栏安全区生成
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.75, y: h - 35.0)) // 底栏触控条安全区生成
+                }
+            } else if CommandLine.arguments.contains("--test-post-wind-tap") {
+                // 1. 先触发 2.5 秒的右向风
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    triggerSimulatedWindGust(duration: 2.5, direction: 1.0)
+                }
+                // 2. 在风停且惯性完全衰减后 (5.5 秒)，精准点击屏幕中央 (0.50, 0.45) 生成光球
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
+                    let w = canvasWidth > 50 ? canvasWidth : 393.0
+                    let h = canvasHeight > 50 ? canvasHeight : 852.0
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.50, y: h * 0.45))
                 }
             }
 
@@ -475,12 +598,21 @@ public struct GardenStudioView: View {
         .onChange(of: visibleFlora) { _, flora in
             plantPlacements = GardenPlantPlacementStore.registering(flora, in: plantPlacements)
         }
+        .onChange(of: soundEffectsEnabled) { _, enabled in
+            if enabled, isPressingBlank, hasTriggeredWindThisTouch {
+                windSound.startWindLoop(enabled: true)
+            } else if !enabled {
+                windSound.stop()
+            }
+        }
         .onDisappear {
+            windSound.stopWindLoop()
+            windTriggerTimerWorkItem?.cancel()
             captureLastGardenSceneSnapshot(width: canvasWidth, height: canvasHeight)
             GardenPlantPlacementStore.save(plantPlacements)
         }
     }
-    .ignoresSafeArea(.container, edges: embedded ? .bottom : .all)
+    .ignoresSafeArea(.container, edges: .all)
 }
 
     // MARK: - 实时植物舞台 (闪白达峰后正式启动 120 FPS 物理风动与粒子渲染)
@@ -490,8 +622,10 @@ public struct GardenStudioView: View {
         canvasHeight: CGFloat,
         particleCanvasFrame: CGRect,
         elapsed: Double,
-        currentFlowOffset: Double,
-        dynamicGustWind: Double,
+        currentFlowOffsetX: Double,
+        currentFlowOffsetY: Double,
+        dynamicGustWindX: Double,
+        dynamicGustWindY: Double,
         currentWindPower: Double,
         introProgress: Double
     ) -> some View {
@@ -513,34 +647,46 @@ public struct GardenStudioView: View {
                 // 单株精细调校模式
                 let stemH: CGFloat = 240
                 let stemCompliance = selectedFlora.stemFlexFactor * Double(stemH / 200.0)
-                let singleWindForce = dynamicGustWind
-                let singleWindAbs = abs(singleWindForce)
+                let singleWindForceX = dynamicGustWindX
+                let singleWindForceY = dynamicGustWindY
+                let singleWindAbs = hypot(singleWindForceX, singleWindForceY)
+                let pressAge = max(0.0, elapsed - (blankTouchStartTime ?? elapsed))
+                let isSingleWindActive = (isPressingBlank && pressAge >= windPressTriggerThreshold) || isContinuousWindEnabled
 
-                let singleStemSway: Double = {
-                    if isPressingBlank || isContinuousWindEnabled {
-                        let push = singleWindForce * stemCompliance * 0.78
-                        // 基础摆动 + 强风高频微颤反馈 (整体 0.5x 风力)
+                let singleStemSwayX: Double = {
+                    if isSingleWindActive {
+                        let push = singleWindForceX * stemCompliance * 1.17 // 扩大至 150% (原 0.78)
                         let vibe = sin(elapsed * 3.8) * (singleWindAbs * 0.04 * stemCompliance)
                         let tremor = sin(elapsed * 18.0) * (pow(singleWindAbs, 1.45) * 0.045 * stemCompliance)
-                        return max(-0.85, min(0.85, push + vibe + tremor))
+                        return max(-1.28, min(1.28, push + vibe + tremor))
                     } else {
-                        // The stem retains its own velocity and springs back after release.
                         return sin(elapsed * 1.2) * 0.02
                     }
                 }()
 
-                let singleHeadWobble: Double = {
-                    if isPressingBlank || isContinuousWindEnabled {
-                        let tilt = singleWindForce * 0.32
+                let singleStemSwayY: Double = {
+                    if isSingleWindActive {
+                        let pushY = singleWindForceY * stemCompliance * 0.78 // 扩大至 150% (原 0.52)
+                        let vibeY = cos(elapsed * 3.4) * (singleWindAbs * 0.02 * stemCompliance)
+                        return max(-0.98, min(0.98, pushY + vibeY))
+                    } else {
+                        return 0.0
+                    }
+                }()
+
+                let (singleHeadWobbleX, singleHeadWobbleY): (Double, Double) = {
+                    if isSingleWindActive {
+                        let tiltX = singleWindForceX * 0.48 // 扩大至 150% (原 0.32)
+                        let tiltY = singleWindForceY * 0.27 // 扩大至 150% (原 0.18)
                         let wave = sin(elapsed * selectedFlora.headWobbleFrequency) * (singleWindAbs * 0.14)
                         let flutter = sin(elapsed * 24.0) * (pow(singleWindAbs, 1.5) * 0.09)
-                        return tilt + wave + flutter
+                        return (tiltX + wave + flutter, tiltY + wave * 0.4)
                     } else {
                         let relTime = max(0.0, elapsed - lastReleaseTime)
                         let tau = selectedFlora.headWobbleDuration / 3.8
                         let decay = exp(-relTime / tau)
-                        let wobble = sin(selectedFlora.headWobbleFrequency * relTime) * decay * (selectedFlora.headWobbleAmplitude * lastReleaseWindIntensity * lastReleaseWindDirection)
-                        return wobble
+                        let wobble = sin(selectedFlora.headWobbleFrequency * relTime) * decay * (selectedFlora.headWobbleAmplitude * lastReleaseWindIntensity)
+                        return (wobble * lastReleaseWindVector.dx, wobble * lastReleaseWindVector.dy * 0.4)
                     }
                 }()
 
@@ -549,9 +695,12 @@ public struct GardenStudioView: View {
                     progress: growthProgress,
                     basePosition: CGPoint(x: canvasWidth * 0.5, y: canvasHeight * 0.65),
                     stemHeight: stemH,
-                    ambientSway: singleStemSway,
-                    windAlignment: isPressingBlank || isContinuousWindEnabled ? singleWindForce : 0,
-                    headWobble: singleHeadWobble,
+                    ambientSway: singleStemSwayX,
+                    windAlignment: isSingleWindActive ? singleWindForceX * 1.5 : 0,
+                    headWobble: singleHeadWobbleX,
+                    ambientSwayY: singleStemSwayY,
+                    windAlignmentY: isSingleWindActive ? singleWindForceY * 1.5 : 0,
+                    headWobbleY: singleHeadWobbleY,
                     breathingPhase: elapsed * 2.0,
                     seed: 42,
                     initialPlacement: plantPlacements[selectedFlora.rawValue] ?? .zero,
@@ -568,28 +717,30 @@ public struct GardenStudioView: View {
                 .id(studioResetToken)
             }
 
-            // 点击空白处生成的浅玫红/浅橙带光晕漂浮粒子 (浮于植物上层，生灵下层)
-            Color.clear
-                .frame(width: canvasWidth, height: canvasHeight)
-                .overlay(alignment: .topLeading) {
-                    PosyFloatingHaloParticlesView(
-                        particles: floatingHaloParticles,
-                        elapsed: elapsed,
-                        drawingOffset: CGSize(width: -particleCanvasFrame.minX, height: -particleCanvasFrame.minY)
-                    )
-                    .frame(width: particleCanvasFrame.width, height: particleCanvasFrame.height)
-                    .offset(x: particleCanvasFrame.minX, y: particleCanvasFrame.minY)
-                }
+            // 点击空白处生成的浅玫红/浅橙带光晕漂浮粒子 (全屏幕渲染，忽略安全范围限制)
+            PosyFloatingHaloParticlesView(
+                particles: floatingHaloParticles,
+                elapsed: elapsed,
+                flowOffsetX: currentFlowOffsetX,
+                flowOffsetY: currentFlowOffsetY,
+                drawingOffset: CGSize(width: -particleCanvasFrame.minX, height: -particleCanvasFrame.minY)
+            )
+            .frame(width: particleCanvasFrame.width, height: particleCanvasFrame.height)
+            .position(x: particleCanvasFrame.midX, y: particleCanvasFrame.midY)
             .allowsHitTesting(false)
             .zIndex(1800)
 
             // 互动生灵：蜜蜂与蝴蝶置于上层 (闪白渐显阶段平滑淡入，减少穿门计算负载)
             if introProgress >= 0.82 {
+                let pressAge = max(0.0, elapsed - (blankTouchStartTime ?? elapsed))
+                let isWindActive = (isPressingBlank && pressAge >= windPressTriggerThreshold) || isContinuousWindEnabled
                 PosyCreaturesView(
                     elapsed: elapsed,
                     windSpeed: 1.0 + currentWindPower * 2.5,
                     canvasWidth: canvasWidth,
-                    canvasHeight: canvasHeight
+                    canvasHeight: canvasHeight,
+                    isWindActive: isWindActive,
+                    windVector: CGVector(dx: dynamicGustWindX, dy: dynamicGustWindY)
                 )
                 .opacity(introProgress >= 0.98 ? 1.0 : (introProgress - 0.82) / 0.16)
                 .zIndex(2000)
@@ -715,6 +866,7 @@ public struct GardenStudioView: View {
         }
         .frame(width: width, height: photoHeight)
         .clipped()
+        .environment(\.habitColorTheme, colorTheme)
 
         let renderer = ImageRenderer(content: scene)
         renderer.scale = 3
@@ -736,24 +888,27 @@ public struct GardenStudioView: View {
             let item = arrangement[idx]
             let itemProg = plantProgress[item.type.rawValue] ?? max(0.05, min(1.0, growthProgress * item.progScale))
 
-            // 1. 空间气流延迟：根据风向计算到达该植株的延迟时间 (麦浪效应)
+            let isPressWindActive = isPressingBlank && (max(0.0, elapsed - (blankTouchStartTime ?? elapsed)) >= windPressTriggerThreshold)
+            let isWindActive = isPressWindActive || isContinuousWindEnabled
+
+            // 1. 空间气流延迟：根据风向计算到达该植株的延迟时间 (2D 空间麦浪效应)
+            let smoothVector = currentSmoothWindVector(at: elapsed)
+            let activeWindVector = isWindActive ? smoothVector : lastReleaseWindVector
             let plantSpatialDelay: Double = {
-                let dir = isPressingBlank || isContinuousWindEnabled ? windDirection : lastReleaseWindDirection
-                if dir > 0 {
-                    return Double(item.normX) * 0.32 // 左向右吹：左侧先感应，右侧后感应
-                } else {
-                    return Double(1.0 - item.normX) * 0.32 // 右向左吹
-                }
+                let plantPosX = Double(item.normX) - 0.5
+                let plantPosY = 0.15
+                let dot = plantPosX * activeWindVector.dx + plantPosY * activeWindVector.dy
+                return (dot + 0.5) * 0.32
             }()
 
             let localElapsed = elapsed - plantSpatialDelay
 
             // 2. 该植株局部的实时风力冲量 (滑动距离越长风力越强，整体 0.5x)：
-            let localWindForce: Double = {
-                if isPressingBlank || isContinuousWindEnabled {
+            let (localWindForceX, localWindForceY): (Double, Double) = {
+                if isWindActive {
                     let localPressAge = max(0.0, localElapsed - (blankTouchStartTime ?? localElapsed))
-                    if localPressAge < 0.16 && !isContinuousWindEnabled { return 0.0 }
-                    let ramp = min(1.0, (localPressAge - 0.16) / 0.40)
+                    if localPressAge < windPressTriggerThreshold && !isContinuousWindEnabled { return (0.0, 0.0) }
+                    let ramp = min(1.0, (localPressAge - windPressTriggerThreshold) / 0.40)
                     let dragRatio = min(1.8, Double(touchDragDistance / 90.0))
                     let power = isContinuousWindEnabled && !isPressingBlank ? 0.5 : ramp * (0.45 + 0.95 * dragRatio) * 0.5
                     // 阵风起伏：不同植株处感受到的阵风波幅不同
@@ -762,42 +917,63 @@ public struct GardenStudioView: View {
                         0.32 * sin(localElapsed * 5.7 + Double(idx)) +
                         0.18 * sin(localElapsed * 12.4 + Double(idx) * 2.1)
                     )
-                    return power * localTurbulence * windDirection
+                    return (
+                        power * localTurbulence * smoothVector.dx,
+                        power * localTurbulence * smoothVector.dy
+                    )
                 } else {
                     let localRelAge = max(0.0, localElapsed - lastReleaseTime)
                     let decay = exp(-localRelAge * 2.4)
-                    return lastReleaseWindIntensity * decay * lastReleaseWindDirection
+                    let intensity = lastReleaseWindIntensity * decay
+                    return (
+                        intensity * lastReleaseWindVector.dx,
+                        intensity * lastReleaseWindVector.dy
+                    )
                 }
             }()
 
-            // 3. 茎秆弯曲动力学 (Stem Bending Dynamics):
+            // 3. 茎秆弯曲动力学 (Stem Bending Dynamics in 2D):
             // 受风柔韧弯曲系数 (0.35 ~ 1.55) * 高度因子 (相差 4.4 倍)
             let heightRatio = Double(item.height / 200.0)
             let stemCompliance = item.type.stemFlexFactor * heightRatio
-            let windAbs = abs(localWindForce)
-            let stemPushDisplacement = localWindForce * stemCompliance * 0.78
+            let windAbs = hypot(localWindForceX, localWindForceY)
+            let stemPushDisplacementX = localWindForceX * stemCompliance * 1.17 // 扩大至 150% (原 0.78)
+            let stemCompressDisplacementY = localWindForceY * stemCompliance * 0.78 // 扩大至 150% (原 0.52)
 
-            // 茎秆回弹与自振 / 强风抖动反馈 (整体 0.5x 柔和温润)：
+            // 茎秆回弹与自振 / 强风抖动反馈 (保持晃动与倾斜基础设定，按比例体现风向位移，扩大至 150%)：
             let stemSway: Double = {
-                if isPressingBlank || isContinuousWindEnabled {
+                if isWindActive {
                     // 基础随风起伏 + 强风高频微颤振 (16Hz ~ 24Hz 空气动力学湍流抖动)
                     let baseVibe = sin(localElapsed * 3.8 + Double(idx)) * (windAbs * 0.04 * stemCompliance)
                     let aeroTremor = sin(localElapsed * (16.0 + Double(idx) * 2.5) + Double(idx)) * (pow(windAbs, 1.45) * 0.045 * stemCompliance)
-                    return max(-0.85, min(0.85, stemPushDisplacement + baseVibe + aeroTremor))
+                    return max(-1.28, min(1.28, stemPushDisplacementX + baseVibe + aeroTremor))
                 } else {
                     // Return only the ambient target; the stem integrates its rebound.
                     return sin(elapsed * 1.2 + Double(idx) * 0.5) * 0.02
                 }
             }()
 
-            // 4. 花头滞后晃动动力学 (Flower Head Decoupled Wobble Dynamics):
+            let stemSwayY: Double = {
+                if isWindActive {
+                    let baseVibeY = cos(localElapsed * 3.4 + Double(idx)) * (windAbs * 0.02 * stemCompliance)
+                    return max(-0.98, min(0.98, stemCompressDisplacementY + baseVibeY))
+                } else {
+                    return 0.0
+                }
+            }()
+
+            // 4. 花头滞后晃动动力学 (Flower Head Decoupled Wobble Dynamics in 2D):
             // 核心规则：茎秆停下来后，花头由于转动惯量继续独立晃动！晃动持续时间 headWobbleDuration (1.1s ~ 5.5s) 差异巨大，相差 5 倍！
-            let headWobble: Double = {
-                if isPressingBlank || isContinuousWindEnabled {
-                    let headTilt = localWindForce * 0.32
+            let (headWobbleX, headWobbleY): (Double, Double) = {
+                if isWindActive {
+                    let headTiltX = localWindForceX * 0.48 // 扩大至 150% (原 0.32)
+                    let headTiltY = localWindForceY * 0.27 // 扩大至 150% (原 0.18)
                     let baseWave = sin(localElapsed * item.type.headWobbleFrequency + Double(idx) * 1.4) * (windAbs * 0.14)
                     let flutterWave = sin(localElapsed * 24.0 + Double(idx) * 2.2) * (pow(windAbs, 1.5) * 0.09)
-                    return headTilt + baseWave + flutterWave
+                    return (
+                        headTiltX + baseWave + flutterWave,
+                        headTiltY + baseWave * 0.4
+                    )
                 } else {
                     let relTime = max(0.0, localElapsed - lastReleaseTime)
                     let totalDuration = item.type.headWobbleDuration
@@ -806,8 +982,11 @@ public struct GardenStudioView: View {
 
                     let omega = item.type.headWobbleFrequency
                     let phase = Double(idx) * 1.35 + Double(item.seed) * 0.5
-                    let wobble = sin(omega * relTime + phase) * headDampingDecay * (item.type.headWobbleAmplitude * lastReleaseWindIntensity * lastReleaseWindDirection)
-                    return wobble
+                    let wobble = sin(omega * relTime + phase) * headDampingDecay * (item.type.headWobbleAmplitude * lastReleaseWindIntensity)
+                    return (
+                        wobble * lastReleaseWindVector.dx,
+                        wobble * lastReleaseWindVector.dy * 0.4
+                    )
                 }
             }()
 
@@ -817,8 +996,11 @@ public struct GardenStudioView: View {
                 basePosition: CGPoint(x: canvasWidth * item.normX, y: canvasHeight * 0.65),
                 stemHeight: item.height,
                 ambientSway: stemSway,
-                windAlignment: isPressingBlank || isContinuousWindEnabled ? localWindForce : 0,
-                headWobble: headWobble,
+                windAlignment: isWindActive ? localWindForceX * 1.5 : 0,
+                headWobble: headWobbleX,
+                ambientSwayY: stemSwayY,
+                windAlignmentY: isWindActive ? localWindForceY * 1.5 : 0,
+                headWobbleY: headWobbleY,
                 breathingPhase: elapsed * 2.0 + Double(idx),
                 seed: item.seed,
                 initialPlacement: plantPlacements[item.type.rawValue] ?? .zero,
@@ -842,65 +1024,111 @@ public struct GardenStudioView: View {
         }
     }
 
-    // MARK: - 子视图：顶部状态条
+    // MARK: - 动态解析系统物理安全区域（严格遵循 Apple HIG 规则，防系统状态栏/灵动岛重叠）
+    private func resolvedSafeAreaTop(proxyTop: CGFloat) -> CGFloat {
+        if proxyTop > 20.0 {
+            return proxyTop
+        }
+        if let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+           let window = windowScene.windows.first(where: { $0.isKeyWindow }) ?? windowScene.windows.first {
+            let windowTop = window.safeAreaInsets.top
+            if windowTop > 20.0 {
+                return windowTop
+            }
+        }
+        return 59.0 // 现代全面屏 iPhone 灵动岛安全基线
+    }
+
+    // MARK: - 子视图：顶部状态条 (独立图层，严格遵守 Apple HIG 安全范围，不阻挡下方交互)
     @ViewBuilder
     private func topHeaderBar(safeAreaTop: CGFloat, canvasWidth: CGFloat, canvasHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 8) {
-                // 左侧品牌标题与副标题（单行防重叠）
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("POSY GARDEN")
-                        .font(.system(size: 15, weight: .bold, design: .serif))
-                        .tracking(1.6)
-                        .foregroundColor(colorTheme == .lavender ? Color(red: 0.94, green: 0.89, blue: 1.0) : Color(red: 0.28, green: 0.20, blue: 0.28))
-                    Text("成长花园 · 持续绽放")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .tracking(0.7)
-                        .foregroundColor(colorTheme == .lavender ? Color(red: 0.82, green: 0.74, blue: 0.92) : Color(red: 0.48, green: 0.40, blue: 0.48))
+            ZStack(alignment: .trailing) {
+                // 默认顶部栏：左侧标题 + 右侧按钮/菜单
+                HStack(alignment: .center, spacing: 8) {
+                    // 左侧品牌标题与副标题（单行防重叠）
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("POSY GARDEN")
+                            .font(.system(size: 15, weight: .bold, design: .serif))
+                            .tracking(1.6)
+                            .foregroundColor(colorTheme == .lavender ? Color(red: 0.94, green: 0.89, blue: 1.0) : Color(red: 0.28, green: 0.20, blue: 0.28))
+                        Text("成长花园 · 持续绽放")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .tracking(0.7)
+                            .foregroundColor(colorTheme == .lavender ? Color(red: 0.82, green: 0.74, blue: 0.92) : Color(red: 0.48, green: 0.40, blue: 0.48))
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 3) {
+                        if isActionMenuExpanded {
+                            gardenActionButton("arrow.clockwise", label: "重播入场") {
+                                isActionMenuExpanded = false
+                                playDoorIntro()
+                            }
+                            gardenActionButton(isContinuousWindEnabled ? "wind.circle.fill" : "wind", label: isContinuousWindEnabled ? "关闭吹风" : "持续吹风") {
+                                toggleContinuousWind()
+                            }
+                            gardenActionButton("square.and.arrow.up", label: "制作拍立得") {
+                                isActionMenuExpanded = false
+                                shareCurrentGarden(width: canvasWidth, height: canvasHeight)
+                            }
+                        }
+
+                        Button {
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                                isActionMenuExpanded.toggle()
+                            }
+                        } label: {
+                            Image(systemName: isActionMenuExpanded ? "xmark" : "camera.macro")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(colorTheme == .lavender ? Color(red: 0.28, green: 0.16, blue: 0.40) : Color(red: 0.36, green: 0.25, blue: 0.35))
+                                .frame(width: 34, height: 34)
+                                .background(Circle().fill(colorTheme == .lavender ? Color(red: 0.76, green: 0.61, blue: 0.94).opacity(0.90) : Color.white.opacity(0.75)))
+                                .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isActionMenuExpanded ? "收起花园操作" : "展开花园操作")
+                        .accessibilityAddTraits(isActionMenuExpanded ? [.isSelected] : [])
+                    }
                 }
+                .opacity(isWindHintVisible ? 0.0 : 1.0)
+                .animation(.easeInOut(duration: 0.32), value: isWindHintVisible)
 
-                Spacer()
-
-                HStack(spacing: 3) {
-                    if isActionMenuExpanded {
-                        gardenActionButton("arrow.clockwise", label: "重播入场") {
-                            isActionMenuExpanded = false
-                            playDoorIntro()
-                        }
-                        gardenActionButton(isContinuousWindEnabled ? "wind.circle.fill" : "wind", label: isContinuousWindEnabled ? "关闭吹风" : "持续吹风") {
-                            toggleContinuousWind()
-                        }
-                        gardenActionButton("square.and.arrow.up", label: "制作拍立得") {
-                            isActionMenuExpanded = false
-                            shareCurrentGarden(width: canvasWidth, height: canvasHeight)
-                        }
+                // 吹风触发时：从右上角图标处胶囊变化浮现小提示
+                if isWindHintVisible {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wind")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("风慢慢地吹，会随着你指尖拖动的方向起舞")
+                            .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                            .lineLimit(1)
                     }
-
-                    Button {
-                        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                            isActionMenuExpanded.toggle()
-                        }
-                    } label: {
-                        Image(systemName: isActionMenuExpanded ? "xmark" : "camera.macro")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(colorTheme == .lavender ? Color(red: 0.28, green: 0.16, blue: 0.40) : Color(red: 0.36, green: 0.25, blue: 0.35))
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(colorTheme == .lavender ? Color(red: 0.76, green: 0.61, blue: 0.94).opacity(0.90) : Color.white.opacity(0.75)))
-                            .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(isActionMenuExpanded ? "收起花园操作" : "展开花园操作")
-                    .accessibilityAddTraits(isActionMenuExpanded ? [.isSelected] : [])
+                    .foregroundStyle(colorTheme == .lavender ? Color(red: 0.28, green: 0.16, blue: 0.40) : Color(red: 0.36, green: 0.25, blue: 0.35))
+                    .padding(.horizontal, 14)
+                    .frame(height: 34)
+                    .background(
+                        Capsule()
+                            .fill(colorTheme == .lavender ? Color(red: 0.76, green: 0.61, blue: 0.94).opacity(0.92) : Color.white.opacity(0.88))
+                            .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+                    )
+                    .overlay(Capsule().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.3, anchor: .trailing).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                    .allowsHitTesting(false)
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, embedded ? 10 : max(54.0, safeAreaTop + 6.0))
+            .padding(.top, safeAreaTop + 6.0)
             .padding(.bottom, 6)
-
-            Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private func gardenActionButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
@@ -1147,8 +1375,12 @@ public struct GardenStudioView: View {
     }
 
     // MARK: - 点击空白处随机生成 1～3 个浅玫红色/浅橙色的带光晕漂浮粒子 (分散生成，碰撞游荡 20 秒后慢升消失)
-    private func spawnFloatingParticles(at location: CGPoint) {
+    private func spawnFloatingParticles(at location: CGPoint, flowOffsetX: Double? = nil, flowOffsetY: Double? = nil) {
         let now = Date().timeIntervalSinceReferenceDate
+        let (currentFlowX, currentFlowY) = currentFlowOffset(at: now)
+        let birthFlowX = flowOffsetX ?? currentFlowX
+        let birthFlowY = flowOffsetY ?? currentFlowY
+
         // 清除超出生存期的旧粒子
         floatingHaloParticles.removeAll { now - $0.birthTime > $0.lifetime }
 
@@ -1165,13 +1397,12 @@ public struct GardenStudioView: View {
             let isEnlarged = i == enlargedParticleIndex
             let randomScale = isEnlarged ? 3.0 : CGFloat.random(in: 1.30...2.15)
 
-            // 生成扩散半径随尺寸扩展为 32 ~ 64 pt
-            let spawnRadius = CGFloat.random(in: 32...64)
-            let sX = location.x + cos(CGFloat(spreadAngle)) * spawnRadius
-            let sY = location.y + sin(CGFloat(spreadAngle)) * spawnRadius
+            // ★ 修复起始点：粒子严格在手指点击处生成，杜绝任何预先扩散半径偏移
+            let sX = location.x
+            let sY = location.y
 
-            // 初始向外喷射散开冲量速度 (36 ~ 60 pt/s)
-            let burstSpeed = CGFloat.random(in: 36...60)
+            // 初始向外柔和绽放喷射散开冲量速度 (18 ~ 38 pt/s)
+            let burstSpeed = CGFloat.random(in: 18...38)
             let bVx = cos(CGFloat(spreadAngle)) * burstSpeed
             let bVy = sin(CGFloat(spreadAngle)) * burstSpeed
 
@@ -1185,12 +1416,15 @@ public struct GardenStudioView: View {
 
             let p = PosyFloatingHaloParticle(
                 birthTime: now,
+                birthFlowOffsetX: birthFlowX,
+                birthFlowOffsetY: birthFlowY,
                 floatDuration: 20.0,
                 fadeDuration: 3.8,
                 startX: sX,
                 startY: sY,
                 burstVx: bVx,
                 burstVy: bVy,
+                burstTau: 0.9,
                 coreRadius: cR,
                 haloRadius: hR,
                 isLarge: isLarge
@@ -1202,45 +1436,156 @@ public struct GardenStudioView: View {
 
     // MARK: - 模拟长按大风测试驱动 (供控制台快捷按钮调用，整体 0.5x)
     private func triggerSimulatedWindGust(duration: Double = 2.2, direction: Double = 1.0) {
+        let dirVector = CGVector(dx: direction >= 0 ? 1.0 : -1.0, dy: 0.0)
         let now = Date().timeIntervalSinceReferenceDate
         let relTime = max(0.0, now - lastReleaseTime)
-        let releaseInertiaDistance = (1.0 - exp(-relTime * 2.2)) / 2.2 * 175.0 * lastReleaseWindIntensity * lastReleaseWindDirection
-        baseWindFlowOffset += releaseInertiaDistance
+        let releaseInertiaDistance = (1.0 - exp(-relTime * 2.2)) / 2.2 * 175.0 * lastReleaseWindIntensity
+        baseWindFlowOffsetX += releaseInertiaDistance * lastReleaseWindVector.dx
+        baseWindFlowOffsetY += releaseInertiaDistance * lastReleaseWindVector.dy
 
         blankTouchStartTime = now
         isPressingBlank = true
+        hasTriggeredWindThisTouch = true
+        targetWindVector = dirVector
+        directionChangeStartVector = dirVector
+        directionChangeStartTime = now
         windDirection = direction
+        flowSegmentStartTime = now + windPressTriggerThreshold
+        showWindHint()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
             let releaseNow = Date().timeIntervalSinceReferenceDate
-            let t = max(0.0, duration - 0.16)
-            let pressFlow = direction * 175.0 * t
-            baseWindFlowOffset += pressFlow
+            let t = max(0.0, duration - windPressTriggerThreshold)
+            let pressFlow = 175.0 * t
+            baseWindFlowOffsetX += dirVector.dx * pressFlow
+            baseWindFlowOffsetY += dirVector.dy * pressFlow
 
             lastReleaseTime = releaseNow
             lastReleaseWindIntensity = 0.5 // 整体 0.5x
-            lastReleaseWindDirection = direction
+            lastReleaseWindVector = dirVector
 
             blankTouchStartTime = nil
             blankTouchStartPos = nil
             isPressingBlank = false
             touchDragLocation = nil
+            hasTriggeredWindThisTouch = false
+            flowSegmentStartTime = 0.0
         }
     }
 
     private func toggleContinuousWind() {
         let now = Date().timeIntervalSinceReferenceDate
         if isContinuousWindEnabled {
-            baseWindFlowOffset += windDirection * 175.0 * max(0, now - (continuousWindStartTime ?? now))
+            let dt = max(0, now - (continuousWindStartTime ?? now))
+            baseWindFlowOffsetX += targetWindVector.dx * 175.0 * dt
+            baseWindFlowOffsetY += targetWindVector.dy * 175.0 * dt
             lastReleaseTime = now
             lastReleaseWindIntensity = 0.5
-            lastReleaseWindDirection = windDirection
+            lastReleaseWindVector = targetWindVector
             continuousWindStartTime = nil
         } else {
             continuousWindStartTime = now
+            let defaultVec = CGVector(dx: 1.0, dy: 0.0)
+            targetWindVector = defaultVec
+            directionChangeStartVector = defaultVec
+            directionChangeStartTime = now
             windDirection = 1.0
+            showWindHint()
         }
         isContinuousWindEnabled.toggle()
+    }
+
+    // MARK: - 吹风提示与风向平滑过渡逻辑
+    private func showWindHint() {
+        windHintDismissWorkItem?.cancel()
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.80)) {
+            isWindHintVisible = true
+            if isActionMenuExpanded {
+                isActionMenuExpanded = false
+            }
+        }
+        let workItem = DispatchWorkItem {
+            withAnimation(.easeInOut(duration: 0.55)) {
+                self.isWindHintVisible = false
+            }
+        }
+        windHintDismissWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: workItem)
+    }
+
+    private func currentSmoothWindVector(at elapsed: Double) -> CGVector {
+        if isContinuousWindEnabled {
+            return targetWindVector
+        }
+        let transitionDuration: Double = 0.95 // 放缓风向转变时间为 0.95s，优雅慢转，不敏感
+        let dt = max(0.0, elapsed - directionChangeStartTime)
+        if dt >= transitionDuration {
+            return targetWindVector
+        }
+        let t = dt / transitionDuration
+        let smoothT = t * t * (3.0 - 2.0 * t) // S 型平滑 Hermite 插值
+
+        // 使用 2D 最短圆弧球面插值 (Slerp)，保证单位模长恒定且旋转轨迹优雅平缓
+        let angleStart = atan2(directionChangeStartVector.dy, directionChangeStartVector.dx)
+        let angleTarget = atan2(targetWindVector.dy, targetWindVector.dx)
+        var diffAngle = angleTarget - angleStart
+        while diffAngle > .pi { diffAngle -= 2.0 * .pi }
+        while diffAngle < -.pi { diffAngle += 2.0 * .pi }
+
+        let currentAngle = angleStart + diffAngle * smoothT
+        return CGVector(dx: cos(currentAngle), dy: sin(currentAngle))
+    }
+
+    private func updateTargetWindVector(to newVector: CGVector, elapsed: Double) {
+        let diffX = newVector.dx - targetWindVector.dx
+        let diffY = newVector.dy - targetWindVector.dy
+        guard hypot(diffX, diffY) > 0.15 else { return }
+
+        let currentVec = currentSmoothWindVector(at: elapsed)
+        if flowSegmentStartTime > 0.0 {
+            let segDt = max(0.0, elapsed - flowSegmentStartTime)
+            let dragRatio = min(1.8, Double(touchDragDistance / 90.0))
+            let speed = 175.0 * (1.0 + dragRatio * 0.6)
+            baseWindFlowOffsetX += currentVec.dx * speed * segDt
+            baseWindFlowOffsetY += currentVec.dy * speed * segDt
+        }
+        flowSegmentStartTime = elapsed
+
+        directionChangeStartVector = currentVec
+        directionChangeStartTime = elapsed
+        targetWindVector = newVector
+        windDirection = newVector.dx >= 0 ? 1.0 : -1.0
+    }
+
+    // MARK: - 背景与粒子连续风力位移累积计算 (风停后保持在新位置，不复位原位)
+    private func currentFlowOffset(at elapsed: Double) -> (Double, Double) {
+        if isContinuousWindEnabled {
+            let dt = max(0, elapsed - (continuousWindStartTime ?? elapsed))
+            return (
+                baseWindFlowOffsetX + targetWindVector.dx * 175.0 * dt,
+                baseWindFlowOffsetY + targetWindVector.dy * 175.0 * dt
+            )
+        }
+        let pressDuration = blankTouchStartTime != nil ? max(0.0, elapsed - blankTouchStartTime!) : 0.0
+        let (pressWindDeltaX, pressWindDeltaY): (Double, Double) = {
+            if isPressingBlank && pressDuration >= windPressTriggerThreshold {
+                let segStart = max((blankTouchStartTime ?? elapsed) + windPressTriggerThreshold, flowSegmentStartTime)
+                let segDt = max(0.0, elapsed - segStart)
+                let dragRatio = min(1.8, Double(touchDragDistance / 90.0))
+                let speed = 175.0 * (1.0 + dragRatio * 0.6)
+                let smoothVector = currentSmoothWindVector(at: elapsed)
+                return (smoothVector.dx * speed * segDt, smoothVector.dy * speed * segDt)
+            } else {
+                return (0.0, 0.0)
+            }
+        }()
+        let relTime = max(0.0, elapsed - lastReleaseTime)
+        let inertiaDecay = (1.0 - exp(-relTime * 2.2)) / 2.2 * 175.0 * lastReleaseWindIntensity
+        // ★ 规则 1：固定漂浮微粒被风吹后不需要回到原位，保留累积风力位移与自然衰减，静止后停留在新位置并持续环绕
+        return (
+            baseWindFlowOffsetX + pressWindDeltaX + inertiaDecay * lastReleaseWindVector.dx,
+            baseWindFlowOffsetY + pressWindDeltaY + inertiaDecay * lastReleaseWindVector.dy
+        )
     }
 
     // MARK: - 电影级开场门扉漫游控制
@@ -1368,17 +1713,31 @@ private struct PosyGlassVesselSaucer: View {
     }
 }
 
-// MARK: - 漂浮光斑微粒（增加 25%+ 密度，部分增加水彩辉光模糊光晕，随风吹出屏幕并从另一侧随机高度进入）
+// MARK: - 漂浮光斑微粒（增加 25%+ 密度，部分增加水彩辉光模糊光晕，随风吹出屏幕并从另一侧进入）
 private struct PosyAmbientBokehParticles: View {
     let elapsed: Double
-    let flowOffset: Double // 随风连续流动的水平位移
+    var flowOffsetX: Double = 0.0 // 随风连续流动的水平位移
+    var flowOffsetY: Double = 0.0 // 随风连续流动的垂直位移
+
+    init(elapsed: Double, flowOffsetX: Double = 0.0, flowOffsetY: Double = 0.0) {
+        self.elapsed = elapsed
+        self.flowOffsetX = flowOffsetX
+        self.flowOffsetY = flowOffsetY
+    }
+
+    init(elapsed: Double, flowOffset: Double) {
+        self.elapsed = elapsed
+        self.flowOffsetX = flowOffset
+        self.flowOffsetY = 0.0
+    }
 
     var body: some View {
         Canvas { context, size in
             let w = size.width > 0 ? size.width : 402.0
             let h = size.height > 0 ? size.height : 874.0
             let margin: CGFloat = 45.0
-            let wrapSpan: CGFloat = w + margin * 2.0
+            let wrapSpanX: CGFloat = w + margin * 2.0
+            let wrapSpanY: CGFloat = h + margin * 2.0
 
             // 12 颗氛围漂浮光球 (严格 1/3 比例即 4 颗放大 2 倍，构成前中后三层景深层次)
             let particles: [(baseX: CGFloat, baseY: CGFloat, baseR: CGFloat, color: Color, hasGlow: Bool, drag: Double, speedScale: Double, isEnlarged: Bool)] = [
@@ -1411,38 +1770,30 @@ private struct PosyAmbientBokehParticles: View {
             for (idx, p) in particles.enumerated() {
                 // 1. 恒定低频温润漂浮波浪 (恒定 ~0.25Hz，绝不抖动)
                 let floatPhase = Double(p.baseX * 7.3 + p.baseY * 4.9)
-                // 点击生成的光球是独立叠加层；固有光斑仍按时间与风力确定位置。
-                // 仅让放大的固有光斑稍快漂浮，小光斑保持原有速度。
                 let ambientSpeedScale = p.isEnlarged ? 1.2 : 1.0
                 let floatX = sin(elapsed * 0.28 * p.speedScale * ambientSpeedScale + floatPhase) * 16.0
                 let floatY = cos(elapsed * 0.20 * p.speedScale * ambientSpeedScale + floatPhase) * 7.0
 
-                // 2. 连续虚拟世界坐标 (含初始位置、风力累积位移与微风漂动)
-                let worldX = Double(w * p.baseX) + flowOffset * p.drag + floatX
+                // 2. 连续虚拟世界坐标 (含初始位置、2D风力累积位移与微风漂动)
+                let worldX = Double(w * p.baseX) + flowOffsetX * p.drag + floatX
+                let worldY = Double(h * p.baseY) + flowOffsetY * p.drag + floatY
 
-                // 3. 计算循环周数 cycleK (当粒子在屏幕外穿越时，cycleK 发生变化以触发新进屏随机高度)
+                // 3. 计算 2D 循环环绕 (在 [-margin, w + margin] 和 [-margin, h + margin] 循环)
                 let shiftedX = worldX + Double(margin)
-                let cycleK = Int(floor(shiftedX / Double(wrapSpan)))
-
-                // 4. 计算当前在屏幕范围内的 X 坐标 (在 [-margin, w + margin] 循环)
-                var modX = shiftedX.truncatingRemainder(dividingBy: Double(wrapSpan))
-                if modX < 0 { modX += Double(wrapSpan) }
+                var modX = shiftedX.truncatingRemainder(dividingBy: Double(wrapSpanX))
+                if modX < 0 { modX += Double(wrapSpanX) }
                 let px = CGFloat(modX) - margin
 
-                // 5. 跨屏随机进入：根据 (idx, cycleK) 确定本周期的随机 Y 高度
-                // 确定性伪随机哈希，仅在粒子完全出屏到 margin 外时才切换，屏内绝对平滑
-                let randomHashY = sin(Double(idx * 31) + Double(cycleK * 79)) * 43758.5453
-                let normalizedHashY = randomHashY - floor(randomHashY) // 0.0 ~ 1.0
-                let randomizedBaseY = 0.16 + 0.62 * CGFloat(normalizedHashY)
+                let shiftedY = worldY + Double(margin)
+                var modY = shiftedY.truncatingRemainder(dividingBy: Double(wrapSpanY))
+                if modY < 0 { modY += Double(wrapSpanY) }
+                let py = CGFloat(modY) - margin
 
-                let py = h * randomizedBaseY + CGFloat(floatY)
-
-                // 6. 尺寸计算：1/3 比例粒子放大 2 倍
+                // 4. 尺寸计算：1/3 比例粒子放大 2 倍
                 let effectiveBaseR = p.isEnlarged ? p.baseR * 2.0 * 0.55 : p.baseR
 
-                // 7. 绘制辉光与微粒本体 (仅大模糊光点绘制水彩高斯晕轮)
+                // 5. 绘制辉光与微粒本体 (仅大模糊光点绘制水彩高斯晕轮)
                 if p.hasGlow {
-                    // 辉光光晕呼吸感
                     let glowScale = 0.88 + 0.22 * CGFloat(sin(elapsed * 0.75 + Double(idx * 2)))
                     let haloR = effectiveBaseR * 2.8 * glowScale
                     let haloRect = CGRect(x: px - haloR, y: py - haloR, width: haloR * 2, height: haloR * 2)
@@ -1477,6 +1828,8 @@ private struct PosyAmbientBokehParticles: View {
 public struct PosyFloatingHaloParticle: Identifiable {
     public let id: UUID
     public let birthTime: Double
+    public let birthFlowOffsetX: Double // 生成瞬间的环境风力基准 X
+    public let birthFlowOffsetY: Double // 生成瞬间的环境风力基准 Y
     public let floatDuration: Double // 浮动与碰撞飘散持续时间 (20 秒)
     public let fadeDuration: Double  // 向上慢慢升华消失持续时间 (约 3.8 秒)
     public var lifetime: Double { floatDuration + fadeDuration }
@@ -1518,6 +1871,8 @@ public struct PosyFloatingHaloParticle: Identifiable {
 
     public init(
         birthTime: Double,
+        birthFlowOffsetX: Double = 0.0,
+        birthFlowOffsetY: Double = 0.0,
         floatDuration: Double = 20.0,
         fadeDuration: Double = 3.8,
         startX: CGFloat,
@@ -1547,6 +1902,8 @@ public struct PosyFloatingHaloParticle: Identifiable {
     ) {
         self.id = UUID()
         self.birthTime = birthTime
+        self.birthFlowOffsetX = birthFlowOffsetX
+        self.birthFlowOffsetY = birthFlowOffsetY
         self.floatDuration = floatDuration
         self.fadeDuration = fadeDuration
         self.startX = startX
@@ -1579,6 +1936,8 @@ public struct PosyFloatingHaloParticle: Identifiable {
 public struct PosyFloatingHaloParticlesView: View {
     public let particles: [PosyFloatingHaloParticle]
     public let elapsed: Double
+    public var flowOffsetX: Double = 0.0
+    public var flowOffsetY: Double = 0.0
     public var drawingOffset: CGSize = .zero
 
     public var body: some View {
@@ -1601,20 +1960,23 @@ public struct PosyFloatingHaloParticlesView: View {
                     }
                 }()
 
-                // 2. 初始向外喷射离散位移 (指数衰减阻尼，平滑舒展展开)
+                // 2. 初始向外喷射离散位移 (指数衰减阻尼，平滑舒展展开，age=0 时为 0)
                 let burstDamp = 1.0 - exp(-age / p.burstTau)
                 let burstDispX = p.burstVx * CGFloat(p.burstTau * burstDamp)
                 let burstDispY = p.burstVy * CGFloat(p.burstTau * burstDamp)
 
-                // 3. 20 秒内的多频有机游荡浮动 (双正弦复合波叠加)
-                let waveX = sin(age * p.freqX1 + p.phaseX) * p.ampX1 + cos(age * p.freqX2 + p.phaseX * 1.5) * p.ampX2
-                let waveY = cos(age * p.freqY1 + p.phaseY) * p.ampY1 + sin(age * p.freqY2 + p.phaseY * 1.3) * p.ampY2
+                // 3. 20 秒内的多频有机游荡浮动 (双正弦复合波，减去 age=0 初值确保起始点与点击处完全吻合)
+                let waveX0 = sin(p.phaseX) * p.ampX1 + cos(p.phaseX * 1.5) * p.ampX2
+                let waveY0 = cos(p.phaseY) * p.ampY1 + sin(p.phaseY * 1.3) * p.ampY2
+                let waveX = (sin(age * p.freqX1 + p.phaseX) * p.ampX1 + cos(age * p.freqX2 + p.phaseX * 1.5) * p.ampX2) - waveX0
+                let waveY = (cos(age * p.freqY1 + p.phaseY) * p.ampY1 + sin(age * p.freqY2 + p.phaseY * 1.3) * p.ampY2) - waveY0
 
-                // 4. 随机碰撞飘散微反弹 (折叠周期波模拟碰撞折返)
+                // 4. 随机碰撞飘散微反弹 (减去 age=0 初值)
+                let bounce0 = abs(sin(p.bouncePhase))
                 let bounceVal = abs(sin(age * p.bounceFreq + p.bouncePhase))
-                let bounceDisp = (CGFloat(bounceVal) - 0.5) * p.bounceAmp
+                let bounceDisp = (CGFloat(bounceVal) - CGFloat(bounce0)) * p.bounceAmp
 
-                // 5. 游荡慢漂移
+                // 5. 游荡慢漂移 (age=0 时为 0)
                 let driftX = p.driftVx * CGFloat(min(age, p.floatDuration))
                 let driftY = p.driftVy * CGFloat(min(age, p.floatDuration))
 
@@ -1634,8 +1996,13 @@ public struct PosyFloatingHaloParticlesView: View {
                     return 0
                 }()
 
-                let px = p.startX + burstDispX + waveX + bounceDisp + driftX + exitSwayX
-                let py = p.startY + burstDispY + waveY + bounceDisp * 0.4 + driftY - exitRise
+                // 7. 相对风力响应位移：跟随粒子生成之后的风力位移 (以 0.65 柔和顺应比率漂移)
+                // 出生瞬间 relativeWindX = 0, relativeWindY = 0，确保出生瞬间严格在点击坐标
+                let relWindX = (flowOffsetX - p.birthFlowOffsetX) * 0.65
+                let relWindY = (flowOffsetY - p.birthFlowOffsetY) * 0.65
+
+                let px = p.startX + burstDispX + waveX + bounceDisp + driftX + exitSwayX + CGFloat(relWindX)
+                let py = p.startY + burstDispY + waveY + bounceDisp * 0.4 + driftY - exitRise + CGFloat(relWindY)
 
                 let dissolveScale: CGFloat = {
                     if age > p.floatDuration {
@@ -1753,7 +2120,8 @@ public struct PosyStaticGardenStageView: View, Equatable {
                 // 背景漂浮微球 (初始静态位置)
                 PosyAmbientBokehParticles(
                     elapsed: 0.0,
-                    flowOffset: 0.0
+                    flowOffsetX: 0.0,
+                    flowOffsetY: 0.0
                 )
                 .allowsHitTesting(false)
             }

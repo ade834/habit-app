@@ -79,8 +79,8 @@ struct GardenView: View {
                 }
             }
         }
-        // Let the garden and its door transition paint through the home-indicator area.
-        .ignoresSafeArea(.container, edges: .bottom)
+        // Let the garden, its door transition, and touch particles paint through the entire screen.
+        .ignoresSafeArea(.container, edges: .all)
         .task {
             while !Task.isCancelled {
                 viewModel.loadHabitsAndFlowers(goals: goals)
@@ -207,12 +207,14 @@ private struct HabitFlowerProgressCarouselStrip: View {
 
 // MARK: - Single Habit Progress Glass Card
 private struct HabitProgressGlassCard: View {
+    @Environment(\.habitColorTheme) private var colorTheme
     let item: HabitGardenItem
 
     var body: some View {
         let req = item.nextLevelRequirement
-        let tint = item.habit.tint
-        let cardAccent = Color(red: tint.red, green: tint.green, blue: tint.blue)
+        let orbCenterColors = [colorTheme.largeOrbCenterColor, colorTheme.smallOrbCenterColor]
+        let detailAccent = colorTheme.largeOrbCenterColor
+        let progressGradient = LinearGradient(colors: orbCenterColors, startPoint: .leading, endPoint: .trailing)
 
         VStack(alignment: .leading, spacing: 6) {
             // Top Row: Habit Name and Flower Tag
@@ -220,11 +222,12 @@ private struct HabitProgressGlassCard: View {
                 // Mini Flower Icon Badge
                 ZStack {
                     Circle()
-                        .fill(cardAccent.opacity(0.18))
+                        .fill(detailAccent.opacity(0.18))
                         .frame(width: 32, height: 32)
                     Image(systemName: item.speciesIconName)
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(cardAccent)
+                        .foregroundStyle(detailAccent)
+                        .brightness(0.10)
                 }
 
                 // Habit Title & Species Info
@@ -238,18 +241,21 @@ private struct HabitProgressGlassCard: View {
                         // Stage Badge Pill
                         Text("Lv.\(item.targetLevel) \(item.speciesChineseName)")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(cardAccent)
+                            .foregroundStyle(detailAccent)
+                            .brightness(0.10)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(
                                 Capsule()
-                                    .fill(cardAccent.opacity(0.14))
+                                    .fill(detailAccent.opacity(0.14))
                             )
                     }
 
                     Text("\(item.stageTitle) · \(req.description)")
                         .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(Color(red: 0.40, green: 0.34, blue: 0.38).opacity(0.85))
+                        .foregroundStyle(detailAccent)
+                        .saturation(0.50)
+                        .brightness(0.25)
                         .lineLimit(1)
                 }
 
@@ -267,13 +273,7 @@ private struct HabitProgressGlassCard: View {
 
                         // Progress Fill
                         Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [cardAccent.opacity(0.65), cardAccent],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
+                            .fill(progressGradient)
                             .frame(width: max(8, geo.size.width * CGFloat(req.progress)), height: 6)
                             .animation(.spring(response: 0.5, dampingFraction: 0.78), value: req.progress)
                     }
@@ -283,13 +283,16 @@ private struct HabitProgressGlassCard: View {
                 HStack {
                     Text("打卡 \(item.completions) 次 · 积分 \(item.points) · 养成值 \(item.growthValue)")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Color(red: 0.45, green: 0.40, blue: 0.44).opacity(0.8))
+                        .foregroundStyle(detailAccent)
+                        .saturation(0.50)
+                        .brightness(0.25)
 
                     Spacer()
 
                     Text("\(Int(req.progress * 100))%")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(cardAccent)
+                        .foregroundStyle(detailAccent)
+                        .brightness(0.10)
                 }
             }
         }
@@ -559,6 +562,8 @@ private struct GlassCircleButton: View {
 private struct FlowerDetailSheetView: View {
     let item: HabitGardenItem
     let onNurture: () -> Void
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
+    @State private var interactionSound = AppSoundFeedback()
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -621,6 +626,7 @@ private struct FlowerDetailSheetView: View {
 
             // Nurture Button
             Button {
+                interactionSound.play(.nurture, enabled: soundEffectsEnabled)
                 onNurture()
                 dismiss()
             } label: {
