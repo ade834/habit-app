@@ -12,6 +12,7 @@ private enum ExecutionPageStyle {
 struct ExecutionView: View {
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppSoundSettings.storageKey) private var completionSoundEnabled = true
     let goal: Goal?
     let allGoals: [Goal]
     @Binding var selectedGoals: [Goal]
@@ -19,6 +20,8 @@ struct ExecutionView: View {
     let onPrompt: (String) -> Void
     let onExit: (Goal) -> Void
     @State private var responses: [String: String] = [:]
+    @State private var completionSound = AppSoundFeedback()
+    @State private var timerSound = AppSoundFeedback()
     @State private var reviewDate = Calendar.current.startOfDay(for: .now)
     @State private var travelPlan: TravelPlanRecord?
     @State private var challenge: HabitChallengeRecord?
@@ -40,6 +43,10 @@ struct ExecutionView: View {
     @State private var completionExitProgress: CGFloat = 0
     @State private var contentRevealed = false
     @State private var isClosing = false
+    @State private var writingField: ReviewWritingField?
+    @State private var foldedRevealFieldKey: String?
+    @State private var foldedRevealProgress: CGFloat = 1
+    @State private var revealedResponseTextKey: String?
 
     var body: some View {
         ZStack {
@@ -48,7 +55,6 @@ struct ExecutionView: View {
                     .ignoresSafeArea()
                     .opacity(1 - completionExitProgress)
             }
-
             GeometryReader { viewport in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -114,6 +120,45 @@ struct ExecutionView: View {
                 .offset(y: viewport.size.height * 0.88 * completionExitProgress)
             }
         }
+        .blur(radius: writingField == nil ? 0 : 12)
+        .allowsHitTesting(writingField == nil)
+        .accessibilityHidden(writingField != nil)
+        .overlayPreferenceValue(ReviewFieldBounds.self) { anchors in
+            GeometryReader { geometry in
+                if let field = writingField {
+                    ReviewTypewriter(
+                        field: field,
+                        initialText: responses[field.key, default: ""],
+                        source: anchors[field.key].map { geometry[$0] } ?? CGRect(x: 36, y: 220, width: geometry.size.width - 72, height: 110),
+                        onSave: { value in
+                            withAnimation(reduceMotion ? .none : .spring(response: 0.52, dampingFraction: 0.82)) {
+                                responses[field.key] = value
+                                foldedRevealFieldKey = field.key
+                                foldedRevealProgress = 0
+                                revealedResponseTextKey = nil
+                            }
+                            if let goal {
+                                ReviewWritingDrafts.save(responses, goal: goal.id, date: goal.id == "H1" ? reviewDate : .now)
+                            }
+                        },
+                        onClose: {
+                            withAnimation(.none) { writingField = nil }
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(140))
+                                withAnimation(reduceMotion ? .none : .spring(response: 0.82, dampingFraction: 0.68)) {
+                                    foldedRevealProgress = 1
+                                }
+                                if !reduceMotion { try? await Task.sleep(for: .milliseconds(820)) }
+                                withAnimation(reduceMotion ? .none : .easeIn(duration: 0.30)) {
+                                    revealedResponseTextKey = field.key
+                                }
+                            }
+                        }
+                    )
+                    .id(field.id)
+                }
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             if !reduceMotion { try? await Task.sleep(for: .milliseconds(190)) }
@@ -122,7 +167,10 @@ struct ExecutionView: View {
                 contentRevealed = true
             }
         }
-        .task(id: goal?.id) { await loadPersistedTaskState() }
+        .task(id: goal?.id) {
+            await loadPersistedTaskState()
+            if goal?.id == "H1" { await loadReviewForSelectedDate() }
+        }
         .task(id: reviewDate) { await loadReviewForSelectedDate() }
         .task(id: timerPausedAt) { await monitorFocusPauseLimit() }
         .task(id: timerStartedAt) { await monitorDisconnectCompletion() }
@@ -147,7 +195,7 @@ struct ExecutionView: View {
     }
 
     private func closeExecution() {
-        guard !isClosing, let goal else { return }
+        guard !isClosing, writingField == nil, let goal else { return }
         if reduceMotion {
             onExit(goal)
             return
@@ -165,21 +213,36 @@ struct ExecutionView: View {
     @ViewBuilder
     private var executionBackdrop: some View {
         if let goal {
-            let appearance = GoalCardAppearance(goal: goal, goals: allGoals, theme: colorTheme)
-            let cardColor = appearance.baseColor
-            LinearGradient(
-                stops: [
-                    .init(color: cardColor, location: 0),
-                    .init(color: cardColor, location: 0.25),
-                    .init(color: cardColor.opacity(0.52), location: 0.45),
-                    .init(color: cardColor.opacity(0.20), location: 0.72),
-                    .init(color: cardColor.opacity(0.10), location: 1)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        } else {
-            Color.clear
+            let cardColor = GoalCardAppearance(goal: goal, goals: allGoals, theme: colorTheme).baseColor
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    // Keep the expanded card in the upper third. Fade into the
+                    // live ambient background instead of an opaque canvas.
+                    LinearGradient(stops: [
+                        .init(color: cardColor, location: 0),
+                        .init(color: cardColor, location: 0.62),
+                        .init(color: cardColor.opacity(0.62), location: 0.82),
+                        .init(color: .clear, location: 1)
+                    ], startPoint: .top, endPoint: .bottom)
+                    .frame(height: geometry.size.height / 3 + 88)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .blur(radius: 14)
+
+                    if goal.cardArtworkAsset != nil {
+                        GoalCardArtwork(goal: goal, widthScale: 2.10)
+                            .frame(width: geometry.size.width, height: geometry.size.height / 3)
+                            .mask {
+                                LinearGradient(stops: [
+                                    .init(color: .black, location: 0),
+                                    .init(color: .black, location: 0.88),
+                                    .init(color: .black.opacity(0.52), location: 0.96),
+                                    .init(color: .clear, location: 1)
+                                ], startPoint: .top, endPoint: .bottom)
+                            }
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+            }
         }
     }
 
@@ -187,6 +250,9 @@ struct ExecutionView: View {
         let form = HabitExecutionForm(
             goalID: goal.id,
             responses: $responses,
+            foldedRevealFieldKey: $foldedRevealFieldKey,
+            foldedRevealProgress: $foldedRevealProgress,
+            revealedResponseTextKey: $revealedResponseTextKey,
             reviewDate: $reviewDate,
             travelPlan: travelPlan,
             challenge: challenge,
@@ -200,7 +266,8 @@ struct ExecutionView: View {
             startTimer: startTimer,
             toggleFocusTimer: toggleFocusTimer,
             endFocusTimerEarly: endFocusTimerEarly,
-            swapChallenge: swapChallenge
+            swapChallenge: swapChallenge,
+            openWriter: { writingField = $0 }
         )
         let content = VStack(alignment: .leading, spacing: goal.id == "H4" ? 20 : 12) {
             if goal.id == "H4" || goal.id == "H3" {
@@ -326,6 +393,9 @@ struct ExecutionView: View {
 
     private func loadPersistedTaskState() async {
         guard let goal else { return }
+        if goal.id != "H1" {
+            responses.merge(ReviewWritingDrafts.load(goal: goal.id, date: .now), uniquingKeysWith: { _, saved in saved })
+        }
         if goal.id == "H11" { travelPlan = try? await SharedHabitRepository().travelPlanForCurrentYear() }
         else { travelPlan = nil }
         if goal.id == "H4" { disconnectStatus = (try? NativeDatabase().disconnectStatus()) ?? disconnectStatus }
@@ -352,6 +422,7 @@ struct ExecutionView: View {
             responses["decision"] = entry?.decision ?? ""
             responses["result"] = entry?.result ?? ""
             responses["improvement"] = entry?.improvement ?? ""
+            responses.merge(ReviewWritingDrafts.load(goal: "H1", date: reviewDate), uniquingKeysWith: { _, saved in saved })
         } catch { show(error) }
     }
 
@@ -364,6 +435,7 @@ struct ExecutionView: View {
                 timerPausedAt = nil
                 accumulatedPauseSeconds = 0
             }
+            timerSound.play(.timerStart, enabled: completionSoundEnabled)
         } catch { show(error) }
     }
 
@@ -373,9 +445,11 @@ struct ExecutionView: View {
             if timerPausedAt == nil {
                 try NativeDatabase().pauseFocusSession(sessionID)
                 timerPausedAt = .now
+                timerSound.play(.timerPause, enabled: completionSoundEnabled)
             } else {
                 accumulatedPauseSeconds = try NativeDatabase().resumeFocusSession(sessionID)
                 timerPausedAt = nil
+                timerSound.play(.timerResume, enabled: completionSoundEnabled)
             }
         } catch {
             show(error)
@@ -534,6 +608,7 @@ struct ExecutionView: View {
             do {
                 let date = goal.id == "H1" ? reviewDate : Date.now
                 try await SharedHabitRepository().submit(GoalEntry(goalID: goal.id, date: date, payload: payload))
+                ReviewWritingDrafts.remove(goal: goal.id, date: date)
                 if goal.id == "H11" && travelPlan == nil {
                     // Saving the annual plan is the first step, not task completion.
                     travelPlan = try? await SharedHabitRepository().travelPlanForCurrentYear()
@@ -566,7 +641,10 @@ struct ExecutionView: View {
     private func show(_ error: Error) { notify(error.localizedDescription) }
 
     private func celebrateCompletion() async {
-        if reduceMotion { return }
+        if reduceMotion {
+            completionSound.play(.completion, enabled: completionSoundEnabled)
+            return
+        }
         withAnimation(.easeOut(duration: 0.12)) {
             isCelebrating = true
             completionButtonPressed = true
@@ -596,6 +674,7 @@ struct ExecutionView: View {
             completionButtonHighlighted = true
             completionBurstProgress = 1
         }
+        completionSound.play(.completion, enabled: completionSoundEnabled)
         try? await Task.sleep(for: .milliseconds(420))
         withAnimation(.easeIn(duration: 0.62)) {
             completionBurstProgress = 2
@@ -648,10 +727,38 @@ private struct CompletionConfetti: View {
     }
 }
 
+private struct VerticalRevealRoundedRect: Shape {
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let amount = min(1, max(0, progress))
+        let revealedHeight = rect.height * amount
+        guard revealedHeight > 0.5 else { return Path() }
+        let radius = min(16, revealedHeight / 2, rect.width / 2)
+        return UnevenRoundedRectangle(
+            cornerRadii: RectangleCornerRadii(
+                topLeading: radius,
+                bottomLeading: radius,
+                bottomTrailing: radius,
+                topTrailing: radius
+            ),
+            style: .continuous
+        ).path(in: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: revealedHeight))
+    }
+}
+
 private struct HabitExecutionForm: View {
     @Environment(\.habitColorTheme) private var colorTheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let goalID: String
     @Binding var responses: [String: String]
+    @Binding var foldedRevealFieldKey: String?
+    @Binding var foldedRevealProgress: CGFloat
+    @Binding var revealedResponseTextKey: String?
     @Binding var reviewDate: Date
     let travelPlan: TravelPlanRecord?
     let challenge: HabitChallengeRecord?
@@ -666,6 +773,7 @@ private struct HabitExecutionForm: View {
     let toggleFocusTimer: () -> Void
     let endFocusTimerEarly: () -> Void
     let swapChallenge: () -> Void
+    let openWriter: (ReviewWritingField) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -811,57 +919,72 @@ private struct HabitExecutionForm: View {
     }
 
     private func field(_ label: String, key: String) -> some View {
-        let binding = Binding(
-            get: { responses[key, default: ""] },
-            set: { value in responses[key] = value }
-        )
         let expands = ["secondary", "summary", "preparation", "focus", "decision", "result", "improvement"].contains(key)
         let expandedHeight: CGFloat = goalID == "H1" ? 95 : (goalID == "H11" ? 180 : 140)
         let glassOpacity = expands ? 0.82 : 0.68
+        let backgroundReveal = foldedRevealFieldKey == key ? foldedRevealProgress : 1
+        let responseTextOpacity = foldedRevealFieldKey == key && revealedResponseTextKey != key ? 0.0 : 1.0
 
-        return Group {
-            if key == "days" || key.contains("Value") {
-                TextField(label, text: binding, prompt: Text(label).foregroundColor(Color(white: 0.38)))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        let savedText = responses[key, default: ""]
+        return VStack(alignment: .leading, spacing: 10) {
+            Button { openWriter(ReviewWritingField(key: key, title: label)) } label: {
+                HStack {
+                    Text(label).font(.system(size: 14, weight: .medium))
+                    Spacer(minLength: 0)
+                    Image(systemName: "pencil.line").font(.system(size: 13))
+                }
+                .foregroundStyle(Color(white: 0.38))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(label)，\(savedText.isEmpty ? "开始输入" : "编辑内容")")
+            .accessibilityIdentifier("review.field.\(key)")
+
+            if savedText.isEmpty {
+                Button { openWriter(ReviewWritingField(key: key, title: label)) } label: {
+                    Text("轻点输入")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             } else {
-                TextEditor(text: binding)
-                    .scrollContentBackground(.hidden)
-                    .scrollIndicators(.visible)
-                    .frame(height: expands ? expandedHeight : 76)
-                    .overlay(alignment: .topLeading) {
-                        if responses[key, default: ""].isEmpty {
-                            Text(label)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(Color(white: 0.38))
-                                .padding(.leading, 5)
-                                .padding(.top, 8)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .accessibilityLabel(label)
+                ScrollView(.vertical) {
+                    Text(savedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 8)
+                }
+                .scrollIndicators(.visible)
+                .defaultScrollAnchor(.top)
+                .opacity(responseTextOpacity)
+                .transition(.asymmetric(insertion: .scale(scale: 0.82, anchor: .top).combined(with: .opacity), removal: .opacity))
+                .accessibilityLabel("\(label)的已保存内容")
+                .accessibilityHint("上下滑动查看全文，轻点上方标题或铅笔编辑")
+                .accessibilityIdentifier("review.content.\(key)")
             }
         }
-        .font(.system(size: 16, weight: .medium))
+        .font(.custom("Songti SC", size: 18))
+        .foregroundStyle(Color(white: 0.18))
+        .frame(height: expands ? expandedHeight : 76, alignment: .topLeading)
         .foregroundColor(Color(white: 0.18))
         .tint(ExecutionPageStyle.bodyInk)
-        .textFieldStyle(.plain)
         .multilineTextAlignment(.leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            VerticalRevealRoundedRect(progress: backgroundReveal)
                 .fill(.ultraThinMaterial)
                 .opacity(glassOpacity)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    VerticalRevealRoundedRect(progress: backgroundReveal)
                         .fill(.white.opacity(expands ? 0.24 : 0.18))
                 }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            VerticalRevealRoundedRect(progress: backgroundReveal)
                 .stroke(.white.opacity(0.52), lineWidth: 1)
         }
-        .keyboardType(key == "days" ? .numberPad : (key.contains("Value") ? .decimalPad : .default))
+        .anchorPreference(key: ReviewFieldBounds.self, value: .bounds) { [key: $0] }
     }
 
     private func timerPanel(title: String, duration: Int, topic: String?) -> some View {

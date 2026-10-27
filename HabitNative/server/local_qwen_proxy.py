@@ -97,7 +97,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self.send_json(200, {"status": "ok", "model": "qwen3.7-flash"})
+            self.send_json(200, {"status": "ok", "model": "qwen3.8-flash"})
         else:
             self.send_json(404, {"error": "not_found"})
 
@@ -123,9 +123,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             prompt = WEEK_PROMPT if period == "week" else MONTH_PROMPT
             body = {
-                "model": "qwen3.7-flash",
+                "model": "qwen3.8-flash",
                 # This is a short, evidence-grounded summary, not a reasoning task.
-                # Qwen3.7-Flash enables thinking by default; disabling it avoids
+                # Qwen3.8-Flash enables thinking by default; disabling it avoids
                 # spending most of the wait on hidden reasoning tokens.
                 "enable_thinking": False,
                 "messages": [

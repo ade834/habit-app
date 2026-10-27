@@ -37,11 +37,54 @@ enum ScrollEdgeVisibility {
     case both
 }
 
+enum ReviewAICooldown {
+    private static let requestDatePrefix = "review.ai.last-request."
+    static let didResetNotification = Notification.Name("HabitNativeReviewAICooldownDidReset")
+
+    static func reset() {
+        let defaults = UserDefaults.standard
+        defaults.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix(requestDatePrefix) }
+            .forEach(defaults.removeObject(forKey:))
+        NotificationCenter.default.post(name: didResetNotification, object: nil)
+    }
+}
+
+// Preserve saved appearance values after removing the temporary tuning controls.
+private struct ReviewBlurAppearance {
+    let topHeight: Double
+    let bottomHeight: Double
+    let topOpacity: Double
+    let bottomOpacity: Double
+    let topFade: Double
+    let bottomFade: Double
+    let intensity: Double
+
+    init(theme: HabitColorTheme) {
+        let defaults = UserDefaults.standard
+        func saved(_ key: String, fallback: Double) -> Double {
+            defaults.object(forKey: "review.blur." + key + "." + theme.rawValue) as? Double ?? fallback
+        }
+        topHeight = saved("top.height", fallback: 0.25)
+        bottomHeight = saved("bottom.height", fallback: 0.15)
+        topOpacity = saved("top.opacity", fallback: theme == .lavender ? 0.34 : 0.15)
+        bottomOpacity = theme == .original ? 0.65 : saved("bottom.opacity", fallback: 0.95)
+        topFade = saved("top.fade", fallback: 0.125)
+        bottomFade = saved("bottom.fade", fallback: 0.225)
+        intensity = saved("intensity", fallback: 0.25)
+    }
+}
+
 struct ReviewPage: View {
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     let goals: [Goal]
+    let receiptPresentation: ReviewReceiptPresentation
+    @State private var reviewRequestTask: Task<Void, Never>?
+    @State private var reviewInteractionSound = AppSoundFeedback()
+    @State private var didRunReceiptPreview = false
     @State private var period: ReviewPeriod = .week
     @State private var anchor = Date.now
     @State private var snapshot: ReviewSnapshot?
@@ -57,6 +100,7 @@ struct ReviewPage: View {
     @State private var periodControlFrame: CGRect = .zero
     @State private var reviewTitleFrame: CGRect = .zero
     @State private var reviewSubtitleFrame: CGRect = .zero
+    @State private var reportScrollPosition = ScrollPosition(edge: .top)
     @State private var reviewScrollOffset: CGFloat = 0
     @State private var reviewContentFrame: CGRect = .zero
     @State private var daySheetScrollMorphProgress: CGFloat = 0
@@ -64,11 +108,9 @@ struct ReviewPage: View {
     @State private var nextReviewAllowedAt: Date?
     @State private var reviewReportLoading = false
     @State private var analysisStep: MonthlyAnalysisStep = .preparing
-    @State private var reportRevealTransition = false
     @AppStorage("review.ai.privacy-consent.v1") private var hasPrivacyConsent = false
     @State private var privacyConsentChecked = false
     @State private var reviewReportError: String?
-    @State private var revealedReportCharacters = 0
     @State private var consentSheetPresented = false
 
     private let ink = Color(red: 0.17, green: 0.15, blue: 0.19)
@@ -134,6 +176,16 @@ struct ReviewPage: View {
                 .padding(.bottom, 120)
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
+            .scrollDisabled(receiptPresentation.isActive)
+            .scrollPosition($reportScrollPosition)
+            .onChange(of: receiptPresentation.shouldScrollToReport) { _, shouldScroll in
+                guard shouldScroll else { return }
+                let landingTop = viewport.frame(in: .global).minY + 148
+                let offset = max(0, reviewScrollOffset + receiptPresentation.destinationFrame.minY - landingTop)
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    reportScrollPosition.scrollTo(y: offset)
+                }
+            }
             .coordinateSpace(name: "review-scroll")
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top
@@ -150,7 +202,36 @@ struct ReviewPage: View {
                 )
             }
         }
-        .task { load(); loadReviewReport() }
+        .overlay(alignment: .bottom) {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-review-receipt-preview"), !receiptPresentation.isActive {
+                Button("重播小票动画（演示）") { previewReceipt() }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ink)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 105)
+                    .disabled(reviewReportLoading)
+            }
+            #endif
+        }
+        .task {
+            load()
+            loadReviewReport()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-review-receipt-preview"), !didRunReceiptPreview {
+                didRunReceiptPreview = true
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                previewReceipt()
+            }
+            #endif
+        }
+        .onDisappear {
+            reviewRequestTask?.cancel()
+            receiptPresentation.dismiss()
+        }
         .task(id: nextReviewAllowedAt) {
             guard let deadline = nextReviewAllowedAt, deadline > .now else { return }
             do {
@@ -162,12 +243,27 @@ struct ReviewPage: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                receiptPresentation.dismiss()
+                return
+            }
             load()
+            if !reviewReportLoading && !receiptPresentation.isActive { loadReviewReport() }
+        }
+        .onChange(of: period) { _, _ in
+            receiptPresentation.dismiss()
             loadReviewReport()
         }
-        .onChange(of: period) { _, _ in loadReviewReport() }
-        .onChange(of: anchor) { _, _ in loadReviewReport() }
+        .onChange(of: anchor) { _, _ in
+            receiptPresentation.dismiss()
+            loadReviewReport()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ReviewAICooldown.didResetNotification)) { _ in
+            reviewReport = nil
+            nextReviewAllowedAt = nil
+            reviewReportError = nil
+            loadReviewReport()
+        }
         .sheet(isPresented: $consentSheetPresented) {
             reviewPrivacyConsentSheet
                 .presentationDetents([.medium, .large])
@@ -197,6 +293,7 @@ struct ReviewPage: View {
                 Button {
                     let periodChanged = choice != period
                     if periodChanged {
+                        reviewInteractionSound.play(.navigation, enabled: soundEffectsEnabled)
                         isWeekCalendarExpanded = false
                         isMonthCalendarExpanded = false
                         pendingAutoExpand = choice
@@ -547,7 +644,7 @@ struct ReviewPage: View {
             reviewRequestButton(data)
         }
 
-        if reviewReportLoading || reportRevealTransition {
+        if reviewReportLoading {
             VStack(alignment: .leading, spacing: 10) {
                 if reviewReportLoading && analysisStep != .complete {
                     ReviewWaitingMessage(color: muted)
@@ -570,30 +667,39 @@ struct ReviewPage: View {
             .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
             .transition(.opacity)
         } else if let reviewReport {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("分析报告")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(ink)
-                Text(String(reviewReport.analysis.prefix(revealedReportCharacters)))
-                    .font(.system(size: 13))
-                    .foregroundStyle(muted)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .animation(.easeIn(duration: 0.22), value: revealedReportCharacters)
-                Text("鼓励与建议")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(ink)
-                    .padding(.top, 5)
-                Text(reviewReport.encouragement)
-                    .font(.system(size: 13))
-                    .foregroundStyle(muted)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.opacity)
-            }
-            .onAppear { revealAnalysis(reviewReport.analysis) }
+            ReviewReceiptContent(document: receiptDocument(reviewReport, data: data))
+                .id("review-ai-receipt")
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) }
+                action: { receiptPresentation.destinationFrame = $0 }
+                .opacity(receiptPresentation.isActive ? 0 : 1)
+                .accessibilityHidden(receiptPresentation.isActive)
+                .padding(.top, 4)
         }
     }
+
+    private func receiptDocument(_ reports: QwenReviewService.MonthlyReports, data: ReviewSnapshot) -> ReviewReceiptDocument {
+        ReviewReceiptDocument(
+            reports: reports,
+            title: period == .week ? "本周复盘小票" : "月度复盘小票",
+            start: range.start,
+            end: range.end.addingTimeInterval(-1),
+            completions: data.completions,
+            points: data.points
+        )
+    }
+
+    #if DEBUG
+    private func previewReceipt() {
+        guard let snapshot, !receiptPresentation.isActive else { return }
+        reportScrollPosition.scrollTo(edge: .top)
+        let reports = QwenReviewService.MonthlyReports(
+            analysis: "这周的记录，让日常的照料有了可以回看的痕迹。养成物的当前阶段反映累计记录，不代表这一周发生了升阶。种子等待发芽、幼苗慢慢生长，都有各自的节奏。\n\n把行动放回具体日期，能更清楚地看见哪些习惯容易开始，哪些日子需要留一点余地。一次完成是一条真实记录，暂时中断也可以成为下一次调整的线索。\n\n持续记录与复盘，有助于找到适合自己的提示和反馈。下周可以只挑一个想继续照顾的习惯，观察什么时间最容易迈出第一步。",
+            encouragement: "愿你把每一次小小的行动，都当作给植物的一次照料。留一点耐心，陪它慢慢生根，也期待它在你的陪伴下开出惊喜的花朵。明天从一个轻松的小步骤开始就好。"
+        )
+        reviewReport = reports
+        if !reduceMotion { receiptPresentation.present(receiptDocument(reports, data: snapshot)) }
+    }
+    #endif
 
     private func reviewRequestButton(_ data: ReviewSnapshot) -> some View {
         let cooldownActive = nextReviewAllowedAt.map { Date.now < $0 } ?? false
@@ -602,14 +708,14 @@ struct ReviewPage: View {
         return VStack(spacing: 7) {
             Button {
                 if hasPrivacyConsent {
-                    Task { await requestReviewReport() }
+                    startReviewRequest()
                 } else {
                     privacyConsentChecked = false
                     consentSheetPresented = true
                 }
             } label: {
                 Label(
-                    hasExistingReport ? "发送新的报告" : (period == .week ? "获得本周复盘报告" : "获得月度分析报告"),
+                    hasExistingReport ? "重新生成 AI 小结" : "AI 生成小结",
                     systemImage: "sparkles"
                 )
                     .font(.system(size: 14, weight: .semibold))
@@ -636,27 +742,6 @@ struct ReviewPage: View {
         nextReviewAllowedAt.map { Date.now < $0 } ?? false
     }
 
-    private func revealAnalysis(_ analysis: String) {
-        guard !reduceMotion else {
-            revealedReportCharacters = analysis.count
-            return
-        }
-        revealedReportCharacters = 0
-        Task { @MainActor in
-            // Allow the completion stage to reach and hold at 100% before fading it.
-            try? await Task.sleep(for: .milliseconds(550))
-            withAnimation(.easeOut(duration: 0.35)) { reportRevealTransition = true }
-            try? await Task.sleep(for: .milliseconds(380))
-            withAnimation(.easeOut(duration: 0.35)) { reportRevealTransition = false }
-            try? await Task.sleep(for: .milliseconds(220))
-            for count in stride(from: 1, through: analysis.count, by: 5) {
-                revealedReportCharacters = min(count, analysis.count)
-                try? await Task.sleep(for: .milliseconds(24))
-            }
-            revealedReportCharacters = analysis.count
-        }
-    }
-
     private var reviewPrivacyConsentSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("发送前请阅读").font(.system(size: 23, weight: .semibold)).foregroundStyle(ink)
@@ -672,7 +757,7 @@ struct ReviewPage: View {
             Button {
                 consentSheetPresented = false
                 hasPrivacyConsent = true
-                Task { await requestReviewReport() }
+                startReviewRequest()
             } label: {
                 Text("发送并生成报告")
                     .font(.system(size: 16, weight: .semibold))
@@ -690,39 +775,67 @@ struct ReviewPage: View {
         .presentationBackground(.regularMaterial)
     }
 
+    private func startReviewRequest() {
+        guard !reviewReportLoading else { return }
+        reviewRequestTask = Task { await requestReviewReport() }
+    }
+
     @MainActor
     private func requestReviewReport() async {
+        guard !reviewReportLoading else { return }
+        // Freeze all request context before the first suspension point.
+        let requestedPeriod = period
+        let requestedAnchor = anchor
+        let requestedRange = range
+        let requestedKey = requestedPeriod == .week ? Self.weekKey(requestedRange.start) : Self.monthKey(requestedAnchor)
+        let requestDateKey = reviewRequestDateKey(for: requestedKey)
+        let requestedSnapshot = snapshot
         reviewReportLoading = true
         analysisStep = .preparing
-        reportRevealTransition = false
         reviewReportError = nil
         defer { reviewReportLoading = false }
         do {
-            if !reduceMotion { try? await Task.sleep(for: .milliseconds(700)) }
-            let content = try period == .week ? weekReportInput(in: range) : monthReportInput(in: range)
+            let content = try requestedPeriod == .week ? weekReportInput(in: requestedRange) : monthReportInput(in: requestedRange)
             guard !content.isEmpty else {
-                reviewReportError = period == .week ? "本周没有可分析的记录。" : "本月没有可分析的任务文字记录。"
+                reviewReportError = requestedPeriod == .week ? "本周没有可分析的记录。" : "本月没有可分析的任务文字记录。"
                 return
             }
             analysisStep = .sending
-            if !reduceMotion { try? await Task.sleep(for: .milliseconds(250)) }
-            let reports = try await (period == .week ? QwenReviewService.analyzeWeek(content) : QwenReviewService.analyzeMonth(content))
+            let reports = try await (requestedPeriod == .week ? QwenReviewService.analyzeWeek(content) : QwenReviewService.analyzeMonth(content))
+            try Task.checkCancellation()
             analysisStep = .organizing
-            if !reduceMotion { try? await Task.sleep(for: .milliseconds(300)) }
-            if period == .week {
-                try NativeDatabase().saveWeeklyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, week: range.start)
+            if requestedPeriod == .week {
+                try NativeDatabase().saveWeeklyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, week: requestedRange.start)
             } else {
-                try NativeDatabase().saveMonthlyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, month: anchor)
+                try NativeDatabase().saveMonthlyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, month: requestedAnchor)
             }
-            reviewReport = reports
-            let cooldown = period == .week ? 7 : 30
-            nextReviewAllowedAt = Calendar.current.date(byAdding: .day, value: cooldown, to: Date.now)
-            saveReviewRequestDate(Date.now)
+            let savedAt = Date.now
+            UserDefaults.standard.set(savedAt, forKey: requestDateKey)
+            // The saved result belongs to the original period even if the user moved elsewhere.
+            let currentKey = period == .week ? Self.weekKey(range.start) : Self.monthKey(anchor)
+            guard period == requestedPeriod, currentKey == requestedKey, scenePhase == .active else { return }
             analysisStep = .complete
-            if !reduceMotion { try? await Task.sleep(for: .milliseconds(700)) }
+            if !reduceMotion { try await Task.sleep(for: .milliseconds(350)) }
+            let visibleKey = period == .week ? Self.weekKey(range.start) : Self.monthKey(anchor)
+            guard period == requestedPeriod, visibleKey == requestedKey, scenePhase == .active else { return }
+            reviewReport = reports
+            let cooldown = requestedPeriod == .week ? 7 : 30
+            nextReviewAllowedAt = Calendar.current.date(byAdding: .day, value: cooldown, to: savedAt)
             reviewReportLoading = false
-            revealAnalysis(reports.analysis)
+            if !reduceMotion, let data = requestedSnapshot {
+                receiptPresentation.present(ReviewReceiptDocument(
+                    reports: reports,
+                    title: requestedPeriod == .week ? "本周复盘小票" : "月度复盘小票",
+                    start: requestedRange.start,
+                    end: requestedRange.end.addingTimeInterval(-1),
+                    completions: data.completions,
+                    points: data.points
+                ))
+            }
+        } catch is CancellationError {
+            // Leaving the page cancels the request and any pending presentation.
         } catch {
+            guard !Task.isCancelled else { return }
             reviewReportError = error.localizedDescription
         }
     }
@@ -740,7 +853,6 @@ struct ReviewPage: View {
                 saved = try database.reviewReport(table: "monthly_ai_reports", keyColumn: "month_key", key: key)
             }
             reviewReport = saved.map { QwenReviewService.MonthlyReports(analysis: $0.analysis, encouragement: $0.encouragement) }
-            revealedReportCharacters = reviewReport?.analysis.count ?? 0
             let storedRequestDate = UserDefaults.standard.object(forKey: reviewRequestDateKey(for: key)) as? Date
             let requestDate = storedRequestDate ?? saved?.updatedAt
             let cooldown = period == .week ? 7 : 30
@@ -752,10 +864,6 @@ struct ReviewPage: View {
 
     private func reviewRequestDateKey(for key: String) -> String {
         "review.ai.last-request.\(period == .week ? "week" : "month").\(key)"
-    }
-
-    private func saveReviewRequestDate(_ date: Date) {
-        UserDefaults.standard.set(date, forKey: reviewRequestDateKey(for: period == .week ? Self.weekKey(range.start) : Self.monthKey(anchor)))
     }
 
     private static func monthKey(_ date: Date) -> String {
@@ -1363,6 +1471,7 @@ private struct ReviewScrollChrome: View {
     @State private var bottomReveal: CGFloat = 0
     @State private var titleProgress: CGFloat = 0
 
+    private var blurAppearance: ReviewBlurAppearance { ReviewBlurAppearance(theme: colorTheme) }
     private var ink: Color { colorTheme == .lavender ? .white : Color(red: 0.17, green: 0.15, blue: 0.19) }
     private var mutedInk: Color { colorTheme == .lavender ? .white.opacity(0.92) : Color(red: 0.43, green: 0.41, blue: 0.46) }
     private let enter = Animation.timingCurve(0.22, 0.8, 0.25, 1, duration: 0.46)
@@ -1372,8 +1481,8 @@ private struct ReviewScrollChrome: View {
         GeometryReader { geometry in
             let frame = geometry.frame(in: .global)
             let screenHeight = geometry.size.height + frame.minY
-            let topHeight = (screenHeight * 0.25).rounded()
-            let bottomHeight = (screenHeight * 0.15).rounded()
+            let topHeight = (screenHeight * blurAppearance.topHeight).rounded()
+            let bottomHeight = (screenHeight * blurAppearance.bottomHeight).rounded()
             let topLine = (screenHeight * 0.19).rounded()
             let bottomLine = (screenHeight * 0.89).rounded()
             let hasContent = bodyFrame != .zero && contentFrame != .zero
@@ -1437,7 +1546,13 @@ private struct ReviewScrollChrome: View {
     }
 
     private func edge(isTop: Bool, height: CGFloat, reveal: CGFloat) -> some View {
-        ReviewBackdropBlur(intensity: 0.25, whiteOpacity: 0.15, isTop: isTop)
+        ReviewBackdropBlur(
+            intensity: isTop ? CGFloat(blurAppearance.intensity) : 0.65,
+            whiteOpacity: CGFloat(isTop ? blurAppearance.topOpacity : blurAppearance.bottomOpacity),
+            fadeFraction: CGFloat(isTop ? blurAppearance.topFade : blurAppearance.bottomFade),
+            isTop: isTop,
+            isDark: colorTheme == .lavender
+        )
             .frame(height: height + 32)
             .opacity(Double(reveal))
     }
@@ -1461,36 +1576,43 @@ private struct ReviewScrollChrome: View {
 }
 
 // Public UIKit background blur, with a paused animator controlling its strength.
-// The outer 40% fades both the blur and the explicit 15% white layer together.
+// The outer 40% fades the blur and theme tint together.
 private struct ReviewBackdropBlur: UIViewRepresentable {
     let intensity: CGFloat
     let whiteOpacity: CGFloat
+    let fadeFraction: CGFloat
     let isTop: Bool
+    let isDark: Bool
 
     func makeUIView(context: Context) -> BackdropView {
-        BackdropView(intensity: intensity, whiteOpacity: whiteOpacity, isTop: isTop)
+        BackdropView(intensity: intensity, whiteOpacity: whiteOpacity, fadeFraction: fadeFraction, isTop: isTop, isDark: isDark)
     }
 
-    func updateUIView(_ uiView: BackdropView, context: Context) {}
+    func updateUIView(_ uiView: BackdropView, context: Context) {
+        uiView.updateAppearance(isDark: isDark, tintOpacity: whiteOpacity, intensity: intensity, fadeFraction: fadeFraction)
+    }
 
     final class BackdropView: UIView {
         private let effectView = UIVisualEffectView()
         private let whiteLayer = UIView()
         private let gradient = CAGradientLayer()
         private var animator: UIViewPropertyAnimator?
-        private let intensity: CGFloat
+        private var intensity: CGFloat
+        private let isTop: Bool
+        private var isDark: Bool
+        private var fadeFraction: CGFloat
 
-        init(intensity: CGFloat, whiteOpacity: CGFloat, isTop: Bool) {
+        init(intensity: CGFloat, whiteOpacity: CGFloat, fadeFraction: CGFloat, isTop: Bool, isDark: Bool) {
             self.intensity = intensity
+            self.fadeFraction = fadeFraction
+            self.isTop = isTop
+            self.isDark = isDark
             super.init(frame: .zero)
             isUserInteractionEnabled = false
             addSubview(effectView)
-            whiteLayer.backgroundColor = UIColor.white.withAlphaComponent(whiteOpacity)
+            whiteLayer.backgroundColor = UIColor(white: isDark ? (isTop ? 0.025 : 0.0) : (isTop ? 0.90 : 1.0), alpha: whiteOpacity)
             addSubview(whiteLayer)
-            gradient.colors = isTop
-                ? [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
-                : [UIColor.clear.cgColor, UIColor.white.cgColor, UIColor.white.cgColor]
-            gradient.locations = isTop ? [0, 0.6, 1] : [0, 0.4, 1]
+            updateGradient()
             gradient.startPoint = CGPoint(x: 0.5, y: 0)
             gradient.endPoint = CGPoint(x: 0.5, y: 1)
             layer.mask = gradient
@@ -1500,9 +1622,56 @@ private struct ReviewBackdropBlur: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            rebuildBlurIfNeeded()
+        }
+
+        func updateAppearance(isDark: Bool, tintOpacity: CGFloat, intensity: CGFloat, fadeFraction: CGFloat) {
+            whiteLayer.backgroundColor = UIColor(white: isDark ? (isTop ? 0.025 : 0.0) : (isTop ? 0.90 : 1.0), alpha: tintOpacity)
+            self.fadeFraction = fadeFraction
+            self.intensity = intensity
+            let themeChanged = self.isDark != isDark
+            self.isDark = isDark
+            updateGradient()
+            guard themeChanged else {
+                if let animator, animator.state == .active { animator.fractionComplete = intensity }
+                return
+            }
+            self.isDark = isDark
+            animator?.stopAnimation(true)
+            animator = nil
+            effectView.effect = nil
+            rebuildBlurIfNeeded()
+        }
+
+        private func updateGradient() {
+            let fadeStart = max(0, min(0.95, 1 - fadeFraction))
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if isDark && !isTop {
+                // Fade the blur and black tint together. Zero alpha at the upper
+                // edge and a smooth slope avoid a visible band above the lens.
+                let samples = (0...8).map { CGFloat($0) / 8 }
+                gradient.colors = [UIColor.clear.cgColor] + samples.map { t in
+                    UIColor(white: 1, alpha: t * t * (3 - 2 * t)).cgColor
+                }
+                gradient.locations = [0] + samples.map { t in
+                    NSNumber(value: Double(fadeStart + (1 - fadeStart) * t))
+                }
+            } else {
+                gradient.colors = isTop
+                    ? [UIColor.white.cgColor, UIColor.white.cgColor, UIColor.clear.cgColor]
+                    : [UIColor.clear.cgColor, UIColor.clear.cgColor, UIColor.white.cgColor]
+                gradient.locations = [0, NSNumber(value: Double(fadeStart)), 1]
+            }
+            CATransaction.commit()
+            setNeedsLayout()
+        }
+
+        private func rebuildBlurIfNeeded() {
             guard window != nil, animator == nil else { return }
             let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
-                self?.effectView.effect = UIBlurEffect(style: .systemUltraThinMaterialLight)
+                guard let self else { return }
+                self.effectView.effect = UIBlurEffect(style: self.isDark ? (self.isTop ? .systemUltraThinMaterialDark : .systemThinMaterialDark) : .systemUltraThinMaterialLight)
             }
             animator.startAnimation()
             animator.pauseAnimation()
@@ -1618,6 +1787,7 @@ struct ScrollMorphChrome: View {
 }
 
 struct ScrollEdgeBlurOverlay: View {
+    @Environment(\.habitColorTheme) private var colorTheme
     let progress: CGFloat
     var visibility: ScrollEdgeVisibility = .both
     var topReveal: CGFloat? = nil
@@ -1649,22 +1819,35 @@ struct ScrollEdgeBlurOverlay: View {
     private func edgeBlur(isTop: Bool, height: CGFloat, travel: CGFloat, reveal: CGFloat, whiteOpacity: Double) -> some View {
         let amount = min(1, max(0, reveal))
         return Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay(Color.white.opacity(whiteOpacity))
+            .fill(isTop ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.regularMaterial))
+            .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
+            .overlay(
+                (colorTheme == .lavender ? Color(white: isTop ? 0.025 : 0) : Color(white: isTop ? 0.90 : 1))
+                    .opacity(colorTheme == .lavender ? (isTop ? 0.34 : 0.95) : (isTop ? whiteOpacity : 0.65))
+            )
             .frame(height: height)
             .mask {
                 LinearGradient(
                     stops: isTop
                         ? [
                             .init(color: .white, location: 0),
-                            .init(color: .white, location: 0.8),
+                            .init(color: .white, location: 0.94),
                             .init(color: .clear, location: 1)
                         ]
-                        : [
+                        : (colorTheme == .lavender ? [
                             .init(color: .clear, location: 0),
-                            .init(color: .white, location: 0.2),
+                            .init(color: .clear, location: 0.14),
+                            .init(color: .white.opacity(0.15625), location: 0.175),
+                            .init(color: .white.opacity(0.5), location: 0.21),
+                            .init(color: .white.opacity(0.84375), location: 0.245),
+                            .init(color: .white, location: 0.28),
                             .init(color: .white, location: 1)
-                        ],
+                        ] : [
+                            .init(color: .clear, location: 0),
+                            .init(color: .clear, location: 0.14),
+                            .init(color: .white, location: 0.28),
+                            .init(color: .white, location: 1)
+                        ]),
                     startPoint: .top,
                     endPoint: .bottom
                 )

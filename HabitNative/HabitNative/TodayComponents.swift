@@ -1,22 +1,62 @@
 import SwiftUI
+import UIKit
 
-/// Uses the garden's mature flower head without running its wind or growth timeline.
-private struct HabitCardFlowerHead: View {
-    let habitID: String
+private struct BalancedGoalSummary: View {
+    let summary: String
+    let fontSize: CGFloat
+    let weight: UIFont.Weight
+    let color: Color
 
     var body: some View {
-        let type = PosyFloraType.forHabit(habitID)
-        let canvasSize: CGFloat = (type.isGiantFlora ? 240 : 120) * type.headScaleFactor
+        GeometryReader { proxy in
+            Text(wrappedSummary(summary, width: proxy.size.width, fontSize: fontSize, weight: weight))
+                .font(.system(size: fontSize, weight: weight == .bold ? .bold : .semibold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.90)
+                .allowsTightening(true)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(color)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: fontSize * 2.65)
+        .accessibilityLabel(cleanedSummary(summary))
+    }
 
-        PosyFlowerBloomCanvas(type: type, progress: 1)
-            .frame(width: canvasSize, height: canvasSize)
-            .scaleEffect(300 / canvasSize)
-            .frame(width: 300, height: 300)
-            .saturation(0.75)
-            .brightness(0.15)
-            .opacity(0.50)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+    private func wrappedSummary(_ value: String, width: CGFloat, fontSize: CGFloat, weight: UIFont.Weight) -> String {
+        let text = cleanedSummary(value)
+        guard width > 0, text.count > 1 else { return text }
+        let font = UIFont.systemFont(ofSize: fontSize, weight: weight)
+        let fullWidth = (text as NSString).size(withAttributes: [.font: font]).width
+        guard fullWidth > width else { return text }
+
+        let characters = Array(text)
+        var best: (index: Int, imbalance: CGFloat, naturalBreak: Bool)?
+        for index in 1..<characters.count {
+            let first = String(characters[..<index])
+            let second = String(characters[index...])
+            guard first.count > 1,
+                  second.count > 1,
+                  !second.first!.isPunctuation else { continue }
+            let firstWidth = (first as NSString).size(withAttributes: [.font: font]).width
+            let secondWidth = (second as NSString).size(withAttributes: [.font: font]).width
+            // Leave room for differences between UIKit measurement and SwiftUI glyph layout.
+            let safeWidth = width - 12
+            guard firstWidth <= safeWidth, secondWidth <= safeWidth else { continue }
+            let imbalance = abs(firstWidth - secondWidth)
+            let naturalBreak = first.last!.isPunctuation
+            if best == nil
+                || (naturalBreak && !best!.naturalBreak)
+                || (naturalBreak == best!.naturalBreak && imbalance < best!.imbalance) {
+                best = (index, imbalance, naturalBreak)
+            }
+        }
+        guard let best else { return text }
+        return String(characters[..<best.index]) + "\n" + String(characters[best.index...])
+    }
+
+    private func cleanedSummary(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"[。\.]+$"#, with: "", options: .regularExpression)
     }
 }
 
@@ -90,9 +130,38 @@ struct SelectedDeckCardSurface: View {
     }
 }
 
+struct GoalCardArtwork: View {
+    let goal: Goal
+    var widthScale: CGFloat = 0.96
+
+    var body: some View {
+        Group {
+            if let asset = goal.cardArtworkAsset {
+                GeometryReader { geometry in
+                    let imageWidth = geometry.size.width * widthScale
+                    Image(asset)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: imageWidth)
+                        // Shift each habit-bound illustration toward the upper
+                        // right so its orbital details can bleed beyond the card.
+                        .position(
+                            x: geometry.size.width * 0.66,
+                            y: geometry.size.height * 0.34
+                        )
+                }
+            }
+        }
+        .opacity(0.30)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// A looping perspective card stack with a large third card.
 struct TodayStackDeckView: View {
     @Environment(\.habitColorTheme) private var colorTheme
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     let goals: [Goal]
     var colorRangeEndOrder = 12
     @Binding var state: TodayGoalState
@@ -105,6 +174,7 @@ struct TodayStackDeckView: View {
     @GestureState private var drag: CGFloat = 0
     @GestureState private var horizontalDrag: CGFloat = 0
     @State private var draggedGoalID: String?
+    @State private var interactionSound = AppSoundFeedback()
     @State private var bounceID: String?
     @State private var ruleNotice: String?
     @State private var ruleNoticeID = UUID()
@@ -419,6 +489,12 @@ struct TodayStackDeckView: View {
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
         let tint = colorTheme.selectedDeckCardColor(at: goal.order - 1, count: colorRangeEndOrder)
         return SelectedDeckCardSurface(tint: tint)
+            .overlay {
+                if goal.cardArtworkAsset != nil {
+                    GoalCardArtwork(goal: goal, widthScale: 2.1875)
+                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                }
+            }
     }
 
     private func goalCard(_ goal: Goal, isHero: Bool, selected: Bool, contentReveal: CGFloat) -> some View {
@@ -454,39 +530,32 @@ struct TodayStackDeckView: View {
             .zIndex(2)
 
             if isHero {
-                // 主展示位的选择图标前置，避免被下一层卡片遮住。
-                ZStack {
-                    Circle().fill(.white.opacity(0.18)).frame(width: 104, height: 104)
-                    Circle().stroke(.white.opacity(0.58), lineWidth: 1.3).frame(width: 58, height: 58)
-                    Color.clear
-                        .frame(width: 104, height: 104)
-                        .overlay { HabitCardFlowerHead(habitID: goal.id) }
+                VStack(spacing: 10) {
                     if selected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 22, weight: .medium))
                             .foregroundStyle(.white.opacity(0.94))
                             .shadow(color: .black.opacity(0.45), radius: 3)
                     }
+                    BalancedGoalSummary(
+                        summary: goal.summary,
+                        fontSize: 22,
+                        weight: .bold,
+                        color: .white.opacity(0.98)
+                    )
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.horizontal, 22)
+                .padding(.bottom, 30)
                 .opacity(contentReveal)
-
-                Text(goal.summary)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white.opacity(0.94))
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 22)
-                    .padding(.top, 10)
-                    .opacity(contentReveal)
             } else {
-                Text(goal.summary)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(.white.opacity(colorTheme == .lavender ? 1 : 0.86))
+                BalancedGoalSummary(
+                    summary: goal.summary,
+                    fontSize: 18,
+                    weight: .bold,
+                    color: .white.opacity(0.94)
+                )
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 24)
                     .padding(.top, 6)
                     .opacity(contentReveal)
@@ -615,6 +684,7 @@ struct TodayStackDeckView: View {
             showRuleNotice("当天最多选择 3 个普通或周期目标，请先取消一个再选择。")
             return
         }
+        interactionSound.play(.selection, enabled: soundEffectsEnabled)
         withAnimation(spring) {
             if wasSelected { state.selectedGoalIDs.remove(goal.id); state.starredGoalIDs.remove(goal.id) }
             else { state.selectedGoalIDs.insert(goal.id) }

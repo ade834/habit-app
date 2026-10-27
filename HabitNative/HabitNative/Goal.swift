@@ -26,6 +26,13 @@ struct Goal: Identifiable, Hashable, Sendable {
     var isPeriodic: Bool = false
     var completedToday: Bool = false
     var isStarred: Bool = false
+
+    /// Habit-bound artwork. Cards and their expanded detail surface resolve
+    /// their background from the same goal model.
+    var cardArtworkAsset: String? {
+        guard let number = Int(id.dropFirst()), (1...12).contains(number) else { return nil }
+        return number == 1 ? "GoalH1OrbitalBackground" : "GoalH\(number)Artwork"
+    }
 }
 
 enum HabitSubmissionPayload: Sendable {
@@ -192,7 +199,7 @@ enum AppTab: Equatable {
 }
 
 struct TodayGoalState: Equatable {
-    var tab: AppTab = .today
+    var tab: AppTab = CommandLine.arguments.contains("--garden-tab") ? .garden : .today
     var mode: TodayMode = .homeUnselected
     var focusedGoalID = "H6"
     var selectedGoalIDs: Set<String> = []
