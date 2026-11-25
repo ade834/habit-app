@@ -1,0 +1,15 @@
+# Install as /etc/logrotate.d/maybii-review and verify the system timer runs daily.
+/var/log/maybii-review/calls.log {
+    daily
+    rotate 29
+    maxage 29
+    missingok
+    ifempty
+    compress
+    delaycompress
+    copytruncate
+    su root root
+    postrotate
+        /usr/bin/logger -t maybii-log-cleanup 'Review log rotation completed'
+    endscript
+}

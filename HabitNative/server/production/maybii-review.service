@@ -1,0 +1,21 @@
+[Unit]
+Description=MAYBII authenticated review backend
+After=network-online.target
+Wants=network-online.target
+[Service]
+DynamicUser=yes
+WorkingDirectory=/opt/maybii-review
+StateDirectory=maybii-review
+LogsDirectory=maybii-review
+LogsDirectoryMode=0700
+StandardOutput=append:/var/log/maybii-review/calls.log
+LoadCredential=qwen_api_key:/etc/maybii-review-staging/qwen_api_key
+ExecStart=/usr/bin/python3 /opt/maybii-review/runner.py
+Restart=on-failure
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077
+[Install]
+WantedBy=multi-user.target

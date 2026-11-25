@@ -1,0 +1,8 @@
+PyJWT[crypto]>=2.10,<3
+alibabacloud_alidns20150109
+alibabacloud_credentials
+alibabacloud_tea_openapi
+
+app-store-server-library>=2,<3
+cbor2>=5.6,<6
+asn1>=2.8,<3

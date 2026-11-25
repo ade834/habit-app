@@ -1,0 +1,27 @@
+[Unit]
+Description=MAYBII verified review backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/maybii-review
+StateDirectory=maybii-review
+StateDirectoryMode=0700
+EnvironmentFile=/etc/maybii-review/production.env
+LoadCredential=qwen_api_key:/etc/maybii-review/credentials/qwen_api_key
+LoadCredential=appstore_api_key:/etc/maybii-review/credentials/appstore_api_key
+LoadCredential=quota_hmac_key:/etc/maybii-review/credentials/quota_hmac_key
+LoadCredential=apple_root_g3:/etc/maybii-review/credentials/apple_root_g3
+LoadCredential=apple_app_attest_root:/etc/maybii-review/credentials/apple_app_attest_root
+ExecStart=/opt/maybii-review/venv/bin/python /opt/maybii-review/production/verified_runner.py
+Restart=on-failure
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

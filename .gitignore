@@ -21,3 +21,5 @@ main
 .agents/
 skills-lock.json
 HabitNative/HabitNative/DeviceReviewConfig.plist
+__pycache__/
+*.pyc
