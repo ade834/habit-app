@@ -1152,6 +1152,13 @@ struct TypewriterPaperEditor: UIViewRepresentable {
             return true
         }
 
+        func textViewDidBeginEditing(_ view: UITextView) {
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let view else { return }
+                self.align(view, feedPaper: true, animated: false)
+            }
+        }
+
         func textViewDidChangeSelection(_ view: UITextView) {
             parent.control.synchronize(view)
             DispatchQueue.main.async { [weak self, weak view] in
