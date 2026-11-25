@@ -210,6 +210,22 @@ enum HabitTaskCatalog {
         group.flatMap { action in modifiers.map { "\(action)，\($0)。" } }
     }
 
+    static func localizedChallenge(at index: Int, language: String, translate: (String) -> String) -> String {
+        guard challengeCards.indices.contains(index) else { return "" }
+        guard language != "zh-Hans" else { return challengeCards[index] }
+        let actions = actionGroups.flatMap { $0 }
+        let action = translate(actions[index / modifiers.count]).trimmingCharacters(in: .punctuationCharacters)
+        let modifier = translate(modifiers[index % modifiers.count]).trimmingCharacters(in: .punctuationCharacters)
+        return language == "ja" ? "\(action)。\(modifier)。" : "\(action). \(modifier)."
+    }
+
+    static func localizedThinkingTopic(_ topic: String, language: String, translate: (String) -> String) -> String {
+        guard language != "zh-Hans", let index = thinkingTopicCorpus.firstIndex(of: topic) else { return topic }
+        let subject = translate(thinkingSubjects[index / questionFrames.count])
+        let question = translate(questionFrames[index % questionFrames.count])
+        return language == "ja" ? "\(subject)について、\(question)" : "\(subject): \(question)"
+    }
+
     static func thinkingTopics(for date: Date) -> [String] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current

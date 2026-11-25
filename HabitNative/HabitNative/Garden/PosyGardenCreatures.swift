@@ -72,6 +72,23 @@ public struct PosyCreaturesView: View {
 
     // MARK: - 初始入场航线初始化
     private func setupInitialFlightPlans() {
+        if DevelopmentLaunch.contains("--garden-showcase") {
+            let bTarget = CGPoint(x: canvasWidth * 0.28, y: canvasHeight * 0.26)
+            butterflyState.isInitialized = true
+            butterflyState.anchorPos = bTarget
+            butterflyState.isReentering = false
+            butterflyState.isFlying = false
+            butterflyState.isWindEvicted = false
+
+            let beeTarget = CGPoint(x: canvasWidth * 0.72, y: canvasHeight * 0.32)
+            beeState.isInitialized = true
+            beeState.anchorPos = beeTarget
+            beeState.isReentering = false
+            beeState.isFlying = false
+            beeState.isWindEvicted = false
+            return
+        }
+
         if !butterflyState.isInitialized {
             let start = CGPoint(x: -80, y: canvasHeight * 0.22)
             let target = CGPoint(x: canvasWidth * 0.32, y: canvasHeight * 0.28)
@@ -149,6 +166,8 @@ public struct PosyCreaturesView: View {
                 }
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel(AppLanguage.text("蝴蝶"))
+            .accessibilityIdentifier("garden.butterfly")
             .position(pos)
         }
     }
@@ -203,6 +222,8 @@ public struct PosyCreaturesView: View {
                 }
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel(AppLanguage.text("蜜蜂"))
+            .accessibilityIdentifier("garden.bee")
             .position(pos)
         }
     }
@@ -210,6 +231,13 @@ public struct PosyCreaturesView: View {
     // MARK: - 点击交互状态调度 (两阶段：1次随机换位，2次惊飞离场+5秒返场)
     private func handleTap(isBee: Bool, currentPos: CGPoint) {
         if isBee {
+            if beeState.isWindEvicted {
+                guard beeState.isWindReturning, elapsed >= beeState.windReturnStart + beeState.windReturnDuration else { return }
+                beeState.isWindEvicted = false
+                beeState.isWindReturning = false
+                beeState.isReentering = false
+                beeState.clickCount = 0
+            }
             // 忽略飞行/离场中的重复触发
             if beeState.isFlying && elapsed < beeState.flyStart + beeState.flyDuration { return }
             if beeState.isOffscreenCycle && elapsed < beeState.reentryStart + beeState.reentryDuration { return }
@@ -251,6 +279,13 @@ public struct PosyCreaturesView: View {
             }
         } else {
             // 蝴蝶逻辑
+            if butterflyState.isWindEvicted {
+                guard butterflyState.isWindReturning, elapsed >= butterflyState.windReturnStart + butterflyState.windReturnDuration else { return }
+                butterflyState.isWindEvicted = false
+                butterflyState.isWindReturning = false
+                butterflyState.isReentering = false
+                butterflyState.clickCount = 0
+            }
             if butterflyState.isFlying && elapsed < butterflyState.flyStart + butterflyState.flyDuration { return }
             if butterflyState.isOffscreenCycle && elapsed < butterflyState.reentryStart + butterflyState.reentryDuration { return }
 

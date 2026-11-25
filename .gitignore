@@ -10,3 +10,14 @@
 .env
 .env.*
 !.env.example
+**/xcuserdata/
+DerivedData/
+build/
+build_garden_studio/
+build_habit_app/
+HabitNative/build_test/
+marketing/
+main
+.agents/
+skills-lock.json
+HabitNative/HabitNative/DeviceReviewConfig.plist

@@ -17,7 +17,7 @@ enum NativeDatabaseError: LocalizedError {
 
 /// The native app writes only to Application Support. The App Group database is an import source.
 struct NativeDatabase: Sendable {
-    static let schemaVersion = 16
+    static let schemaVersion = 20
     static let legacyGroup = "group.com.deshiru.habitapp"
 
     let fileURL: URL
@@ -54,12 +54,29 @@ struct NativeDatabase: Sendable {
         return try body(db)
     }
 
-    func saveMonthlyAIReport(analysis: String, encouragement: String, month: Date) throws {
-        try saveReviewReport(table: "monthly_ai_reports", keyColumn: "month_key", key: Self.monthKey(month), analysis: analysis, encouragement: encouragement)
+    func pendingAITrialReset() throws -> String? {
+        try withConnection { db in
+            let statement = try Self.prepare("SELECT value FROM native_metadata WHERE key='ai_trial_reset_pending'", in: db)
+            defer { sqlite3_finalize(statement) }
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE { return nil }
+            guard result == SQLITE_ROW, let value = sqlite3_column_text(statement, 0) else { throw NativeDatabaseError.unavailable("无法读取复盘重置状态。") }
+            return String(cString: value)
+        }
     }
 
-    func saveWeeklyAIReport(analysis: String, encouragement: String, week: Date) throws {
-        try saveReviewReport(table: "weekly_ai_reports", keyColumn: "week_key", key: Self.weekKey(week), analysis: analysis, encouragement: encouragement)
+    func acknowledgeAITrialReset(_ generation: String) throws {
+        try withConnection { db in
+            try Self.execute("DELETE FROM native_metadata WHERE key='ai_trial_reset_pending' AND value=?", bindings: [generation], in: db)
+        }
+    }
+
+    func saveMonthlyAIReport(analysis: String, encouragement: String, month: Date, language: String? = nil) throws {
+        try saveReviewReport(table: "monthly_ai_reports", keyColumn: "month_key", key: Self.monthKey(month) + (language.map { "|" + $0 } ?? ""), analysis: analysis, encouragement: encouragement)
+    }
+
+    func saveWeeklyAIReport(analysis: String, encouragement: String, week: Date, language: String? = nil) throws {
+        try saveReviewReport(table: "weekly_ai_reports", keyColumn: "week_key", key: Self.weekKey(week) + (language.map { "|" + $0 } ?? ""), analysis: analysis, encouragement: encouragement)
     }
 
     func reviewReport(table: String, keyColumn: String, key: String) throws -> (analysis: String, encouragement: String, updatedAt: Date)? {
@@ -98,11 +115,14 @@ struct NativeDatabase: Sendable {
     }
 
     /// Clears user habit data while preserving the one-time migration marker and schema.
-    func clearAllUserData() throws {
+    func clearAllUserData(scheduleTrialReset: Bool = false) throws {
         try withConnection { db in
             try Self.execute("BEGIN IMMEDIATE", in: db)
             do {
                 for table in [
+                    "badge_unlocks",
+                    "badge_review_evidence",
+                    "badge_plan_intervals",
                     "challenge_draws",
                     "challenge_history",
                     "challenge_daily_swaps",
@@ -116,9 +136,18 @@ struct NativeDatabase: Sendable {
                     "point_transactions",
                     "habit_logs",
                     "daily_selection_records",
-                    "habit_selections"
+                    "habit_selections",
+                    "custom_tasks",
+                    "custom_cards"
                 ] {
                     try Self.execute("DELETE FROM \(table)", in: db)
+                }
+                // Clearing local data is not consent to delete the user's
+                // iCloud copy or immediately restore it. Suspend sync until a
+                // future explicit recovery choice, in the same transaction.
+                try Self.execute("INSERT OR REPLACE INTO native_metadata(key,value) SELECT 'sync_paused_after_local_clear','1' WHERE EXISTS (SELECT 1 FROM native_metadata WHERE key='sync_bound_account')", in: db)
+                if scheduleTrialReset {
+                    try Self.execute("INSERT OR REPLACE INTO native_metadata(key,value) VALUES ('ai_trial_reset_pending', ?)", bindings: [UUID().uuidString], in: db)
                 }
                 try Self.execute("COMMIT", in: db)
             } catch {
@@ -229,7 +258,7 @@ struct NativeDatabase: Sendable {
         try execute("BEGIN IMMEDIATE", in: db)
         do {
             for sql in schemaStatements { try execute(sql, in: db) }
-            try execute("PRAGMA user_version = 16", in: db)
+            try execute("PRAGMA user_version = \(schemaVersion)", in: db)
             try execute("COMMIT", in: db)
         } catch {
             try? execute("ROLLBACK", in: db)
@@ -290,8 +319,21 @@ struct NativeDatabase: Sendable {
                 try execute("CREATE TABLE IF NOT EXISTS monthly_ai_reports (month_key TEXT NOT NULL PRIMARY KEY, analysis TEXT NOT NULL, encouragement TEXT NOT NULL, updated_at INTEGER NOT NULL)", in: db)
                 try execute("CREATE TABLE IF NOT EXISTS weekly_ai_reports (week_key TEXT NOT NULL PRIMARY KEY, analysis TEXT NOT NULL, encouragement TEXT NOT NULL, updated_at INTEGER NOT NULL)", in: db)
             }
+            if version < 17 { try createTable("badge_unlocks", in: db) }
+            if version < 18 {
+                try createTable("badge_review_evidence", in: db)
+                try createTable("badge_plan_intervals", in: db)
+            }
+            if try version < 19 && !hasColumn("badge_unlocks", "presented", in: db) {
+                try execute("ALTER TABLE badge_unlocks ADD COLUMN presented INTEGER NOT NULL DEFAULT 0", in: db)
+                try execute("UPDATE badge_unlocks SET presented = 1", in: db)
+            }
+            if version < 20 {
+                try createTable("custom_cards", in: db)
+                try createTable("custom_tasks", in: db)
+            }
             for sql in schemaStatements where sql.contains("CREATE INDEX") { try execute(sql, in: db) }
-            try execute("PRAGMA user_version = 16", in: db)
+            try execute("PRAGMA user_version = \(schemaVersion)", in: db)
             try execute("COMMIT", in: db)
         } catch {
             try? execute("ROLLBACK", in: db)
@@ -309,6 +351,12 @@ struct NativeDatabase: Sendable {
     }
 
     private static let schemaStatements = [
+        "CREATE TABLE IF NOT EXISTS custom_cards (id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, species TEXT NOT NULL, created_at INTEGER NOT NULL, touched_at INTEGER NOT NULL, initial_growth INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS custom_tasks (id TEXT PRIMARY KEY NOT NULL, card_id TEXT NOT NULL REFERENCES custom_cards(id), title TEXT NOT NULL, prompt TEXT NOT NULL, created_at INTEGER NOT NULL, quota_bucket TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
+        "CREATE INDEX IF NOT EXISTS custom_tasks_card ON custom_tasks(card_id)",
+        "CREATE TABLE IF NOT EXISTS badge_review_evidence (local_date TEXT NOT NULL PRIMARY KEY, missed_reason TEXT NOT NULL DEFAULT '', improvement_completed INTEGER NOT NULL DEFAULT 0, missed_review INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS badge_plan_intervals (id INTEGER PRIMARY KEY AUTOINCREMENT, habit_id TEXT NOT NULL, started_on TEXT NOT NULL, ended_on TEXT)",
+        "CREATE TABLE IF NOT EXISTS badge_unlocks (badge_id INTEGER NOT NULL PRIMARY KEY, unlocked_at INTEGER NOT NULL, presented INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS habit_selections (habit_id TEXT NOT NULL PRIMARY KEY, commitment_note TEXT NOT NULL DEFAULT '', enabled_at INTEGER NOT NULL, is_starred INTEGER NOT NULL DEFAULT 0, active_on INTEGER)",
         "CREATE TABLE IF NOT EXISTS habit_logs (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, habit_id TEXT NOT NULL, local_date TEXT NOT NULL, timezone_offset_minutes INTEGER NOT NULL, created_at INTEGER NOT NULL, UNIQUE(habit_id, local_date))",
         "CREATE TABLE IF NOT EXISTS point_transactions (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, habit_log_id INTEGER NOT NULL UNIQUE REFERENCES habit_logs(id), amount INTEGER NOT NULL, created_at INTEGER NOT NULL)",

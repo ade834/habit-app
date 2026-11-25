@@ -7,9 +7,9 @@ struct HabitCompletion: Sendable {
 
 /// Mirrors calculateGrowthSnapshot in the original Flutter domain layer.
 enum HabitGrowthRules {
-    static func progress(enabledAt: [String: Date], completions: [HabitCompletion], today: Date) -> [String: Int] {
+    static let floweringThreshold = 25
+    static func progress(enabledAt: [String: Date], completions: [HabitCompletion], today: Date, calendar: Calendar = .current) -> [String: Int] {
         guard !enabledAt.isEmpty else { return [:] }
-        let calendar = Calendar.current
         let todayDay = calendar.startOfDay(for: today)
         var values = Dictionary(uniqueKeysWithValues: enabledAt.keys.map { ($0, 0) })
         var eventsByDay: [Date: [HabitCompletion]] = [:]
@@ -67,9 +67,28 @@ enum HabitGrowthRules {
 
     static func stage(for progress: Int) -> String {
         if progress >= 60 { return "繁茂" }
-        if progress >= 25 { return "开花" }
+        if progress >= floweringThreshold { return "开花" }
         if progress >= 10 { return "成长" }
         if progress >= 3 { return "发芽" }
         return "种子"
+    }
+}
+
+enum HabitPlantGrowth {
+    static func level(_ value: Int) -> Int {
+        if value >= 60 { return 4 }
+        if value >= 25 { return 3 }
+        if value >= 10 { return 2 }
+        if value >= 3 { return 1 }
+        return 0
+    }
+
+    static func progress(_ value: Int) -> Double {
+        let thresholds = [0, 3, 10, 25, 60]
+        let shapes = [0.08, 0.30, 0.58, 0.84, 1.0]
+        let index = level(value)
+        guard index < 4 else { return 1 }
+        let fraction = Double(max(0, value) - thresholds[index]) / Double(thresholds[index + 1] - thresholds[index])
+        return shapes[index] + (shapes[index + 1] - shapes[index]) * fraction
     }
 }

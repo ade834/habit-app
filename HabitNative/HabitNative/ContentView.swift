@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 // MARK: - 电影感光影剧本配置 (Cinematic Lighting Script)
 public struct CinematicLightingScript: Sendable {
@@ -49,7 +50,7 @@ enum HabitColorTheme: String, CaseIterable, Identifiable {
 
     static let storageKey = "appearance.colorTheme"
     var id: String { rawValue }
-    var title: String { self == .original ? "原色" : "雾紫" }
+    var title: String { self == .original ? AppLanguage.text("原色") : AppLanguage.text("雾紫") }
 
     // ==========================================
     // MARK: - 面板 1：背景光球与底色 (Atmosphere & Orbs Panel)
@@ -394,6 +395,8 @@ struct UITuningState: Codable, Equatable {
 
 struct ContentView: View {
     @AppStorage(HabitColorTheme.storageKey) private var colorTheme = HabitColorTheme.original
+    @AppStorage("reminder.intro.shown") private var reminderIntroShown = false
+    @AppStorage("reminder.permissionIntro.shown") private var permissionIntroShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var state = TodayGoalState()
     @State private var goals: [Goal] = []
@@ -404,6 +407,17 @@ struct ContentView: View {
     @State private var gardenPolaroidPhoto: UIImage?
     @State private var gardenCameraFlash = false
     @State private var backgroundFrame: CGRect = .zero
+    @State private var themeTransitionImage: UIImage?
+    @State private var themeTransitionOrigin: CGPoint = .zero
+    @State private var themeTransitionRadius: CGFloat = 0
+    @State private var showingReminderIntro = false
+    @State private var showingReminderSettings = false
+    @State private var showingPermissionIntro = false
+    @State private var showingPaywallPreview = false
+    @State private var showingCustomCardsModal = false
+    @State private var addCardButtonSourceFrame: CGRect = .zero
+    @AppStorage("app.mgOnboarding.hasCompleted.v1") private var hasCompletedMGOnboarding = false
+    @State private var showMGOnboarding = false
 
     private let repository: any GoalRepository = SharedHabitRepository()
 
@@ -411,7 +425,7 @@ struct ContentView: View {
         ZStack {
             TodayAmbientBackground(reduceMotion: reduceMotion, onViewportChange: { backgroundFrame = $0 })
                 .ignoresSafeArea()
-            TodayRootView(goals: goals, selectedGoals: $selectedGoals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, onConfirm: confirmSelection, onClearData: clearLocalData, onGardenShare: presentGardenPolaroid)
+            TodayRootView(goals: goals, selectedGoals: $selectedGoals, state: $state, tuning: $tuning, reduceMotion: reduceMotion, dashboard: dashboard, showingCustomCardsModal: $showingCustomCardsModal, addCardButtonSourceFrame: $addCardButtonSourceFrame, onConfirm: confirmSelection, onClearData: clearLocalData, onGardenShare: presentGardenPolaroid, onThemeSelect: changeTheme, onReloadGoals: { Task { await reloadGoals() } })
             if let gardenPolaroidPhoto {
                 GardenPolaroidView(photo: gardenPolaroidPhoto) {
                     withAnimation(.easeOut(duration: 0.22)) { self.gardenPolaroidPhoto = nil }
@@ -424,15 +438,107 @@ struct ContentView: View {
                     .allowsHitTesting(false)
                     .zIndex(101)
             }
+            if showMGOnboarding {
+                MGOnboardingView(isPresented: Binding(
+                    get: { showMGOnboarding },
+                    set: { newValue in
+                        showMGOnboarding = newValue
+                        if !newValue {
+                            hasCompletedMGOnboarding = true
+                        }
+                    }
+                ))
+                .zIndex(99999)
+                .transition(.opacity)
+            }
         }
         .environment(\.habitColorTheme, colorTheme)
         .environment(\.habitBackgroundFrame, backgroundFrame)
-        .alert("操作未完成", isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
-            Button("知道了", role: .cancel) { databaseError = nil }
+        .overlay {
+            if showingCustomCardsModal {
+                LiquidGlassCustomCardsModal(
+                    isPresented: $showingCustomCardsModal,
+                    sourceFrame: addCardButtonSourceFrame
+                ) {
+                    Task { await reloadGoals() }
+                }
+                .ignoresSafeArea(.all)
+                .zIndex(1000)
+            }
+        }
+        .overlay {
+            if let snapshot = themeTransitionImage {
+                GeometryReader { geometry in
+                    let frame = geometry.frame(in: .global)
+                    Image(uiImage: snapshot)
+                        .resizable()
+                        .frame(width: frame.width, height: frame.height)
+                        .mask {
+                            ThemeRevealMask(center: CGPoint(x: themeTransitionOrigin.x - frame.minX,
+                                                           y: themeTransitionOrigin.y - frame.minY),
+                                            radius: themeTransitionRadius)
+                                .fill(style: FillStyle(eoFill: true))
+                        }
+                }
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ReminderManager.openDestination)) { notification in
+            state.tab = (notification.object as? String) == "plant" ? .garden : .today
+            UserDefaults.standard.removeObject(forKey: "reminder.destination")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ICloudSyncManager.dataChanged)) { _ in
+            Task { await reloadGoals() }
+        }
+        .onAppear {
+            if !hasCompletedMGOnboarding {
+                hasCompletedMGOnboarding = true
+                showMGOnboarding = true
+            }
+            if let destination = UserDefaults.standard.string(forKey: "reminder.destination") {
+                state.tab = destination == "plant" ? .garden : .today
+                UserDefaults.standard.removeObject(forKey: "reminder.destination")
+            }
+        }
+        .onChange(of: state.mode) { previous, current in
+            guard !reminderIntroShown, current == .homeSelected,
+                  case let .executing(goalID) = previous,
+                  state.completedSelectedGoalIDs.contains(goalID),
+                  ReminderManager.shared.hasExactlyOneCompletion() else { return }
+            reminderIntroShown = true
+            showingReminderIntro = true
+        }
+        .alert(AppLanguage.text("reminder.intro"), isPresented: $showingReminderIntro) {
+            Button(AppLanguage.text("reminder.open")) { showingReminderSettings = true }
+            Button(AppLanguage.text("reminder.later"), role: .cancel) { }
+        }
+        .sheet(isPresented: $showingReminderSettings) { ReminderSettingsView() }
+        .sheet(isPresented: $showingPaywallPreview) { SubscriptionPaywallView() }
+        .alert(AppLanguage.text("reminder.permission.title"), isPresented: $showingPermissionIntro) {
+            Button(AppLanguage.text("reminder.permission.continue")) {
+                permissionIntroShown = true
+                Task {
+                    _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+                    ReminderManager.shared.refresh()
+                }
+            }
         } message: {
-            Text(databaseError ?? "请稍后重试")
+            Text(AppLanguage.text("reminder.permission.message"))
+        }
+        .task {
+            guard !permissionIntroShown else { return }
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            if status == .notDetermined { showingPermissionIntro = true }
+            else { permissionIntroShown = true }
+        }
+        .alert(AppLanguage.text("操作未完成"), isPresented: Binding(get: { databaseError != nil }, set: { if !$0 { databaseError = nil } })) {
+            Button(AppLanguage.text("知道了"), role: .cancel) { databaseError = nil }
+        } message: {
+            Text(databaseError ?? AppLanguage.text("请稍后重试"))
         }
         .task(id: state.completedSelectedGoalIDs) {
+            ReminderManager.shared.refresh()
             // Completion must remove the card as soon as the user returns,
             // including starred and periodic habits. Their selection rules stay intact.
             if let refreshed = try? await repository.availableGoals(for: .now) {
@@ -444,20 +550,21 @@ struct ContentView: View {
             while !Task.isCancelled {
                 let refreshedGoals = (try? await repository.availableGoals(for: .now)) ?? goals
                 if refreshedGoals != goals { goals = refreshedGoals }
-                dashboard = try? SharedHabitSelectionStore().dashboard(at: .now)
+                let newDashboard = try? SharedHabitSelectionStore().dashboard(at: .now)
+                if newDashboard != dashboard { dashboard = newDashboard }
                 let selectionSnapshot = try? SharedHabitSelectionStore().snapshot(at: .now)
                 if let selectionSnapshot {
-                    state.starLimit = selectionSnapshot.starLimit
-                    state.isFirstSelection = selectionSnapshot.isFirstSelection
-                    state.completedRegularGoalIDs = selectionSnapshot.completedRegularIDs
-                    state.completedSelectedGoalIDs = selectionSnapshot.completedSelectedIDs
+                    if state.starLimit != selectionSnapshot.starLimit { state.starLimit = selectionSnapshot.starLimit }
+                    if state.isFirstSelection != selectionSnapshot.isFirstSelection { state.isFirstSelection = selectionSnapshot.isFirstSelection }
+                    if state.completedRegularGoalIDs != selectionSnapshot.completedRegularIDs { state.completedRegularGoalIDs = selectionSnapshot.completedRegularIDs }
+                    if state.completedSelectedGoalIDs != selectionSnapshot.completedSelectedIDs { state.completedSelectedGoalIDs = selectionSnapshot.completedSelectedIDs }
                 }
                 if state.mode != .browsingDeck,
                    let selected = try? await repository.selectedGoalIDs(for: .now) {
-                    state.selectedGoalIDs = selected
-                    if let selectionSnapshot { state.starredGoalIDs = selectionSnapshot.starredIDs }
+                    if state.selectedGoalIDs != selected { state.selectedGoalIDs = selected }
+                    if let selectionSnapshot, state.starredGoalIDs != selectionSnapshot.starredIDs { state.starredGoalIDs = selectionSnapshot.starredIDs }
                     if let refreshedSelectedGoals = try? await repository.selectedGoals(for: .now) {
-                        selectedGoals = refreshedSelectedGoals
+                        if selectedGoals != refreshedSelectedGoals { selectedGoals = refreshedSelectedGoals }
                     }
                     // Restore the real selected-habits screen after relaunch. The home preview
                     // is only for a first-time/unselected state; keeping that mode after loading
@@ -468,8 +575,15 @@ struct ContentView: View {
                         }
                     }
                 }
+                if DevelopmentLaunch.contains("--theme-lavender") {
+                    colorTheme = .lavender
+                } else if DevelopmentLaunch.contains("--theme-original") {
+                    colorTheme = .original
+                }
                 if goals.isEmpty {
                     state.mode = .homeUnselected
+                } else if DevelopmentLaunch.contains("--focus-custom"), let customGoal = goals.first(where: { $0.id.hasPrefix("custom-task:") }) {
+                    state.focusedGoalID = customGoal.id
                 } else if !goals.contains(where: { $0.id == state.focusedGoalID }) {
                     state.focusedGoalID = goals.first?.id ?? "H1"
                 }
@@ -488,6 +602,38 @@ struct ContentView: View {
         }
     }
 
+    private func changeTheme(_ theme: HabitColorTheme, from point: CGPoint) {
+        guard theme != colorTheme, themeTransitionImage == nil else { return }
+        guard !reduceMotion,
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
+              let window = scene.windows.first(where: { $0.isKeyWindow }) else {
+            colorTheme = theme
+            return
+        }
+        let snapshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
+        themeTransitionOrigin = point
+        themeTransitionRadius = 12
+        themeTransitionImage = snapshot
+        colorTheme = theme
+        let farX = max(point.x, window.bounds.width - point.x)
+        let farY = max(point.y, window.bounds.height - point.y)
+        let radius = hypot(farX, farY) + 24
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            withAnimation(.easeInOut(duration: 0.75)) { themeTransitionRadius = radius }
+            try? await Task.sleep(for: .milliseconds(800))
+            themeTransitionImage = nil
+        }
+    }
+
+    private func reloadGoals() async {
+        if let refreshed = try? await repository.availableGoals(for: .now) {
+            goals = refreshed
+        }
+    }
+
     private func confirmSelection() {
         Task {
             do {
@@ -496,6 +642,7 @@ struct ContentView: View {
                 let requestedStars = state.starredGoalIDs
                 try await repository.saveSelectedGoalIDs(requestedIDs, starredIDs: requestedStars, for: date)
                 let persisted = try SharedHabitSelectionStore().snapshot(at: date)
+                ReminderManager.shared.refresh()
                 guard persisted.activeIDs.union(persisted.starredIDs) == requestedIDs,
                       persisted.starredIDs == requestedStars else {
                     throw HabitSelectionError.databaseFailure("保存后重新读取的选择与页面不一致，请重试。")
@@ -510,12 +657,12 @@ struct ContentView: View {
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { state.mode = .homeSelected }
             } catch {
                 switch error {
-                case HabitSelectionError.quotaExceeded: databaseError = "当天新建的普通和周期习惯最多 3 个。"
-                case HabitSelectionError.starLimitExceeded(let limit): databaseError = "当前阶段最多设置 \(limit) 个星标习惯。"
-                case HabitSelectionError.firstSelectionRequiresGoal: databaseError = "首次使用请至少选择一个目标。"
-                case HabitSelectionError.invalidStarredSelection: databaseError = "星标必须属于已选目标；首次选择暂不能设置星标。"
+                case HabitSelectionError.quotaExceeded: databaseError = String(format: AppLanguage.text("当天新建的普通和周期习惯最多 %lld 个。"), 3 + SubscriptionManager.currentExtraDailyHabitsQuota)
+                case HabitSelectionError.starLimitExceeded(let limit): databaseError = String(format: AppLanguage.text("当前阶段最多设置 %lld 个星标习惯。"), limit)
+                case HabitSelectionError.firstSelectionRequiresGoal: databaseError = AppLanguage.text("首次使用请至少选择一个目标。")
+                case HabitSelectionError.invalidStarredSelection: databaseError = AppLanguage.text("星标必须属于已选目标；首次选择暂不能设置星标。")
                 case HabitSelectionError.databaseFailure(let message): databaseError = message
-                default: databaseError = "数据库未能保存这次选择：\(error.localizedDescription)"
+                default: databaseError = String(format: AppLanguage.text("数据库未能保存这次选择：%@"), error.localizedDescription)
                 }
             }
         }
@@ -524,9 +671,15 @@ struct ContentView: View {
     private func clearLocalData() {
         Task {
             do {
+                #if DEBUG
                 try NativeDatabase().clearAllUserData()
+                #else
+                try NativeDatabase().clearAllUserData(scheduleTrialReset: true)
+                #endif
+                ReminderManager.shared.refresh()
                 ReviewWritingDrafts.removeAll()
                 ReviewAICooldown.reset()
+                SubscriptionManager.shared.resetQuotasOnDataClear()
                 let date = Date.now
                 goals = try await repository.availableGoals(for: date)
                 selectedGoals = []
@@ -544,7 +697,7 @@ struct ContentView: View {
                     state.mode = .homeUnselected
                 }
             } catch {
-                databaseError = "清除本地数据失败：\(error.localizedDescription)"
+                databaseError = String(format: AppLanguage.text("清除本地数据失败：%@"), error.localizedDescription)
             }
         }
     }
@@ -558,9 +711,13 @@ private struct TodayRootView: View {
     @Binding var tuning: UITuningState
     let reduceMotion: Bool
     let dashboard: HabitDashboardSnapshot?
+    @Binding var showingCustomCardsModal: Bool
+    @Binding var addCardButtonSourceFrame: CGRect
     let onConfirm: () -> Void
     let onClearData: () -> Void
     let onGardenShare: (UIImage) -> Void
+    let onThemeSelect: (HabitColorTheme, CGPoint) -> Void
+    var onReloadGoals: (() -> Void)? = nil
     @Namespace private var selectionTransitionNamespace
     @State private var executionToast: String?
     @State private var executionToastID = UUID()
@@ -573,6 +730,7 @@ private struct TodayRootView: View {
     @State private var expansionStartFrame: CGRect = .zero
     @State private var expandingGoal: Goal?
     @State private var expansionProgress: CGFloat = 0
+    @State private var showingPaywallPreview = false
     @State private var executionExpansionIsReturning = false
     @State private var expansionID = UUID()
     @State private var selectedReturnButtonRevealTrigger = UUID()
@@ -581,66 +739,253 @@ private struct TodayRootView: View {
     @State private var homeDeckGathered = false
     @State private var homeDeckLaunchFrame: CGRect = .zero
     @State private var reviewReceiptPresentation = ReviewReceiptPresentation()
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var viewportSize: CGSize = .zero
+    @State private var topSafeInset: CGFloat = 0
+    @State private var bottomSafeInset: CGFloat = 0
+    @State private var trailingSafeInset: CGFloat = 0
+    @State private var leadingSafeInset: CGFloat = 0
+    // iPhone Duo 硬件识别与形态判定
+    private var isDuoDevice: Bool {
+        UIDevice.current.name.contains("Duo")
+            || ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true
+            || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.contains("Duo") == true
+            || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
+            || (trailingSafeInset >= 30 && min(viewportSize.width, viewportSize.height) >= 450)
+    }
+
+    private var isLandscape: Bool {
+        (viewportSize.width > viewportSize.height && viewportSize.width > 0) || verticalSizeClass == .compact
+    }
+
+    /// iPhone Duo 内部展开大屏 (Display 3: 951x669 或 669x951)
+    private var isDuoInnerDisplay: Bool {
+        isDuoDevice && min(viewportSize.width, viewportSize.height) > 500 && max(viewportSize.width, viewportSize.height) > 750
+    }
+
+    /// iPhone Duo 外部折叠屏 (Display 1: 678x466 或 466x678)
+    private var isDuoOuterDisplay: Bool {
+        isDuoDevice && !isDuoInnerDisplay
+    }
+
+    /// iPhone Duo 内部展开横屏
+    private var isDuoInnerLandscape: Bool {
+        isDuoInnerDisplay && isLandscape
+    }
+
+    /// iPhone Duo 外部折叠横屏
+    private var isDuoOuterLandscape: Bool {
+        isDuoOuterDisplay && isLandscape
+    }
+
+    /// 常规紧凑型 iPhone 横屏 (高 < 500 且非 Duo)
+    private var isCompactLandscapePhone: Bool {
+        !isDuoDevice && isLandscape && viewportSize.height < 500
+    }
+
+    /// iPad 设备判定
+    private var isPad: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    /// 是否使用右侧竖向侧边栏 (Duo 全形态有侧边栏，或普通 iPhone 横屏)
+    private var usesSideNavigation: Bool {
+        isCompactLandscapePhone || (isDuoDevice && trailingSafeInset >= 30)
+    }
+
+    /// 是否使用横向双栏宽屏布局
+    private var usesWideLayout: Bool {
+        (isLandscape && (viewportSize.width >= 600 || isDuoDevice)) || isCompactLandscapePhone
+    }
+
+    /// 今日页未选择模式下的双栏布局
+    private var usesWideHome: Bool {
+        usesWideLayout && state.mode == .homeUnselected
+    }
+
+    /// 今日页已选择模式下的双栏布局 (Duo 展开与折叠横屏均采用左右双栏，避免纵向溢出切割)
+    private var usesWideHomeSelected: Bool {
+        usesWideLayout && state.mode == .homeSelected && (isDuoInnerLandscape || isDuoOuterLandscape)
+    }
+
+    /// 侧边导航栏垂直对齐方式
+    private var sideNavigationAlignment: Alignment {
+        if isDuoOuterLandscape {
+            // 外屏折叠横屏：垂直居中排放，避开角落摄像头
+            return .trailing
+        } else if isDuoDevice {
+            // 内部展开或其它 Duo 状态：统一放在系统栏右下方竖放
+            return .bottomTrailing
+        } else {
+            return .trailing
+        }
+    }
+
+    /// 侧边导航栏底部边距
+    private var sideNavigationBottomPadding: CGFloat {
+        if isDuoOuterLandscape {
+            return 0 // 垂直居中无需底部偏移
+        } else if isDuoDevice {
+            return 44 // 统一右下方放置，避开 Home 指示条
+        } else {
+            return 16
+        }
+    }
 
     // 设置弹窗形变的高阻尼流体弹簧曲线 (Fluid Morph)
     private let fluidMorphAnimation = Animation.spring(response: 0.73, dampingFraction: 0.90, blendDuration: 0.05)
-    @State private var settingsPresented = false
-    @State private var settingsProgress: CGFloat = 0
+    @State private var settingsPresented = DevelopmentLaunch.contains("--open-settings")
+    @State private var settingsProgress: CGFloat = DevelopmentLaunch.contains("--open-settings") ? 1 : 0
     @State private var settingsClosing = false
     @State private var settingsButtonFrame: CGRect = .zero
+    @State private var settingsAnimationSource: CGRect = .zero
+    @State private var wideCardsFrame: CGRect = .zero
+    @State private var navigationFrame: CGRect = .zero
+
+    @ViewBuilder
+    private var executingBackgroundGlow: some View {
+        if case .executing(let id) = state.mode,
+           let goal = selectedGoals.first(where: { $0.id == id }) ?? goals.first(where: { $0.id == id }) {
+            GeometryReader { geometry in
+                let cardColor = GoalCardAppearance(goal: goal, goals: goals, theme: colorTheme).baseColor
+                LinearGradient(stops: [
+                    .init(color: cardColor, location: 0),
+                    .init(color: cardColor, location: 0.62),
+                    .init(color: cardColor.opacity(0.62), location: 0.82),
+                    .init(color: .clear, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: geometry.size.height / 3 + 88)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .blur(radius: 14)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
+            executingBackgroundGlow
             // 主内容区域（包含顶部和卡片/页面）
             VStack(spacing: 0) {
-                if state.tab == .today && !isExecuting && state.mode != .browsingDeck {
+                if state.tab == .today && !isExecuting && state.mode != .browsingDeck && !usesWideHome && !usesWideHomeSelected {
                     TodayHeaderView(
                         selectedCount: state.selectedGoalIDs.count,
                         mode: state.mode,
                         tuning: tuning,
                         dashboard: dashboard,
                         pointsOpacity: 1 - Double(activeExecutionExpansionProgress),
-                        headerOpacity: 1 - Double(activeExecutionExpansionProgress)
+                        headerOpacity: 1 - Double(activeExecutionExpansionProgress),
+                        titleScale: isDuoDevice ? (isDuoOuterDisplay ? 0.82 : 1.10) : (usesSideNavigation ? 0.76 : 1),
+                        compactTop: usesSideNavigation,
+                        dateScale: isDuoDevice ? (isDuoOuterDisplay ? 0.80 : 1.05) : (usesSideNavigation ? 0.70 : 1),
+                        onAddCustomCard: { showingCustomCardsModal = true }
                     )
-                        .offset(y: state.mode == .homeUnselected ? -25 : 0)
+                        .padding(.top, isDuoDevice && !isLandscape ? max(topSafeInset + 12, 46) : (usesSideNavigation ? 8 : max(topSafeInset, 14)))
                         .transition(.asymmetric(
                             insertion: .offset(y: -220).combined(with: .opacity),
                             removal: .offset(y: -150).combined(with: .scale(scale: 0.94, anchor: .topLeading)).combined(with: .opacity)
                         ))
                 }
-                if state.tab != .review && state.tab != .garden && state.mode != .browsingDeck && !isExecuting {
+                if state.tab != .review && state.tab != .garden && state.mode != .browsingDeck && !isExecuting && !usesWideHome && !usesWideHomeSelected {
                     Spacer(minLength: 16)
                 }
 
                 if state.tab == .today {
                     switch state.mode {
                     case .homeUnselected:
-                        VStack(spacing: 0) {
-                            HomePreviewDeckView(goals: goals, tuning: tuning, reduceMotion: reduceMotion, isPressed: homePreviewIsPressed, isGathered: homeDeckGathered, isHintVisible: !homeDeckOpening)
-                                .background {
-                                    GeometryReader { geometry in
-                                        Color.clear.preference(key: HomeDeckLaunchFrameKey.self, value: geometry.frame(in: .global))
+                        Group {
+                            if usesWideHome {
+                                HStack(alignment: .top, spacing: isDuoInnerLandscape ? 32 : (isDuoOuterLandscape ? 18 : (isPad ? 28 : (usesSideNavigation ? 16 : 36)))) {
+                                    // 左侧艺术排版：主标题 + 英文格言 + 大号艺术日期
+                                    VStack(alignment: .leading, spacing: isDuoInnerLandscape ? 16 : (isDuoOuterLandscape ? 10 : (isPad ? 14 : (usesSideNavigation ? 12 : 24)))) {
+                                        VStack(alignment: .leading, spacing: isDuoInnerLandscape ? 14 : (isDuoOuterLandscape ? 8 : (isPad ? 12 : (usesSideNavigation ? 10 : 24)))) {
+                                            TodayHeaderView(
+                                                selectedCount: state.selectedGoalIDs.count,
+                                                mode: state.mode,
+                                                tuning: tuning,
+                                                dashboard: dashboard,
+                                                titleScale: isDuoInnerLandscape ? 1.35 : (isDuoOuterLandscape ? 1.05 : (isCompactLandscapePhone ? 0.72 : (isPad ? 1.25 : 1.30))),
+                                                showsBanner: false,
+                                                compactTop: true,
+                                                showsPoints: false,
+                                                showsDate: false,
+                                                subtitleScale: isDuoInnerLandscape ? 1.10 : (isDuoOuterLandscape ? 0.92 : (isCompactLandscapePhone ? 0.85 : (isPad ? 1.05 : 1.10)))
+                                            )
+                                            Text("SMALL STEPS\nA LITTLE EVERY DAY")
+                                                .font(.system(size: isDuoInnerLandscape ? 13.5 : (isDuoOuterLandscape ? 11 : (isCompactLandscapePhone ? 12 : (isPad ? 14 : 14))), weight: .semibold, design: .rounded))
+                                                .tracking(isDuoInnerLandscape ? 1.6 : (isDuoOuterLandscape ? 1.4 : 1.8))
+                                                .lineSpacing(isDuoInnerLandscape ? 2.5 : (isDuoOuterLandscape ? 2 : 3))
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .foregroundStyle(.white.opacity(0.72))
+                                                .padding(.horizontal, 22)
+                                        }
+                                        .offset(y: (isDuoInnerLandscape || isDuoOuterLandscape) ? 0 : (isCompactLandscapePhone ? 0 : (isPad ? 12 : 52)))
+                                        if !isCompactLandscapePhone { Spacer(minLength: 0) }
+                                        WideTodayDateView(size: tuning.dateSize * tuning.textScale * (isDuoInnerLandscape ? 1.25 : (isDuoOuterLandscape ? 0.95 : (isCompactLandscapePhone ? 0.65 : (isPad ? 1.25 : 1.35)))))
+                                            .frame(maxWidth: .infinity, alignment: isCompactLandscapePhone ? .leading : .trailing)
+                                            .padding(.horizontal, 22)
+                                            .padding(.bottom, isDuoInnerLandscape ? 38 : (isDuoOuterLandscape ? 18 : (isCompactLandscapePhone ? 6 : (isPad ? 24 : 12))))
+                                        if isCompactLandscapePhone { Spacer(minLength: 0) }
                                     }
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                                    // 右侧区域：顶部状态（积分与通知）+ 下方居中浮动卡片预览组
+                                    VStack(spacing: isDuoOuterLandscape ? 6 : 10) {
+                                        // 顶部右侧状态条 (积分 + 回顾)
+                                        VStack(alignment: .trailing, spacing: isDuoOuterLandscape ? 6 : 8) {
+                                            // 积分胶囊（右对齐）
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "star.fill").foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.38))
+                                                Text("\(dashboard?.points ?? 0)")
+                                            }
+                                            .font(.system(size: isDuoOuterLandscape ? 13 : (isDuoInnerLandscape ? 15 : (isPad ? 16 : 15)), weight: .semibold))
+                                            .padding(.horizontal, isDuoOuterLandscape ? 12 : (isPad ? 16 : 14))
+                                            .padding(.vertical, isDuoOuterLandscape ? 6 : (isPad ? 8 : 7))
+                                            .background(.white.opacity(0.72), in: Capsule())
+
+                                            // 昨天的卡片完成情况通知（放在积分按钮下方，右对齐，卡片更长更从容）
+                                            YesterdayReviewBanner(
+                                                missedCount: dashboard?.missedYesterday ?? 0,
+                                                scale: isDuoOuterLandscape ? 0.82 : (isDuoInnerLandscape ? 0.92 : (isPad ? 0.95 : 0.90))
+                                            )
+                                            .frame(maxWidth: isDuoInnerLandscape ? 400 : (isDuoOuterLandscape ? 300 : (isPad ? 420 : 380)))
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .padding(.top, isDuoInnerLandscape ? 48 : (isPad ? 12 : 0))
+
+                                        Spacer(minLength: 4)
+
+                                        // 3 个样式卡片：按右边半屏的尺寸中线居中放置
+                                        let deckScale: CGFloat = isDuoInnerLandscape ? 0.96 : (isDuoOuterLandscape ? 0.68 : (isPad ? 0.88 : (isCompactLandscapePhone ? 0.65 : 0.90)))
+                                        homePreviewDeck
+                                            .scaleEffect(deckScale)
+                                            .frame(maxWidth: .infinity, alignment: .center)
+
+                                        Spacer(minLength: isPad ? 80 : 12)
+                                    }
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 }
-                                .offset(y: tuning.cardOffsetY)
-                                .contentShape(Rectangle())
-                                .onLongPressGesture(minimumDuration: 0, maximumDistance: 18, pressing: { pressed in
-                                    homePreviewIsPressed = pressed
-                                }, perform: {
-                                    openHomeDeck()
-                                })
-                                .allowsHitTesting(!homeDeckOpening)
-                                .sensoryFeedback(.impact(weight: .light), trigger: homePreviewIsPressed) { _, pressed in pressed }
+                                .padding(.top, max(topSafeInset + 18, isDuoInnerLandscape ? 44 : (usesSideNavigation ? 38 : (isPad ? 32 : 28))))
+                                .padding(.leading, max(usesSideNavigation ? 16 : (isPad ? 36 : 28), leadingSafeInset + 8))
+                                .padding(.trailing, (isDuoInnerLandscape || isDuoOuterLandscape) ? 28 : (usesSideNavigation ? 80 : (isPad ? 40 : 28)))
+                                .frame(maxWidth: 1500)
+                                .frame(maxHeight: .infinity)
+                            } else {
+                                homePreviewDeck
+                                    .scaleEffect(usesSideNavigation ? 0.78 : (isPad ? 0.90 : 1))
+                            }
                         }
                         .transition(reduceMotion ? .opacity : .identity)
                     case .browsingDeck:
                         let colorRangeEndOrder = max(12, goals.map(\.order).max() ?? 12)
                         VStack(spacing: 10) {
-                            Button("‹ 返回") { cancelBrowsing() }
-                                .font(.system(size: 16, weight: .medium))
+                            if !usesSideNavigation { Button(AppLanguage.text("‹ 返回")) { cancelBrowsing() }
+                                .font(.system(size: usesWideLayout ? 28 : 16, weight: .medium))
                                 .foregroundStyle(colorTheme.card(colorTheme.cardBaseColor(at: 1, count: 2)))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 28)
+                            }
                             // A completed habit leaves today's pending deck immediately.
                             // Do not remove its star or periodic selection from storage.
                             TodayStackDeckView(
@@ -648,29 +993,101 @@ private struct TodayRootView: View {
                                 colorRangeEndOrder: colorRangeEndOrder,
                                 state: $state,
                                 selectionTransitionNamespace: selectionTransitionNamespace,
-                                homeLaunchFrame: deckReturnMode == .homeUnselected ? homeDeckLaunchFrame : nil
+                                homeLaunchFrame: deckReturnMode == .homeUnselected ? homeDeckLaunchFrame : nil,
+                                useCoverFlow: usesWideLayout,
+                                compactCardScale: usesSideNavigation ? 0.95 : 1,
+                                showingCustomCardsModal: $showingCustomCardsModal,
+                                onReloadGoals: {
+                                    onReloadGoals?()
+                                }
                             )
                         }
+                        .frame(maxWidth: usesWideLayout ? 1500 : 680)
+                        .frame(maxWidth: .infinity)
                         .transition(reduceMotion ? .opacity : .identity)
                     case .homeSelected:
-                        SelectedGoalView(
-                            goals: selectedGoals,
-                            allGoals: goals,
-                            state: $state,
-                            selectionTransitionNamespace: selectionTransitionNamespace,
-                            hiddenExecutionGoalID: executionExpansionIsReturning ? nil : expandingGoal?.id,
-                        executionExpansionProgress: activeExecutionExpansionProgress,
-                            buttonRevealTrigger: selectedReturnButtonRevealTrigger,
-                            onBrowseGoals: { browseGoals(returningTo: .homeSelected) },
-                            onStartGoal: startExecution
-                        )
-                        .transition(.identity)
+                        if usesWideHomeSelected {
+                            HStack(alignment: .top, spacing: isDuoInnerLandscape ? 32 : 18) {
+                                VStack(alignment: .leading, spacing: isDuoInnerLandscape ? 16 : 10) {
+                                    VStack(alignment: .leading, spacing: isDuoInnerLandscape ? 14 : 8) {
+                                        TodayHeaderView(
+                                            selectedCount: state.selectedGoalIDs.count,
+                                            mode: state.mode,
+                                            tuning: tuning,
+                                            dashboard: dashboard,
+                                            titleScale: isDuoInnerLandscape ? 1.45 : 1.05,
+                                            showsBanner: false,
+                                            compactTop: true,
+                                            showsPoints: false,
+                                            showsDate: false,
+                                            subtitleScale: isDuoInnerLandscape ? 1.15 : 0.92
+                                        )
+                                    }
+
+                                    Spacer(minLength: 0)
+
+                                    WideTodayDateView(size: tuning.dateSize * tuning.textScale * (isDuoInnerLandscape ? 1.35 : 0.95))
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .padding(.horizontal, 22)
+                                        .padding(.bottom, isDuoInnerLandscape ? 38 : 18)
+                                }
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                                VStack(spacing: 12) {
+                                    Spacer(minLength: 4)
+                                    SelectedGoalView(
+                                        goals: selectedGoals,
+                                        allGoals: goals,
+                                        state: $state,
+                                        selectionTransitionNamespace: selectionTransitionNamespace,
+                                        hiddenExecutionGoalID: executionExpansionIsReturning ? nil : expandingGoal?.id,
+                                        executionExpansionProgress: activeExecutionExpansionProgress,
+                                        buttonRevealTrigger: selectedReturnButtonRevealTrigger,
+                                        useWideLayout: false,
+                                        centerContinueButton: true,
+                                        onBrowseGoals: { browseGoals(returningTo: .homeSelected) },
+                                        onCardFrame: { selectedExecutionCardFrame = $0 },
+                                        onStartGoal: { goal in
+                                            startExecution(goal)
+                                        }
+                                    )
+                                    .scaleEffect(isDuoOuterLandscape ? 0.76 : 0.95)
+                                    Spacer(minLength: 4)
+                                }
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                            }
+                            .padding(.top, max(topSafeInset + 18, isDuoInnerLandscape ? 44 : (usesSideNavigation ? 38 : 28)))
+                            .padding(.leading, max(16, leadingSafeInset + 8))
+                            .padding(.trailing, 28)
+                            .frame(maxWidth: 1500)
+                            .frame(maxHeight: .infinity)
+                            .transition(.identity)
+                        } else {
+                            SelectedGoalView(
+                                goals: selectedGoals,
+                                allGoals: goals,
+                                state: $state,
+                                selectionTransitionNamespace: selectionTransitionNamespace,
+                                hiddenExecutionGoalID: executionExpansionIsReturning ? nil : expandingGoal?.id,
+                                executionExpansionProgress: activeExecutionExpansionProgress,
+                                buttonRevealTrigger: selectedReturnButtonRevealTrigger,
+                                useWideLayout: usesWideLayout,
+                                centerContinueButton: usesSideNavigation,
+                                onBrowseGoals: { browseGoals(returningTo: .homeSelected) },
+                                onCardFrame: { selectedExecutionCardFrame = $0 },
+                                onStartGoal: { goal in
+                                    startExecution(goal)
+                                }
+                            )
+                            .transition(.identity)
+                        }
                     case .executing(let id):
                         ExecutionView(
                             goal: selectedGoals.first(where: { $0.id == id }) ?? goals.first(where: { $0.id == id }) ?? goals.first,
                             allGoals: goals,
                             selectedGoals: $selectedGoals,
                             state: $state,
+                            sideSystemInset: usesSideNavigation ? trailingSafeInset : 0,
                             onPrompt: showExecutionToast,
                             onExit: closeExecution
                         )
@@ -688,7 +1105,9 @@ private struct TodayRootView: View {
                             }
                         },
                         onIntroVisibilityChange: { isGardenIntroVisible = $0 },
-                        onSharePhoto: onGardenShare
+                        onSharePhoto: onGardenShare,
+                        usesSideNavigation: usesSideNavigation,
+                        navigationFrame: navigationFrame
                     )
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.98)),
@@ -702,17 +1121,18 @@ private struct TodayRootView: View {
                         ))
                 }
 
-                if state.tab != .review && state.tab != .garden && state.mode != .browsingDeck && !isExecuting {
+                if state.tab != .review && state.tab != .garden && state.mode != .browsingDeck && !isExecuting && !usesWideHome {
                     Spacer(minLength: 16)
                 }
 
                 // 底部占位高度，确保主内容不被底部胶囊栏遮挡
                 if state.tab != .review && state.tab != .garden && !isExecuting {
-                    Color.clear.frame(height: state.mode == .browsingDeck ? 154 : 94)
+                    Color.clear.frame(height: usesSideNavigation ? (state.mode == .browsingDeck ? 85 : 8) : (state.mode == .browsingDeck ? 154 : 94))
                 }
             }
             // 目标页内容超过可用高度时仍从安全区顶部开始排版，不能因居中布局向上侵入状态栏。
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.trailing, usesSideNavigation ? 12 : 0)
             .offset(x: tuning.contentOffsetX, y: tuning.contentOffsetY)
 
             if state.tab == .today && state.mode == .browsingDeck {
@@ -720,28 +1140,64 @@ private struct TodayRootView: View {
                     progress: 1,
                     visibility: .bottom,
                     bottomWhiteOpacity: 0.15,
-                    bottomVisibleFraction: 0.25
+                    bottomVisibleFraction: 0.36,
+                    softBottomFade: true
                 )
-                .ignoresSafeArea(.container, edges: .bottom)
+                .ignoresSafeArea(.container, edges: usesSideNavigation ? [.bottom, .trailing] : .bottom)
+                .opacity(0.5)
                 .allowsHitTesting(false)
                 .zIndex(10)
             }
 
             // 底部确认栏（选卡片时）
             if state.mode == .browsingDeck && state.tab == .today {
-                ConfirmSelectionBar(goals: goals, state: state, action: onConfirm)
-                    .padding(.bottom, 99)
+                ConfirmSelectionBar(goals: goals, state: state, useWideLayout: usesWideLayout, action: onConfirm)
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity)
+                    .padding(.trailing, usesSideNavigation ? 12 : 0)
+                    .padding(.bottom, usesSideNavigation ? 16 : 99)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(30)
             }
 
+            if usesWideLayout && !usesSideNavigation && state.tab == .today && state.mode == .homeSelected && !isExecuting && state.selectedGoalIDs.union(state.completedSelectedGoalIDs).count < 3 {
+                GeometryReader { geometry in
+                    if wideCardsFrame.height > 0 && navigationFrame.height > 0 {
+                        let origin = geometry.frame(in: .global).origin
+                        ContinueGoalSelectionButton { browseGoals(returningTo: .homeSelected) }
+                            .position(x: geometry.size.width / 2, y: (wideCardsFrame.maxY + navigationFrame.minY) / 2 - origin.y)
+                    }
+                }
+                .zIndex(31)
+            }
+
             // 常驻底部液态导航栏（设置打开时淡化或收纳，其余时刻常驻）
             if state.tab != .settings && !isExecuting {
+                Group {
+                if usesSideNavigation {
+                    TodaySideNavigationView(
+                        tab: $state.tab,
+                        width: isDuoDevice ? 52 : min(62, max(54, trailingSafeInset > 0 ? trailingSafeInset - 20 : 54)),
+                        showsLabels: viewportSize.width >= 600,
+                        onOpenSettings: openSettings,
+                        onBack: state.tab == .today && state.mode == .browsingDeck ? { cancelBrowsing() } : nil
+                    )
+                    .padding(.trailing, isDuoDevice ? max(5, (trailingSafeInset - 52) / 2) : max(15, trailingSafeInset))
+                    .padding(.bottom, sideNavigationBottomPadding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: sideNavigationAlignment)
+                    .ignoresSafeArea(.container, edges: .trailing)
+                } else {
                 TodayBottomNavigationView(
                     tab: $state.tab,
                     fluidMorphAnimation: fluidMorphAnimation,
+                    sizeScale: usesWideLayout ? 1.18 : 1,
                     onOpenSettings: openSettings
                 )
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { navigationFrame = $0 }
+                .frame(maxWidth: .infinity, alignment: usesWideHome ? .trailing : .center)
+                .padding(.trailing, usesWideHome ? 28 : 0)
+                }
+                }
                 .scaleEffect(tuning.navigationScale, anchor: .bottom)
                 .opacity(state.tab == .garden && isGardenIntroVisible ? 0 : 1)
                 .allowsHitTesting(!(state.tab == .garden && isGardenIntroVisible))
@@ -754,49 +1210,111 @@ private struct TodayRootView: View {
             }
         }
         .ignoresSafeArea(.all, edges: .bottom)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: {
+            if abs($0.width - viewportSize.width) > 1 || abs($0.height - viewportSize.height) > 1 {
+                viewportSize = $0
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: {
+            if abs($0 - topSafeInset) > 1 {
+                topSafeInset = $0
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: {
+            if abs($0 - bottomSafeInset) > 1 {
+                bottomSafeInset = $0
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.trailing } action: {
+            if abs($0 - trailingSafeInset) > 1 {
+                trailingSafeInset = $0
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.leading } action: {
+            if abs($0 - leadingSafeInset) > 1 {
+                leadingSafeInset = $0
+            }
+        }
         .onPreferenceChange(SettingsButtonFrameKey.self) { frame in
-            if frame.width > 0 { settingsButtonFrame = frame }
+            guard frame.width > 0 else { return }
+            let dx = abs(frame.minX - settingsButtonFrame.minX)
+            let dy = abs(frame.minY - settingsButtonFrame.minY)
+            let dw = abs(frame.width - settingsButtonFrame.width)
+            let dh = abs(frame.height - settingsButtonFrame.height)
+            if dx > 1 || dy > 1 || dw > 1 || dh > 1 {
+                settingsButtonFrame = frame
+                if !settingsPresented {
+                    settingsAnimationSource = frame
+                }
+            }
         }
         .overlay {
             GeometryReader { geometry in
                 if settingsPresented {
                     let origin = geometry.frame(in: .global).origin
-                    let source = settingsButtonFrame.offsetBy(dx: -origin.x, dy: -origin.y)
-                    let sideInset = max(0, geometry.size.width - source.maxX)
-                    let panelTop: CGFloat = 54
-                    let destination = CGRect(
-                        x: sideInset,
-                        y: panelTop,
-                        width: max(1, geometry.size.width - sideInset * 2),
-                        height: max(1, source.maxY - panelTop)
-                    )
-                    FluidSettingsExpandedPanel(
-                        fluidMorphAnimation: fluidMorphAnimation,
-                        onDismiss: closeSettings,
-                        onClearData: clearDataFromSettings
-                    )
-                    .modifier(SettingsPanelMorph(
-                        progress: settingsProgress,
-                        source: source,
-                        destination: destination
-                    ))
-                    .transition(.identity)
-                    .task {
-                        // Mount the collapsed panel before starting its geometry animation.
-                        try? await Task.sleep(for: .milliseconds(20))
-                        guard !Task.isCancelled, !settingsClosing else { return }
-                        withAnimation(fluidMorphAnimation) { settingsProgress = 1 }
+                    let activeSource = settingsButtonFrame.width > 0 ? settingsButtonFrame : settingsAnimationSource
+                    let source = activeSource.offsetBy(dx: -origin.x, dy: -origin.y)
+                    if usesSideNavigation {
+                        let sideBarWidth: CGFloat = isDuoDevice ? 72 : (trailingSafeInset > 0 ? trailingSafeInset + 54 : 76)
+                        let panelTop: CGFloat = max(24, topSafeInset + 8)
+                        let compactDestination = CGRect(
+                            x: max(16, leadingSafeInset + 8),
+                            y: panelTop,
+                            width: max(1, geometry.size.width - max(16, leadingSafeInset + 8) - sideBarWidth),
+                            height: max(1, geometry.size.height - panelTop - max(20, bottomSafeInset + 12))
+                        )
+                        FluidSettingsExpandedPanel(
+                            fluidMorphAnimation: fluidMorphAnimation,
+                            onDismiss: closeSettings,
+                            onClearData: clearDataFromSettings,
+                            onThemeSelect: onThemeSelect,
+                            allowsDragToDismiss: false
+                        )
+                        .modifier(SettingsPanelMorph(progress: settingsProgress, source: source, destination: compactDestination))
+                        .task {
+                            try? await Task.sleep(for: .milliseconds(20))
+                            guard !Task.isCancelled, !settingsClosing else { return }
+                            withAnimation(fluidMorphAnimation) { settingsProgress = 1 }
+                        }
+                    } else {
+                        let sideInset = max(16, (geometry.size.width - min(460, geometry.size.width - 32)) / 2)
+                        let panelTop: CGFloat = max(54, topSafeInset + 12)
+                        let panelBottom = max(24, geometry.size.height - source.minY + 6)
+                        let destination = CGRect(
+                            x: sideInset,
+                            y: panelTop,
+                            width: max(1, geometry.size.width - sideInset * 2),
+                            height: max(1, geometry.size.height - panelTop - panelBottom)
+                        )
+                        FluidSettingsExpandedPanel(
+                            fluidMorphAnimation: fluidMorphAnimation,
+                            onDismiss: closeSettings,
+                            onClearData: clearDataFromSettings,
+                            onThemeSelect: onThemeSelect
+                        )
+                        .modifier(SettingsPanelMorph(
+                            progress: settingsProgress,
+                            source: source,
+                            destination: destination
+                        ))
+                        .transition(.identity)
+                        .task {
+                            // Mount the collapsed panel before starting its geometry animation.
+                            try? await Task.sleep(for: .milliseconds(20))
+                            guard !Task.isCancelled, !settingsClosing else { return }
+                            withAnimation(fluidMorphAnimation) { settingsProgress = 1 }
+                        }
                     }
                 }
             }
+            .ignoresSafeArea(.all)
             .allowsHitTesting(settingsPresented && !settingsClosing)
-        }
-        .onChange(of: state.tab) { _, tab in
-            // Hide the navigation before the garden's first intro frame draws.
-            isGardenIntroVisible = tab == .garden
         }
         .onPreferenceChange(SelectedExecutionCardFrameKey.self) { frame in
             if frame.width > 0 { selectedExecutionCardFrame = frame }
+        }
+        .onPreferenceChange(WideSelectedCardsFrameKey.self) { frame in
+            if frame.height > 0 { wideCardsFrame = frame }
         }
         .onPreferenceChange(HomeDeckLaunchFrameKey.self) { frame in
             if frame.width > 0 {
@@ -812,7 +1330,7 @@ private struct TodayRootView: View {
         }
         .overlay(alignment: .bottom) {
             if let executionToast, state.tab == .today, isExecuting {
-                Text(executionToast.filter { !$0.isPunctuation })
+                Text(AppLanguage.text(executionToast))
                     .font(.system(size: 18.75, weight: .semibold))
                     .foregroundStyle(Color(red: 0.25, green: 0.20, blue: 0.25))
                     .multilineTextAlignment(.center)
@@ -834,15 +1352,60 @@ private struct TodayRootView: View {
         .overlay {
             ReviewReceiptOverlay(presentation: reviewReceiptPresentation)
         }
+        .sheet(isPresented: $showingPaywallPreview) { SubscriptionPaywallView() }
+        .onPreferenceChange(AddCardButtonSourceFrameKey.self) { frame in
+            guard frame.width > 0 else { return }
+            let dx = abs(frame.minX - addCardButtonSourceFrame.minX)
+            let dy = abs(frame.minY - addCardButtonSourceFrame.minY)
+            let dw = abs(frame.width - addCardButtonSourceFrame.width)
+            let dh = abs(frame.height - addCardButtonSourceFrame.height)
+            if dx > 1 || dy > 1 || dw > 1 || dh > 1 {
+                addCardButtonSourceFrame = frame
+            }
+        }
         .statusBarHidden(reviewReceiptPresentation.isActive)
         .task {
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-review-receipt-preview") {
+            if DevelopmentLaunch.contains("-review-receipt-preview") || DevelopmentLaunch.contains("--review-receipt-landed") || DevelopmentLaunch.contains("--review-tab") {
                 state.tab = .review
+            }
+            if DevelopmentLaunch.contains("--garden-tab") {
+                state.tab = .garden
+            }
+            if DevelopmentLaunch.contains("--today-tab") {
+                state.tab = .today
+            }
+            if ProcessInfo.processInfo.arguments.contains("-paywall-preview") {
+                showingPaywallPreview = true
+            }
+            if ProcessInfo.processInfo.arguments.contains("--open-custom-cards") {
+                state.tab = .today
+                state.mode = .browsingDeck
+                showingCustomCardsModal = true
+            }
+            if DevelopmentLaunch.contains("--open-browsing") {
+                state.tab = .today
+                state.mode = .browsingDeck
             }
             #endif
         }
         .animation(expandingGoal == nil ? (reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.62, dampingFraction: 0.82, blendDuration: 0.14)) : nil, value: state.mode)
+    }
+
+    private var homePreviewDeck: some View {
+        HomePreviewDeckView(goals: goals, tuning: tuning, reduceMotion: reduceMotion, isPressed: homePreviewIsPressed, isGathered: homeDeckGathered, isHintVisible: !homeDeckOpening)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: HomeDeckLaunchFrameKey.self, value: geometry.frame(in: .global))
+                }
+            }
+            .offset(y: tuning.cardOffsetY)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 0, maximumDistance: 18, pressing: { pressed in
+                homePreviewIsPressed = pressed
+            }, perform: { openHomeDeck() })
+            .allowsHitTesting(!homeDeckOpening)
+            .sensoryFeedback(.impact(weight: .light), trigger: homePreviewIsPressed) { _, pressed in pressed }
     }
 
     // Completion and early timer exits can return without the card morph.
@@ -918,7 +1481,7 @@ private struct TodayRootView: View {
         GeometryReader { geometry in
             let origin = geometry.frame(in: .global).origin
             let start = expansionStartFrame.offsetBy(dx: -origin.x, dy: -origin.y)
-            let hasCardArtwork = goal.cardArtworkAsset != nil
+            let hasCardArtwork = goal.cardArtworkAsset != nil || goal.resolvedFloraType != nil
             let target = CGRect(
                 origin: .zero,
                 size: CGSize(
@@ -1085,14 +1648,14 @@ private struct TodayRootView: View {
                 .position(x: centerX, y: centerY)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(goal.previewTitle)
+                    Text(AppLanguage.text(goal.previewTitle))
                         .font(.system(size: 42 + 18 * progress, weight: .semibold, design: .rounded))
                         .tracking(-1.8)
                         .foregroundStyle(titleInk)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .frame(minHeight: 88 * (1 - progress), alignment: .topLeading)
-                    Text(goal.previewSummary)
+                    Text(AppLanguage.text(goal.previewSummary))
                         .font(.system(size: 20.16 - 3.16 * progress, weight: .medium))
                         .foregroundStyle(summaryInk)
                         .lineLimit(2)
@@ -1157,7 +1720,12 @@ private struct TodayRootView: View {
     }
 
     private func openSettings() {
-        guard !settingsPresented, settingsButtonFrame.width > 0 else { return }
+        if settingsPresented {
+            closeSettings()
+            return
+        }
+        guard settingsButtonFrame.width > 0 else { return }
+        settingsAnimationSource = settingsButtonFrame
         settingsProgress = 0
         settingsClosing = false
         settingsPresented = true
@@ -1245,8 +1813,8 @@ private struct SettingsPanelMorph: AnimatableModifier {
         let verticalPhase = smoothPhase(t, start: 0.60, end: 1)
         let width = max(1, source.width + (destination.width - source.width) * horizontalPhase)
         let height = max(1, source.height + (destination.height - source.height) * verticalPhase)
-        let x = source.maxX - width
-        let y = source.maxY - height
+        let x = source.minX + (destination.minX - source.minX) * horizontalPhase
+        let y = source.minY + (destination.minY - source.minY) * verticalPhase
         let relativeSize = min(width / destination.width, height / destination.height)
         let contentScaleX = source.width / destination.width + (1 - source.width / destination.width) * horizontalPhase
         let contentScaleY = source.height / destination.height + (1 - source.height / destination.height) * verticalPhase
@@ -1267,7 +1835,7 @@ private struct SettingsPanelMorph: AnimatableModifier {
             .clipShape(shape)
             .overlay(shape.stroke(.white.opacity(0.7 * fadePhase), lineWidth: 1.5))
             .shadow(color: .black.opacity(0.14 * fadePhase), radius: 24 * verticalPhase, y: -6 * verticalPhase)
-            .offset(x: x, y: y)
+            .position(x: x + width / 2, y: y + height / 2)
     }
 
     private func smoothPhase(_ value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat {
@@ -1276,16 +1844,135 @@ private struct SettingsPanelMorph: AnimatableModifier {
     }
 }
 
+private struct ThemeRevealMask: Shape {
+    var center: CGPoint
+    var radius: CGFloat
+    var animatableData: CGFloat {
+        get { radius }
+        set { radius = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(rect)
+        path.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius,
+                                   width: radius * 2, height: radius * 2))
+        return path
+    }
+}
+
+private struct PrivacyPolicyReadingView: View {
+    @Environment(\.dismiss) private var dismiss
+    var embedded = false
+
+    private var paragraphs: [String] {
+        AppLanguage.text("privacy.policy.body").components(separatedBy: "\n\n").filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        if embedded { content } else { NavigationStack { content } }
+    }
+
+    private var content: some View {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(paragraphs.first ?? AppLanguage.text("privacy.policy.title"))
+                        .font(.system(.title2, design: .serif, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.25, green: 0.19, blue: 0.29))
+                        .padding(.bottom, 20)
+
+                    VStack(alignment: .leading, spacing: 25) {
+                        ForEach(Array(paragraphs.dropFirst().enumerated()), id: \.offset) { _, paragraph in
+                            section(paragraph)
+                        }
+                    }
+                    .padding(22)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .textSelection(.enabled)
+                }
+                .frame(maxWidth: 680)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 26)
+                .frame(maxWidth: .infinity)
+            }
+            .background(Color(red: 0.97, green: 0.96, blue: 0.98))
+            .navigationTitle(AppLanguage.text("privacy.policy.title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if !embedded {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(AppLanguage.text("privacy.policy.done")) { dismiss() }
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder private func section(_ paragraph: String) -> some View {
+        if let separator = paragraph.firstIndex(where: { $0 == "：" || $0 == ":" }),
+           paragraph.distance(from: paragraph.startIndex, to: separator) < 40 {
+            VStack(alignment: .leading, spacing: 9) {
+                Text(String(paragraph[..<separator]))
+                    .font(.system(.headline, design: .rounded))
+                    .foregroundStyle(Color(red: 0.36, green: 0.27, blue: 0.42))
+                Text(String(paragraph[paragraph.index(after: separator)...]).trimmingCharacters(in: .whitespaces))
+                    .font(.body)
+                    .foregroundStyle(Color(red: 0.25, green: 0.23, blue: 0.28))
+                    .lineSpacing(5)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(paragraph)
+                .font(.body)
+                .foregroundStyle(Color(red: 0.25, green: 0.23, blue: 0.28))
+                .lineSpacing(5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 // MARK: - 设置专属流体形变展开面板 (Fluid Settings Panel with Interactive Pull-Down Dismiss)
 private struct FluidSettingsExpandedPanel: View {
+    @AppStorage("review.ai.privacy-consent.v5") private var hasAIPrivacyConsent = false
+    @AppStorage(AppLanguage.storageKey) private var language = "system"
     @AppStorage(HabitColorTheme.storageKey) private var colorTheme = HabitColorTheme.original
     @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
     let fluidMorphAnimation: Animation
     let onDismiss: () -> Void
     let onClearData: () -> Void
+    let onThemeSelect: (HabitColorTheme, CGPoint) -> Void
+    var allowsDragToDismiss = true
 
+    @State private var themeCircleFrames: [HabitColorTheme: CGRect] = [:]
     @State private var dragOffsetY: CGFloat = 0
     @State private var showingClearConfirmation = false
+    @State private var pendingLanguage = "system"
+    @State private var showingPrivacyPolicy = false
+    @State private var showingReminders = false
+    @State private var showingPaywall = false
+    @State private var exportItem: LocalExportItem?
+    @State private var exportFailed = false
+    @State private var showingAbout = false
+    @State private var showingHelp = false
+    @State private var showingMGOnboarding = false
+    @State private var mailUnavailable = false
+    @ObservedObject private var subscription = SubscriptionManager.shared
+    @ObservedObject private var iCloudSync = ICloudSyncManager.shared
+
+    private func settingsUtilityLabel(_ key: String, icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 11.5, weight: .semibold))
+            Text(AppLanguage.text(key))
+                .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                .lineLimit(1)
+        }
+        .foregroundStyle(Color(red: 0.36, green: 0.30, blue: 0.40))
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(.white.opacity(0.58), in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.75), lineWidth: 0.8))
+        .contentShape(Capsule())
+    }
 
     // 计算交互式拖动阻尼位移与缩放比例
     private var effectiveDragOffset: CGFloat {
@@ -1316,35 +2003,101 @@ private struct FluidSettingsExpandedPanel: View {
                     .padding(.top, 12)
             }
             .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .gesture(settingsDismissGesture, including: allowsDragToDismiss ? .all : .none)
 
-            VStack(alignment: .leading, spacing: 20) {
-                Text("设置")
-                    .font(.system(size: 38, weight: .medium))
+            ScrollView {
+            VStack(alignment: .leading, spacing: allowsDragToDismiss ? 12 : 6) {
+                Text(AppLanguage.text("设置"))
+                    .font(.system(size: allowsDragToDismiss ? 30 : 22, weight: .semibold))
                     .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
 
-                Text("习惯记录和积分保存在此设备。")
-                    .font(.system(size: 15, weight: .medium))
+                Text(AppLanguage.text("习惯记录和积分保存在此设备。"))
+                    .font(.system(size: 13.5, weight: .medium))
                     .foregroundStyle(Color(red: 0.32, green: 0.28, blue: 0.33).opacity(0.72))
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("界面配色")
+                Picker(AppLanguage.text("语言"), selection: $pendingLanguage) {
+                    Text("中文").tag("zh-Hans")
+                    Text("English").tag("en-US")
+                    Text("日本語").tag("ja")
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settings.language")
+
+                Button {
+                    language = pendingLanguage
+                    NotificationCenter.default.post(name: AppLanguage.didApply, object: pendingLanguage)
+                } label: {
+                    Label(AppLanguage.text("应用语言并刷新"), systemImage: "arrow.clockwise")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, allowsDragToDismiss ? 12 : 8)
+                        .background(.white.opacity(0.64), in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings.applyLanguage")
+
+                Button { showingMGOnboarding = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.88, green: 0.32, blue: 0.58))
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(supportText("重温动画引导", "Replay Onboarding Tour", "アニメーションガイドを見る"))
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
+                            Text(supportText("极简视觉指南 · 了解习惯养成与花盘", "Visual motion guide to habit loop", "習慣の育成と花園のビジュアルガイド"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(red: 0.32, green: 0.28, blue: 0.33).opacity(0.68))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.42, green: 0.38, blue: 0.45).opacity(0.6))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, allowsDragToDismiss ? 12 : 8)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.85),
+                                Color(red: 0.98, green: 0.94, blue: 0.98).opacity(0.75)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 16)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.white.opacity(0.7), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: allowsDragToDismiss ? 12 : 6) {
+                    Text(AppLanguage.text("界面配色"))
                         .font(.system(size: 16, weight: .semibold))
                     HStack(spacing: 12) {
                         ForEach(HabitColorTheme.allCases) { theme in
                             Button {
-                                colorTheme = theme
+                                let frame = themeCircleFrames[theme] ?? .zero
+                                onThemeSelect(theme, CGPoint(x: frame.midX, y: frame.midY))
                             } label: {
                                 HStack(spacing: 8) {
                                     Circle()
                                         .fill(LinearGradient(colors: [theme.accent, theme.companion], startPoint: .topLeading, endPoint: .bottomTrailing))
                                         .frame(width: 24, height: 24)
-                                    Text(theme.title)
+                                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) }
+                                        action: { themeCircleFrames[theme] = $0 }
+                                    Text(AppLanguage.text(theme.title))
                                     Spacer(minLength: 0)
                                     Image(systemName: colorTheme == theme ? "checkmark.circle.fill" : "circle")
                                 }
                                 .font(.system(size: 15, weight: .medium))
-                                .padding(12)
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .padding(allowsDragToDismiss ? 12 : 8)
+                                .frame(maxWidth: .infinity, minHeight: 44)
                                 .background(.white.opacity(colorTheme == theme ? 0.75 : 0.35), in: RoundedRectangle(cornerRadius: 14))
                             }
                             .buttonStyle(.plain)
@@ -1355,8 +2108,8 @@ private struct FluidSettingsExpandedPanel: View {
                 }
                 .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("声音反馈")
+                VStack(alignment: .leading, spacing: allowsDragToDismiss ? 10 : 6) {
+                    Text(AppLanguage.text("声音反馈"))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
                     HStack(spacing: 12) {
@@ -1365,41 +2118,183 @@ private struct FluidSettingsExpandedPanel: View {
                             .foregroundStyle(Color(red: 0.49, green: 0.34, blue: 0.53))
                             .frame(width: 30)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("总体音效")
+                            Text(AppLanguage.text("总体音效"))
                                 .font(.system(size: 15, weight: .semibold))
-                            Text("打字、打印与完成提示")
+                            Text(AppLanguage.text("打字、打印与完成提示"))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(Color(red: 0.32, green: 0.28, blue: 0.33).opacity(0.68))
                         }
                         Spacer(minLength: 8)
-                        Toggle("总体音效", isOn: $soundEffectsEnabled)
+                        Toggle(AppLanguage.text("总体音效"), isOn: $soundEffectsEnabled)
                             .labelsHidden()
                             .tint(Color(red: 0.62, green: 0.39, blue: 0.70))
                             .accessibilityIdentifier("settings.soundEffects")
                     }
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, allowsDragToDismiss ? 12 : 7)
                     .background(.white.opacity(0.52), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                Button { showingPaywall = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color(red: 0.90, green: 0.65, blue: 0.28))
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(AppLanguage.text("会员计划"))
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
+                                Text(AppLanguage.text(subscription.currentTier.badge))
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(subscription.currentTier != .free ? Color.white : Color(red: 0.52, green: 0.36, blue: 0.62))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        subscription.currentTier != .free
+                                            ? Color(red: 0.52, green: 0.36, blue: 0.62)
+                                            : Color(red: 0.52, green: 0.36, blue: 0.62).opacity(0.12),
+                                        in: Capsule()
+                                    )
+                            }
+                            Text(subscription.currentTier != .free ? String(format: AppLanguage.text("生效中：%@ · 管理会员"), AppLanguage.text(subscription.currentTier.title)) : AppLanguage.text("解锁更多自定义卡片、全庭院与持续复盘"))
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(Color(red: 0.42, green: 0.38, blue: 0.45))
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.42, green: 0.38, blue: 0.45).opacity(0.6))
+                    }
+                    .padding(allowsDragToDismiss ? 13 : 9)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.72),
+                                Color(red: 0.97, green: 0.94, blue: 0.98).opacity(0.65)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.white.opacity(0.9), lineWidth: 1.2)
+                    )
+                }
+                .buttonStyle(SettingsPressButtonStyle())
+                .accessibilityIdentifier("settings.subscription")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: Binding(
+                        get: { iCloudSync.isEnabled },
+                        set: { iCloudSync.setEnabled($0, membership: subscription.currentTier) }
+                    )) {
+                        Label(AppLanguage.text("sync.title"), systemImage: "icloud.and.arrow.up")
+                            .font(.system(size: 15, weight: .medium))
+                    }
+                    .disabled(subscription.currentTier == .free && !iCloudSync.isEnabled)
+                    .accessibilityIdentifier("settings.iCloudSync")
+
+                    let status = iCloudSync.detail
+                    if !status.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: iCloudSync.state == .needsAttention ? "exclamationmark.triangle" : "icloud")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(AppLanguage.text(status))
+                                .font(.system(size: 12, weight: .regular))
+                            Spacer(minLength: 0)
+                            if iCloudSync.state == .unavailable || iCloudSync.state == .needsAttention {
+                                Button(AppLanguage.text("sync.retry")) {
+                                    iCloudSync.requestSync(membership: subscription.currentTier)
+                                }
+                                .font(.system(size: 12, weight: .semibold))
+                            }
+                        }
+                        .foregroundStyle(Color(red: 0.42, green: 0.38, blue: 0.45))
+                    } else if subscription.currentTier == .free {
+                        Text(AppLanguage.text("sync.membershipHint"))
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(Color(red: 0.42, green: 0.38, blue: 0.45))
+                    }
+                }
+                .padding(allowsDragToDismiss ? 14 : 9)
+                .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                Button { showingReminders = true } label: {
+                    Label(AppLanguage.text("reminder.title"), systemImage: "bell")
+                        .font(.system(size: 15, weight: .medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(allowsDragToDismiss ? 14 : 9)
+                        .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(SettingsPressButtonStyle())
+                .accessibilityIdentifier("settings.reminders")
+
+                ForEach(SettingsSupportEntry.allCases) { entry in
+                    Button {
+                        switch entry {
+                        case .feedback: openFeedback()
+                        case .about: showingAbout = true
+                        case .help: showingHelp = true
+                        }
+                    } label: {
+                        HStack {
+                            Label(entry.title, systemImage: entry.icon)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                        }
+                        .font(.system(size: 15, weight: .medium))
+                        .padding(allowsDragToDismiss ? 14 : 9)
+                        .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(SettingsPressButtonStyle())
+                    .accessibilityIdentifier("settings." + entry.rawValue)
+                }
+
+                HStack(spacing: 8) {
+                    Button { showingPrivacyPolicy = true } label: {
+                        settingsUtilityLabel("privacy.policy.title", icon: "hand.raised")
+                    }
+                    .accessibilityIdentifier("settings.privacyPolicy")
+
+                    Button {
+                        do { exportItem = LocalExportItem(url: try LocalRecordExport.createFile()) }
+                        catch { exportFailed = true }
+                    } label: {
+                        settingsUtilityLabel("export.action", icon: "square.and.arrow.up")
+                    }
+                    .accessibilityIdentifier("settings.export")
+
+                    Spacer(minLength: 0)
+                }
+                .buttonStyle(SettingsPressButtonStyle())
+
+                if hasAIPrivacyConsent {
+                    Button(AppLanguage.text("撤回 AI 复盘同意")) { hasAIPrivacyConsent = false }
+                        .accessibilityIdentifier("settings.revokeAIConsent")
                 }
 
                 Button(role: .destructive) {
                     showingClearConfirmation = true
                 } label: {
-                    Label("清除本地数据并重新开始", systemImage: "trash")
-                        .font(.system(size: 16, weight: .semibold))
+                    Label(AppLanguage.text("清除本地数据并重新开始"), systemImage: "trash")
+                        .font(.system(size: 15, weight: .medium))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(18)
-                        .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .padding(allowsDragToDismiss ? 14 : 9)
+                        .background(.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .tint(Color(red: 0.62, green: 0.20, blue: 0.28))
                 .buttonStyle(SettingsPressButtonStyle())
 
-                Spacer()
             }
             .padding(.horizontal, 24)
-            .padding(.top, 16)
-
-            Spacer()
+            .padding(.top, allowsDragToDismiss ? 14 : 6)
+            .padding(.bottom, 64)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             // 底部关闭返回胶囊（与原胶囊位置呼应）
             Button {
@@ -1408,7 +2303,7 @@ private struct FluidSettingsExpandedPanel: View {
                 HStack(spacing: 8) {
                     Image(systemName: "chevron.down.circle.fill")
                         .font(.system(size: 18, weight: .semibold))
-                    Text("收起设置")
+                    Text(AppLanguage.text("收起设置"))
                         .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundStyle(Color(red: 0.26, green: 0.22, blue: 0.27))
@@ -1417,35 +2312,65 @@ private struct FluidSettingsExpandedPanel: View {
                 .background(.white.opacity(0.68), in: Capsule())
                 .overlay(Capsule().stroke(.white.opacity(0.85), lineWidth: 1.2))
             }
-            .padding(.bottom, 36)
+            .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showingAbout) { SettingsInformationView(isHelp: false) }
+        .sheet(isPresented: $showingHelp) { SettingsInformationView(isHelp: true) }
+        .alert(supportText("无法打开邮件应用", "Unable to open a mail app", "メールアプリを開けません"), isPresented: $mailUnavailable) {
+            Button(AppLanguage.text("知道了"), role: .cancel) {}
+        } message: {
+            Text(supportText("请先安装或设置邮件应用，或手动发送至 deshiru@foxmail.com。", "Set up a mail app, or email deshiru@foxmail.com.", "メールアプリを設定するか、deshiru@foxmail.com に送信してください。"))
+        }
+        .sheet(isPresented: $showingPaywall) { SubscriptionPaywallView() }
+        .sheet(isPresented: $showingReminders) { ReminderSettingsView() }
+        .sheet(item: $exportItem) { LocalExportShareSheet(item: $0) }
+        .sheet(isPresented: $showingPrivacyPolicy) {
+            PrivacyPolicyReadingView()
+        }
+        .onAppear { pendingLanguage = AppLanguage.resolve(language) }
+        .alert(AppLanguage.text("export.failed"), isPresented: $exportFailed) {
+            Button(AppLanguage.text("知道了"), role: .cancel) {}
+        }
+        .fullScreenCover(isPresented: $showingMGOnboarding) {
+            MGOnboardingView(isPresented: $showingMGOnboarding)
+        }
         .scaleEffect(interactiveScale, anchor: .bottom)
         .offset(y: effectiveDragOffset)
-        .alert("清除本地数据？", isPresented: $showingClearConfirmation) {
-            Button("取消", role: .cancel) {}
-            Button("清除并重新开始", role: .destructive, action: confirmClearLocalData)
+        .alert(AppLanguage.text("清除本地数据？"), isPresented: $showingClearConfirmation) {
+            Button(AppLanguage.text("取消"), role: .cancel) {}
+            Button(AppLanguage.text("清除并重新开始"), role: .destructive, action: confirmClearLocalData)
         } message: {
-            Text("这会删除已选习惯、打卡记录、复盘、计时记录和积分，并回到首次选择页面。此操作无法撤销。")
+            Text(AppLanguage.text("这会删除已选习惯、打卡记录、复盘、计时记录和积分，并回到首次选择页面。此操作无法撤销。"))
         }
-        .gesture(
-            DragGesture(minimumDistance: 10)
-                .onChanged { value in
-                    dragOffsetY = value.translation.height
-                }
-                .onEnded { value in
-                    // 速度较快或下拉超过 110pt 时执行随拉随放弹回收起
-                    let shouldDismiss = value.translation.height > 110 || (value.velocity.height > 300 && value.translation.height > 40)
-                    if shouldDismiss {
-                        dismissSettings()
-                    } else {
-                        // 未达到阈值，随拉随放平滑弹回原位
-                        withAnimation(fluidMorphAnimation) {
-                            dragOffsetY = 0
-                        }
-                    }
-                }
-        )
+    }
+
+    private var settingsDismissGesture: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in dragOffsetY = max(0, value.translation.height) }
+            .onEnded { value in
+                let shouldDismiss = value.translation.height > 110 || (value.velocity.height > 300 && value.translation.height > 40)
+                if shouldDismiss { dismissSettings() }
+                else { withAnimation(fluidMorphAnimation) { dragOffsetY = 0 } }
+            }
+    }
+
+    private func openFeedback() {
+        let info = Bundle.main.infoDictionary ?? [:]
+        var system = utsname()
+        uname(&system)
+        let machineSize = MemoryLayout.size(ofValue: system.machine)
+        let model = withUnsafePointer(to: &system.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: machineSize) { String(cString: $0) }
+        }
+        let name = (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String) ?? "MAYBII"
+        let version = (info["CFBundleShortVersionString"] as? String) ?? "—"
+        let build = (info["CFBundleVersion"] as? String) ?? "—"
+        let components = FeedbackDraft.components(language: AppLanguage.current, appName: name, version: version, build: build, model: model, system: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)", bundleID: Bundle.main.bundleIdentifier ?? "—")
+        guard let url = components.url else { mailUnavailable = true; return }
+        UIApplication.shared.open(url) { success in
+            if !success { mailUnavailable = true }
+        }
     }
 
     private func dismissSettings() {
@@ -1467,12 +2392,12 @@ private struct AppTabPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(title).font(.system(size: 38, weight: .medium))
-            Text(subtitle).font(.system(size: 15, weight: .medium)).opacity(0.72)
+            Text(AppLanguage.text(title)).font(.system(size: 38, weight: .medium))
+            Text(AppLanguage.text(subtitle)).font(.system(size: 15, weight: .medium)).opacity(0.72)
             if tab == .garden {
                 ForEach(goals.prefix(3)) { goal in
                     HStack {
-                        Text(goal.title).font(.system(size: 17, weight: .semibold))
+                        Text(AppLanguage.text(goal.title)).font(.system(size: 17, weight: .semibold))
                         Spacer()
                         Text("按原规则显示").font(.system(size: 13)).opacity(0.6)
                     }.padding(16).background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 20))
@@ -1491,8 +2416,8 @@ private struct AppTabPage: View {
         }.padding(.horizontal, 24)
     }
 
-    private var title: String { tab == .garden ? "养成物" : tab == .review ? "复盘" : "设置" }
-    private var subtitle: String { tab == .garden ? "看见习惯完成后留下的成长。" : tab == .review ? "只读回看每天的习惯完成和记录。" : "管理你的习惯 App。" }
+    private var title: String { tab == .garden ? AppLanguage.text("养成物") : tab == .review ? AppLanguage.text("复盘") : AppLanguage.text("设置") }
+    private var subtitle: String { tab == .garden ? AppLanguage.text("看见习惯完成后留下的成长。") : tab == .review ? AppLanguage.text("只读回看每天的习惯完成和记录。") : AppLanguage.text("管理你的习惯 App。") }
 }
 
 private struct GoalDeckView: View {
@@ -1514,7 +2439,7 @@ private struct GoalDeckView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("返回")
+                        Text(AppLanguage.text("返回"))
                             .font(.system(size: 15, weight: .medium))
                     }
                     .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.29))
@@ -1522,13 +2447,13 @@ private struct GoalDeckView: View {
 
                 Spacer()
 
-                Text("选择今天的习惯")
+                Text(AppLanguage.text("选择今天的习惯"))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color(red: 0.22, green: 0.20, blue: 0.24))
 
                 Spacer()
 
-                Text("上下翻阅")
+                Text(AppLanguage.text("上下翻阅"))
                     .font(.system(size: 12, weight: .medium))
                     .opacity(0.65)
                     .frame(width: 50, alignment: .trailing)
@@ -1554,8 +2479,8 @@ private struct GoalDeckView: View {
                 }
             })
             HStack(spacing: 28) {
-                Button("↑ 上一张") { move(-1) }
-                Button("下一张 ↓") { move(1) }
+                Button(AppLanguage.text("↑ 上一张")) { move(-1) }
+                Button(AppLanguage.text("下一张 ↓")) { move(1) }
             }.buttonStyle(.bordered)
         }.padding(.top, 10)
     }
@@ -1583,11 +2508,11 @@ private struct DeckCard: View {
         VStack(alignment: .leading, spacing: 15) {
             Text(String(format: "%02d", index)).font(.system(size: 11, weight: .medium)).tracking(1.3).foregroundStyle(.white.opacity(0.8))
             if expanded {
-                Text(goal.title).font(.system(size: 29, weight: .medium)).foregroundStyle(.white)
-                Text(goal.category.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.4).foregroundStyle(.white.opacity(0.76))
-                Text(goal.summary).font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.86))
+                Text(AppLanguage.text(goal.title)).font(.system(size: 29, weight: .medium)).foregroundStyle(.white)
+                Text(AppLanguage.text(goal.category).uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.4).foregroundStyle(.white.opacity(0.76))
+                Text(AppLanguage.text(goal.summary)).font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.86))
                 Spacer()
-                Text(selected ? "已选择 · 右滑取消" : "右滑选择此目标").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.8))
+                Text(selected ? AppLanguage.text("已选择 · 右滑取消") : AppLanguage.text("右滑选择此目标")).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.8))
             }
         }.padding(22).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 26).fill(colorTheme.card(goal.cardBaseColor(in: goals, theme: colorTheme)).opacity(goal.tint.opacity + (expanded ? 0.18 : 0.05))))
@@ -1597,8 +2522,11 @@ private struct DeckCard: View {
 }
 
 private struct ConfirmSelectionBar: View {
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
+    @State private var confirmationSound = AppSoundFeedback()
     let goals: [Goal]
     let state: TodayGoalState
+    var useWideLayout = false
     let action: () -> Void
     private var regularCount: Int {
         let current = Set(goals.filter {
@@ -1609,19 +2537,22 @@ private struct ConfirmSelectionBar: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("当天新建 \(regularCount)/3 · 星标 \(state.starredGoalIDs.count)/\(state.starLimit)")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(state.isFirstSelection ? "首日周期计名额 · 完成后可设星标" : "点星标可额外选 · 周期次日保留")
-                    .font(.system(size: 11))
+                Text(String(format: AppLanguage.text("当天新建 %lld/3 · 星标 %lld/%lld"), regularCount, state.starredGoalIDs.count, state.starLimit))
+                    .font(.system(size: useWideLayout ? 17.85 : 12, weight: .semibold))
+                Text(state.isFirstSelection ? AppLanguage.text("首日周期计名额 · 首次确认后可设星标") : AppLanguage.text("点星标可额外选 · 周期次日保留"))
+                    .font(.system(size: useWideLayout ? 16.3625 : 11))
             }
             .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
             Spacer(minLength: 4)
-            Button("确认选择") { action() }
-                .buttonStyle(ConfirmPressStyle())
+            Button(AppLanguage.text("确认选择")) {
+                confirmationSound.play(.gardenSelect, enabled: soundEffectsEnabled)
+                action()
+            }
+                .buttonStyle(ConfirmPressStyle(fontSize: useWideLayout ? 24.5 : 14))
                 .disabled(state.isFirstSelection && state.selectedGoalIDs.isEmpty)
                 .opacity(state.isFirstSelection && state.selectedGoalIDs.isEmpty ? 0.42 : 1)
         }
-        .padding(.horizontal, 14).frame(height: 66)
+        .padding(.horizontal, 14).frame(height: useWideLayout ? 90 : 66)
         .background(.white.opacity(0.32), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.66), lineWidth: 1))
         .padding(.horizontal, 22).padding(.bottom, 6)
@@ -1630,10 +2561,11 @@ private struct ConfirmSelectionBar: View {
 
 private struct ConfirmPressStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var fontSize: CGFloat = 14
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: fontSize, weight: .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 20)
             .frame(height: 44)
@@ -1662,7 +2594,7 @@ private struct StarredGoalBadge: View {
             .foregroundStyle(Color(red: 1, green: 0.72, blue: 0.12))
             .frame(width: 36, height: 36)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("星标习惯")
+            .accessibilityLabel(AppLanguage.text("星标习惯"))
     }
 }
 
@@ -1672,6 +2604,40 @@ private struct SelectedExecutionCardFrameKey: PreferenceKey {
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
         if next.width > 0 { value = next }
+    }
+}
+
+private struct WideGoalCardFramesKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct WideSelectedCardsFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next.height > 0 { value = next }
+    }
+}
+
+private struct ContinueGoalSelectionButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Label(AppLanguage.text("继续选择今天的目标"), systemImage: "square.stack.3d.up")
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
+                .padding(.horizontal, 18)
+                .frame(height: 44)
+                .background(.white.opacity(0.72), in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.86), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(AppLanguage.text("打开卡片集，添加今天的目标"))
     }
 }
 
@@ -1691,7 +2657,10 @@ private struct SelectedGoalView: View {
     let hiddenExecutionGoalID: String?
     let executionExpansionProgress: CGFloat
     let buttonRevealTrigger: UUID
+    var useWideLayout = false
+    var centerContinueButton = false
     let onBrowseGoals: () -> Void
+    let onCardFrame: (CGRect) -> Void
     let onStartGoal: (Goal) -> Void
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1707,6 +2676,7 @@ private struct SelectedGoalView: View {
     @State private var returnButtonTitleOpacity: Double = 1
     @State private var returnButtonSheenEnabled = true
     @State private var returnButtonRevealTaskID = UUID()
+    @State private var wideCardFrames: [String: CGRect] = [:]
 
     private var selected: [Goal] { goals.filter { state.selectedGoalIDs.contains($0.id) } }
     private var activeIndex: Int { selected.isEmpty ? 0 : state.homeSelectedIndex % selected.count }
@@ -1717,49 +2687,86 @@ private struct SelectedGoalView: View {
     var body: some View {
         VStack(spacing: 18) {
             if !selected.isEmpty {
-                selectedDeck
+                if useWideLayout { wideSelectedDeck } else { selectedDeck }
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 42, weight: .regular))
                         .foregroundStyle(.white.opacity(0.9))
-                    Text("今日目标已全部完成")
+                    Text(AppLanguage.text("今日目标已全部完成"))
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text(state.selectedGoalIDs.union(state.completedSelectedGoalIDs).count < 3
+                    Text(AppLanguage.text(state.selectedGoalIDs.union(state.completedSelectedGoalIDs).count < 3
                          ? "已完成的习惯已从待做卡片中移除，可继续选择今天的目标。"
-                         : "已完成的习惯已从待做卡片中移除。")
+                         : "已完成的习惯已从待做卡片中移除。"))
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.white.opacity(0.8))
                 }
                 .frame(maxWidth: .infinity, minHeight: 260)
             }
-            if state.selectedGoalIDs.union(state.completedSelectedGoalIDs).count < 3 {
-                Button(action: onBrowseGoals) {
-                    Label("继续选择今天的目标", systemImage: "square.stack.3d.up")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.27, green: 0.23, blue: 0.29))
-                        .padding(.horizontal, 18)
-                        .frame(height: 44)
-                        .background(.white.opacity(0.72), in: Capsule())
-                        .overlay(Capsule().stroke(.white.opacity(0.86), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityHint("打开卡片集，添加今天的目标")
+            if (!useWideLayout || centerContinueButton) && state.selectedGoalIDs.union(state.completedSelectedGoalIDs).count < 3 {
+                ContinueGoalSelectionButton(action: onBrowseGoals)
+                .frame(maxWidth: .infinity, alignment: centerContinueButton ? .center : .trailing)
             }
         }
         .padding(.horizontal, 24)
+        // Keep cards and their actions readable in wide or resizable windows.
+        .frame(maxWidth: useWideLayout ? 1200 : 480)
+        .frame(maxWidth: .infinity)
         .onChange(of: buttonRevealTrigger) { _, _ in
             revealStartButtonAfterReturn()
         }
+        .onPreferenceChange(WideGoalCardFramesKey.self) { wideCardFrames = $0 }
+    }
+
+    private var wideSelectedDeck: some View {
+        GeometryReader { geometry in
+            let spacing: CGFloat = 16
+            let columns = max(1, min(selected.count, 4))
+            let cardWidth = min(300, max(100, (geometry.size.width - CGFloat(columns - 1) * spacing) / CGFloat(columns)))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: spacing) {
+                    ForEach(Array(selected.enumerated()), id: \.element.id) { index, goal in
+                        PreviewGoalCard(goal: goal, paletteGoals: allGoals, theme: colorTheme, index: index + 1, surfaceOpacity: 1, isPrimary: true, textScale: 1.15, showsContent: true)
+                            .frame(width: cardWidth, height: 270)
+                            .background {
+                                GeometryReader { cardGeometry in
+                                    Color.clear.preference(key: WideGoalCardFramesKey.self, value: [goal.id: cardGeometry.frame(in: .global)])
+                                }
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                if goal.isStarred { StarredGoalBadge().padding(12) }
+                            }
+                            .overlay(alignment: .bottom) {
+                                Button(goal.completedToday ? AppLanguage.text("今日已完成") : AppLanguage.text("开始目标")) {
+                                    onCardFrame(wideCardFrames[goal.id] ?? .zero)
+                                    onStartGoal(goal)
+                                }
+                                    .buttonStyle(LiquidGlassGoalButtonStyle())
+                                    .frame(width: max(80, cardWidth - 48))
+                                    .disabled(goal.completedToday)
+                                    .opacity(goal.completedToday ? 0.64 : 0.70)
+                                    .padding(.bottom, 22)
+                            }
+                    }
+                }
+                .frame(minWidth: geometry.size.width, alignment: .center)
+            }
+        }
+        .frame(height: 270)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: WideSelectedCardsFrameKey.self, value: geometry.frame(in: .global))
+            }
+        }
+        .offset(y: -55)
     }
 
     private var selectedDeck: some View {
         GeometryReader { proxy in
             let visibleCount = min(3, selected.count)
             let progress = min(1, abs(dragX) / 170)
-            let cardWidth = proxy.size.width - 12
+            let cardWidth = max(1, proxy.size.width - 12)
             let cardHeight: CGFloat = 300
             let backOffsets: [(x: CGFloat, y: CGFloat, rotation: Double)] = [
                 (0, 0, 0), (-22, 25, -2), (24, 50, 2.5)
@@ -1796,7 +2803,7 @@ private struct SelectedGoalView: View {
                             StarredGoalBadge()
                                 .padding(.top, 18)
                                 .padding(.trailing, 18)
-                                .accessibilityLabel("星标习惯")
+                                .accessibilityLabel(AppLanguage.text("星标习惯"))
                         }
                     }
                     .matchedGeometryEffect(
@@ -1812,16 +2819,18 @@ private struct SelectedGoalView: View {
                             Button {
                                 startGoalWithDeckMotion(goal)
                             } label: {
-                                Text(goal.completedToday ? "今日已完成" : "开始目标")
+                                Text(goal.completedToday ? AppLanguage.text("今日已完成") : AppLanguage.text("开始目标"))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                                     .opacity(returnButtonTitleOpacity)
                                     .offset(y: (1 - returnButtonTitleOpacity) * 5)
                             }
                             .buttonStyle(LiquidGlassGoalButtonStyle(sheenEnabled: returnButtonSheenEnabled))
-                            .frame(width: 50 + ((cardWidth - 40) * 0.5 - 50) * returnButtonExpansion)
+                            .frame(width: max(116, 50 + ((cardWidth - 40) * 0.5 - 50) * returnButtonExpansion))
                             .disabled(goal.completedToday || startDeckScale != 1)
                             .opacity(goal.completedToday ? 0.64 : 0.70)
                             .padding(.bottom, 41)
-                            .accessibilityHint("开始当前目标")
+                            .accessibilityHint(AppLanguage.text("开始当前目标"))
                         }
                     }
                     .compositingGroup()
@@ -1886,7 +2895,7 @@ private struct SelectedGoalView: View {
                         }
                     }
                     .overlay(alignment: .bottom) {
-                        Button("开始目标") {}
+                        Button(AppLanguage.text("开始目标")) {}
                             .buttonStyle(LiquidGlassGoalButtonStyle())
                             .frame(width: (cardWidth - 40) * 0.5)
                             .opacity(0.70)
@@ -1908,7 +2917,7 @@ private struct SelectedGoalView: View {
             .opacity(1 - executionExpansionProgress)
             .contentShape(Rectangle())
             .gesture(dragGesture)
-            .accessibilityHint("向左或向右滑动切换今日目标")
+            .accessibilityHint(AppLanguage.text("向左或向右滑动切换今日目标"))
             .accessibilityAdjustableAction { direction in
                 switch direction {
                 case .increment: shift(by: 1)
@@ -2116,6 +3125,7 @@ private extension Collection {
 }
 
 private struct TodayHeaderView: View {
+    @Environment(\.locale) private var locale
     @Environment(\.habitColorTheme) private var colorTheme
     let selectedCount: Int
     var mode: TodayMode = .homeUnselected
@@ -2123,9 +3133,17 @@ private struct TodayHeaderView: View {
     let dashboard: HabitDashboardSnapshot?
     var pointsOpacity: Double = 1
     var headerOpacity: Double = 1
+    var titleScale: CGFloat = 1
+    var showsBanner = true
+    var compactTop = false
+    var showsPoints = true
+    var dateScale: CGFloat = 1
+    var showsDate = true
+    var subtitleScale: CGFloat = 1
+    var onAddCustomCard: (() -> Void)? = nil
 
     private var headerTitle: String {
-        mode == .homeSelected ? "已选择\n今天的\n目标" : "选择\n今天的\n目标"
+        mode == .homeSelected ? AppLanguage.text("已选择\n今天的\n目标") : AppLanguage.text("选择\n今天的\n目标")
     }
 
     var body: some View {
@@ -2134,38 +3152,43 @@ private struct TodayHeaderView: View {
             HStack(alignment: .top, spacing: 8) {
                 // 左侧主标题
                 Text(headerTitle)
-                    .font(.system(size: tuning.titleSize * tuning.textScale, weight: .medium))
+                    .font(.system(size: tuning.titleSize * tuning.textScale * titleScale, weight: .medium))
                     .tracking(-0.6)
                     .lineSpacing(-8)
                     .foregroundStyle(colorTheme == .lavender ? Color.white : Color(red: 0.22, green: 0.20, blue: 0.24))
                     .shadow(color: colorTheme == .lavender ? .black.opacity(0.52) : .clear, radius: 1.5, y: 1)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.75)
+                    .allowsTightening(true)
                     .fixedSize(horizontal: false, vertical: true)
                     .opacity(headerOpacity)
 
                 Spacer(minLength: 4)
 
                 // 右侧大号艺术日期 (实时同步当前日期，调大字号使上下跨度与左侧标题等高)
-                VStack(alignment: .trailing, spacing: -8) {
+                if showsDate { VStack(alignment: .trailing, spacing: -8) {
                     Text(dayString)
-                        .font(.system(size: tuning.dateSize * tuning.textScale, weight: .regular))
+                        .font(.system(size: tuning.dateSize * tuning.textScale * dateScale, weight: .regular))
                         .tracking(-3.0)
                     Text(monthString)
-                        .font(.system(size: tuning.dateSize * tuning.textScale, weight: .regular))
+                        .font(.system(size: tuning.dateSize * tuning.textScale * dateScale, weight: .regular))
                         .tracking(-4.5)
                 }
                 .foregroundStyle(.white.opacity(colorTheme == .lavender ? 0.98 : 0.82))
                 .shadow(color: colorTheme == .lavender ? .black.opacity(0.52) : .clear, radius: 1.5, y: 1)
                 .fixedSize(horizontal: true, vertical: false)
                 .opacity(headerOpacity)
+                }
             }
 
             // 中间行：副标题与右侧积分胶囊垂直居中对齐
             HStack(alignment: .center, spacing: 10) {
-                Text("把注意力留给想变好的自己。")
-                    .font(.system(size: 17, weight: .medium)) // 13.5 * 1.25 ≈ 17
+                Text(AppLanguage.text("萌芽小习惯，重启新人生。"))
+                    .font(.system(size: 17 * subtitleScale, weight: .medium))
                     .foregroundStyle(colorTheme == .lavender ? Color.white.opacity(0.95) : Color.white.opacity(0.72))
                     .shadow(color: colorTheme == .lavender ? .black.opacity(0.52) : .clear, radius: 1, y: 1)
-                    .lineLimit(1)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
                     .minimumScaleFactor(0.85)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .opacity(headerOpacity)
@@ -2173,23 +3196,25 @@ private struct TodayHeaderView: View {
                 Spacer(minLength: 8)
 
                 // 积分展示按钮（右对齐，与上方月份边缘对齐，且与左侧副标垂直居中）
-                HStack(spacing: 6) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 22, weight: .semibold)) // 放大 2 倍
-                        .foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.38))
-                    Text("\(dashboard?.points ?? 0)")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.24, green: 0.34, blue: 0.28))
+                if showsPoints {
+                    HStack(spacing: 6) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 22, weight: .semibold)) // 放大 2 倍
+                            .foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.38))
+                        Text("\(dashboard?.points ?? 0)")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.24, green: 0.34, blue: 0.28))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.white.opacity(0.72), in: Capsule())
+                    .overlay(Capsule().stroke(Color(red: 0.26, green: 0.52, blue: 0.38).opacity(0.25), lineWidth: 1))
+                    .opacity(pointsOpacity)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.white.opacity(0.72), in: Capsule())
-                .overlay(Capsule().stroke(Color(red: 0.26, green: 0.52, blue: 0.38).opacity(0.25), lineWidth: 1))
-                .opacity(pointsOpacity)
             }
 
             // 昨天的回顾提示位（保持柔和淡粉底色与清晰呼吸空间）
-            if mode == .homeUnselected {
+            if mode == .homeUnselected && showsBanner {
                 YesterdayReviewBanner(missedCount: dashboard?.missedYesterday ?? 0)
                     .padding(.top, tuning.bannerPaddingTop)
                     .opacity(headerOpacity)
@@ -2197,36 +3222,63 @@ private struct TodayHeaderView: View {
         }
         .padding(.horizontal, 22)
         // 页面背景延伸到状态栏，但内容必须从 Dynamic Island / 时间下方开始。
-        .padding(.top, mode == .homeSelected ? 15 : 64)
+        .padding(.top, compactTop ? 28 : (mode == .homeSelected ? 24 : 64))
     }
 
     private var dayString: String {
         let formatter = DateFormatter()
+        formatter.locale = AppLanguage.locale
         formatter.dateFormat = "d"
         return formatter.string(from: .now)
     }
 
     private var monthString: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.locale = AppLanguage.locale
         formatter.dateFormat = "MMM"
-        return formatter.string(from: .now).uppercased()
+        return formatter.string(from: .now).uppercased(with: AppLanguage.locale)
+    }
+}
+
+private struct WideTodayDateView: View {
+    @Environment(\.habitColorTheme) private var colorTheme
+    let size: CGFloat
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: -8) {
+            Text(dayString)
+                .tracking(-3)
+            Text(AppLanguage.date(.now, template: "MMM").uppercased(with: AppLanguage.locale))
+                .tracking(-4.5)
+        }
+        .font(.system(size: size, weight: .regular))
+        .foregroundStyle(.white.opacity(colorTheme == .lavender ? 0.98 : 0.82))
+        .shadow(color: colorTheme == .lavender ? .black.opacity(0.52) : .clear, radius: 1.5, y: 1)
+        .fixedSize()
+    }
+
+    private var dayString: String {
+        let formatter = DateFormatter()
+        formatter.locale = AppLanguage.locale
+        formatter.dateFormat = "d"
+        return formatter.string(from: .now)
     }
 }
 
 private struct YesterdayReviewBanner: View {
     @Environment(\.habitColorTheme) private var colorTheme
     let missedCount: Int
+    var scale: CGFloat = 1
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(missedCount == 0 ? "昨天没有未完成的习惯记录。" : "昨天有 \(missedCount) 个习惯未完成，已记入日历。未完成不直接扣分；连续7天没有完成才会进入休眠与衰减。")
-                .font(.system(size: 13.5, weight: .medium))
+            Text(missedCount == 0 ? AppLanguage.text("昨天没有未完成的习惯记录。") : String(format: AppLanguage.text("昨天有 %lld 个习惯未完成，已记入日历。未完成不直接扣分；连续7天没有完成才会进入休眠与衰减。"), missedCount))
+                .font(.system(size: 13.5 * scale, weight: .medium))
                 .lineSpacing(4)
                 .foregroundStyle(Color(red: 0.36, green: 0.26, blue: 0.28))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, 14 * scale)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -2243,7 +3295,7 @@ private struct HomeSelectionHint: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shimmerEnd: CGFloat = 0
 
-    private let title = "轻触卡片，\n选择今日目标"
+    private var title: String { AppLanguage.text("轻触卡片，\n选择今日目标") }
     private let ink = Color(red: 1, green: 0.95, blue: 0.97)
 
     var body: some View {
@@ -2399,7 +3451,7 @@ private struct HomePreviewDeckView: View {
         }
         .frame(height: tuning.cardHeight + 44)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("三张虚拟引导卡")
+        .accessibilityLabel(AppLanguage.text("三张虚拟引导卡"))
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.spring(response: 1.15, dampingFraction: 0.55).repeatForever(autoreverses: true)) {
@@ -2527,7 +3579,7 @@ private struct PreviewGoalCard: View {
                 .font(.system(size: 11 * textScale, weight: .medium))
                 .tracking(1.32)
                 .foregroundStyle(textColor.opacity(colorTheme == .lavender ? (usesSelectedDeckLayout ? 1 : (isPrimary ? 0.92 : 0.78)) : (usesSelectedDeckLayout ? 1 : (isPrimary ? 0.6375 : 0.255))))
-            Text(title)
+            Text(AppLanguage.text(title))
                     .font(.system(size: (isPrimary ? 25 : 21) * textScale, weight: .semibold))
                     .tracking(-0.77)
                     .foregroundStyle(textColor.opacity(colorTheme == .lavender ? (usesSelectedDeckLayout ? 0.96 : (isPrimary ? 0.92 : 0.80)) : (usesSelectedDeckLayout ? 0.82 : (isPrimary ? 0.69 : 0.34))))
@@ -2535,7 +3587,7 @@ private struct PreviewGoalCard: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.68)
                     .frame(maxWidth: .infinity, minHeight: usesSelectedDeckLayout ? 88 : 0, alignment: .topLeading)
-            Text(summary)
+            Text(AppLanguage.text(summary))
                     .font(.system(size: (isPrimary ? 12 : 11) * textScale, weight: .medium))
                     .foregroundStyle(textColor.opacity(colorTheme == .lavender ? (usesSelectedDeckLayout ? 1 : (isPrimary ? 0.86 : 0.74)) : (usesSelectedDeckLayout ? 1 : (isPrimary ? 0.645 : 0.408))))
                     .multilineTextAlignment(.leading)
@@ -2554,8 +3606,8 @@ private struct PreviewGoalCard: View {
                 tint: cardTintColor
             )
                 .overlay {
-                    if let artworkGoal, artworkGoal.cardArtworkAsset != nil {
-                        GoalCardArtwork(goal: artworkGoal, widthScale: 2.1875)
+                    if let artworkGoal, artworkGoal.cardArtworkAsset != nil || artworkGoal.resolvedFloraType != nil {
+                        GoalCardArtwork(goal: artworkGoal, widthScale: 2.1875, floats: usesSelectedDeckLayout && isPrimary)
                             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                     }
                 }
@@ -2587,7 +3639,7 @@ private struct PreviewGoalCard: View {
                             )
                     }
                 }
-                .opacity(usesSelectedDeckLayout ? 0.95 : 1)
+                .opacity(usesSelectedDeckLayout && !isPrimary ? 0.95 : 1)
         }
         .overlay {
             if usesSelectedDeckLayout {
@@ -2670,13 +3722,77 @@ private struct PreviewGoalCard: View {
 private struct HomeCaptionView: View {
     var body: some View {
         VStack(spacing: 9) {
-            Text("昨天有 3 个习惯未完成，已记入日历。")
+            Text(AppLanguage.text("昨天有 3 个习惯未完成，已记入日历。"))
                 .font(.system(size: 17.5, weight: .medium))
-            Text("今天，从一个小小的目标开始。")
+            Text(AppLanguage.text("今天，从一个小小的目标开始。"))
                 .font(.system(size: 15, weight: .medium))
         }
         .foregroundStyle(Color(red: 0.28, green: 0.24, blue: 0.29).opacity(0.78))
         .multilineTextAlignment(.center)
+    }
+}
+
+private struct TodaySideNavigationView: View {
+    @Environment(\.habitColorTheme) private var colorTheme
+    @Binding var tab: AppTab
+    let width: CGFloat
+    let showsLabels: Bool
+    let onOpenSettings: () -> Void
+    let onBack: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            VStack(spacing: showsLabels ? 12 : 3) {
+                ForEach([AppTab.today, .garden, .review], id: \.self) { item in
+                    Button { tab = item } label: {
+                        VStack(spacing: 2) {
+                        PrototypeIcon(kind: item == .today ? .home : (item == .garden ? .leaf : .review), isEmphasized: tab == item)
+                        .frame(width: 25, height: 25)
+                        if showsLabels {
+                            Text(item == .today ? AppLanguage.text("今天") : (item == .garden ? AppLanguage.text("养成物") : AppLanguage.text("复盘")))
+                                .font(.system(size: 10, weight: .medium))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        }
+                        .foregroundStyle(tab == item ? colorTheme.selectedNavigationForeground : colorTheme.unselectedNavigationForeground)
+                        .frame(width: width - 10, height: 52)
+                        .background(tab == item ? Color.white.opacity(0.28) : .clear, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item == .today ? AppLanguage.text("今天") : (item == .garden ? AppLanguage.text("养成物") : AppLanguage.text("复盘")))
+                }
+            }
+            .padding(5)
+            .glassEffect(.clear, in: Capsule())
+
+            Button(action: onOpenSettings) {
+                PrototypeIcon(kind: .settings, isEmphasized: true)
+                    .frame(width: 25, height: 25)
+                    .frame(width: width - 10, height: width - 10)
+            }
+            .buttonStyle(.glass(.regular))
+            .buttonBorderShape(.circle)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: SettingsButtonFrameKey.self, value: geometry.frame(in: .global))
+                }
+            }
+            .accessibilityLabel(AppLanguage.text("设置"))
+            .padding(.top, 14)
+
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 21, weight: .semibold))
+                        .frame(width: width - 10, height: width - 10)
+                }
+                .buttonStyle(.glass(.regular))
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(AppLanguage.text("返回"))
+            }
+        }
+        .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
     }
 }
 
@@ -2687,8 +3803,8 @@ private struct TodayBottomNavigationView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var animatedIndex: Double = 0
     @State private var navigationSound = AppSoundFeedback()
-    @State private var settingsLocalFrame: CGRect = .zero
     let fluidMorphAnimation: Animation
+    var sizeScale: CGFloat = 1
     let onOpenSettings: () -> Void
 
     var body: some View {
@@ -2697,16 +3813,8 @@ private struct TodayBottomNavigationView: View {
                 .environment(\.habitColorTheme, colorTheme)
                 .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
         }
-        .frame(height: 60)
-        .background {
-            GeometryReader { geometry in
-                let origin = geometry.frame(in: .global).origin
-                Color.clear.preference(
-                    key: SettingsButtonFrameKey.self,
-                    value: settingsLocalFrame.offsetBy(dx: origin.x, dy: origin.y)
-                )
-            }
-        }
+        .frame(height: 60 * sizeScale)
+        .frame(maxWidth: 520 * sizeScale)
         .padding(.horizontal, 16)
         .padding(.bottom, 22)
     }
@@ -2731,8 +3839,9 @@ private struct TodayBottomNavigationView: View {
                             } label: {
                                 NavigationItem(
                                     symbol: itemTab == .today ? "house" : (itemTab == .garden ? "leaf" : "list.bullet"),
-                                    title: itemTab == .garden ? "养成物" : (itemTab == .review ? "复盘" : "今天"),
-                                    selected: tab == itemTab
+                                    title: itemTab == .garden ? AppLanguage.text("养成物") : (itemTab == .review ? AppLanguage.text("复盘") : AppLanguage.text("今天")),
+                                    selected: tab == itemTab,
+                                    sizeScale: sizeScale
                                 )
                             }
                             .buttonStyle(NavigationOpticalButtonStyle())
@@ -2742,7 +3851,7 @@ private struct TodayBottomNavigationView: View {
                 }
                 .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
                 .frame(maxWidth: .infinity)
-                .frame(height: 60)
+                .frame(height: 60 * sizeScale)
                 .glassEffect(.clear, in: Capsule())
                 .onAppear { animatedIndex = tabIndex }
                 .onChange(of: tab) { _, _ in
@@ -2757,21 +3866,20 @@ private struct TodayBottomNavigationView: View {
                     onOpenSettings()
                 } label: {
                     PrototypeIcon(kind: .settings, isEmphasized: true)
-                        .frame(width: 21, height: 21)
-                        .frame(width: 46, height: 46)
+                        .frame(width: 21 * sizeScale, height: 21 * sizeScale)
+                        .frame(width: 46 * sizeScale, height: 46 * sizeScale)
                 }
+                .buttonStyle(.glass(.regular))
+                .buttonBorderShape(.circle)
                 .background {
                     GeometryReader { geometry in
                         Color.clear.preference(key: SettingsButtonFrameKey.self, value: geometry.frame(in: .global))
                     }
                 }
-                .buttonStyle(.glass(.regular))
-                .buttonBorderShape(.circle)
-                .accessibilityLabel("设置")
+                .accessibilityLabel(AppLanguage.text("设置"))
             }
         }
         .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
-        .onPreferenceChange(SettingsButtonFrameKey.self) { settingsLocalFrame = $0 }
     }
 
     private var tabIndex: Double {
@@ -2828,14 +3936,15 @@ private struct NavigationItem: View {
     let symbol: String
     let title: String
     let selected: Bool
+    var sizeScale: CGFloat = 1
 
     var body: some View {
         VStack(spacing: 3) {
             PrototypeIcon(kind: iconKind, isEmphasized: selected)
-                .frame(width: 20, height: 20)
+                .frame(width: 20 * sizeScale, height: 20 * sizeScale)
                 .scaleEffect(selectionBounce ? 0.82 : (selected ? 1.08 : 0.95))
-            Text(title)
-                .font(.system(size: 11, weight: selected ? .semibold : .medium))
+            Text(AppLanguage.text(title))
+                .font(.system(size: 11 * sizeScale, weight: selected ? .semibold : .medium))
         }
         .foregroundStyle(selected
             ? colorTheme.selectedNavigationForeground
@@ -2943,6 +4052,27 @@ extension EnvironmentValues {
     }
 }
 
+// Decorative surfaces use the root viewport; content keeps its own safe-area layout.
+private struct FullViewportSurface: ViewModifier {
+    @Environment(\.habitBackgroundFrame) private var viewport
+
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            let local = proxy.frame(in: .global)
+            let bounds = viewport.isEmpty ? local : viewport
+            content
+                .frame(width: bounds.width, height: bounds.height)
+                .offset(x: bounds.minX - local.minX, y: bounds.minY - local.minY)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    func fullViewportSurface() -> some View { modifier(FullViewportSurface()) }
+}
+
 // 今日、养成物和复盘共用的连续流体背景。
 struct TodayAmbientBackground: View {
     let reduceMotion: Bool
@@ -2961,3 +4091,106 @@ struct TodayAmbientBackground: View {
 }
 
 #Preview { ContentView() }
+
+private func supportText(_ zh: String, _ en: String, _ ja: String) -> String {
+    switch AppLanguage.current {
+    case "zh-Hans": return zh
+    case "ja": return ja
+    default: return en
+    }
+}
+
+private enum SettingsSupportEntry: String, CaseIterable, Identifiable {
+    case feedback, about, help
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .feedback: return supportText("意见反馈", "Feedback", "フィードバック")
+        case .about: return supportText("关于", "About", "このアプリについて")
+        case .help: return supportText("帮助文档", "Help", "ヘルプ")
+        }
+    }
+    var icon: String {
+        switch self {
+        case .feedback: return "envelope"
+        case .about: return "info.circle"
+        case .help: return "questionmark.circle"
+        }
+    }
+}
+
+private struct SettingsInformationView: View {
+    @Environment(\.dismiss) private var dismiss
+    let isHelp: Bool
+
+    private var aboutItems: [String] {
+        [supportText("联系我们", "Contact us", "お問い合わせ"),
+         supportText("通义千问", "Qwen", "通義千問"),
+         supportText("用户协议", "Terms of use", "利用規約"),
+         supportText("隐私政策", "Privacy policy", "プライバシーポリシー"),
+         supportText("官网", "Official website", "公式サイト")]
+    }
+
+    private var helpItems: [(String, String)] { SettingsHelpContent.items }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if isHelp {
+                    ForEach(helpItems.indices, id: \.self) { index in
+                        Section {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(Array(SettingsHelpContent.paragraphs(helpItems[index].1).enumerated()), id: \.offset) { _, paragraph in
+                                    Text(paragraph)
+                                        .font(.body)
+                                        .tracking(0.3)
+                                        .lineSpacing(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .accessibilityElement(children: .combine)
+                        } header: {
+                            Text(helpItems[index].0).font(.headline).textCase(nil)
+                        }
+                    }
+                } else {
+                    NavigationLink(aboutItems[0]) {
+                        List {
+                            Section {
+                                Link("deshiru@foxmail.com", destination: URL(string: "mailto:deshiru@foxmail.com")!)
+                            } header: { Text(supportText("邮箱", "Email", "メール")) }
+                            Section {
+                                Link("小红书 · ddream", destination: URL(string: "http://xhslink.com/m/7poXFQmQhhG")!)
+                                Link("X · @ddream023", destination: URL(string: "https://x.com/ddream023")!)
+                                Link("Reddit · u/That-Wave241oukin", destination: URL(string: "https://www.reddit.com/user/That-Wave241oukin/")!)
+                            } header: { Text(supportText("社交媒体", "Social media", "SNS")) }
+                        }.navigationTitle(aboutItems[0]).navigationBarTitleDisplayMode(.inline)
+                    }
+                    NavigationLink(aboutItems[1]) {
+                        List {
+                            Text(supportText("MAYBII 的 AI 复盘使用阿里云百炼的通义千问模型。", "MAYBII uses Alibaba Cloud Model Studio's Qwen model for AI Review.", "MAYBIIのAI振り返りにはAlibaba Cloud Model Studioの通義千問モデルを使用しています。"))
+                            Link(supportText("在维基百科了解通义千问", "Read about Qwen on Wikipedia", "Wikipediaで通義千問を見る"), destination: URL(string: AppLanguage.current == "en-US" ? "https://en.wikipedia.org/wiki/Qwen" : "https://zh.wikipedia.org/wiki/%E9%80%9A%E4%B9%89%E5%8D%83%E9%97%AE")!)
+                        }.navigationTitle(aboutItems[1]).navigationBarTitleDisplayMode(.inline)
+                    }
+                    NavigationLink(aboutItems[2]) {
+                        List {
+                            Text(supportText("订阅使用条款", "Subscription terms", "サブスクリプション利用条件")).font(.headline)
+                            Text(supportText("MAYBII 提供月度和年度自动续订会员。购买费用由 Apple 收取。订阅会自动续订；你可以在 iPhone 设置中的 Apple 账户 → 订阅里管理或取消。取消后，权益持续到当前周期结束。本地记录不会因订阅结束而删除。", "MAYBII offers monthly and annual auto-renewing subscriptions. Apple charges your account. Subscriptions renew automatically; manage or cancel them under your Apple Account → Subscriptions in iPhone Settings. Benefits continue until the current period ends. Local records are not deleted when a subscription ends.", "MAYBIIは月額および年額の自動更新サブスクリプションを提供します。料金はAppleが請求します。iPhoneの設定のAppleアカウント → サブスクリプションから管理・解約できます。特典は現在の期間の終了まで利用でき、解約しても端末内の記録は削除されません。"))
+                            Text(supportText("完整用户协议待补充。", "Full terms of use will be added later.", "利用規約の全文は後日追加します。")).foregroundStyle(.secondary)
+                        }.navigationTitle(aboutItems[2]).navigationBarTitleDisplayMode(.inline)
+                    }
+                    NavigationLink(aboutItems[3]) { PrivacyPolicyReadingView(embedded: true) }
+                    NavigationLink(aboutItems[4]) {
+                        List {
+                            Link("maybii.pages.dev", destination: URL(string: "https://maybii.pages.dev/")!)
+                        }.navigationTitle(aboutItems[4]).navigationBarTitleDisplayMode(.inline)
+                    }
+                }
+            }
+            .navigationTitle(isHelp ? SettingsSupportEntry.help.title : SettingsSupportEntry.about.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(supportText("完成", "Done", "完了")) { dismiss() } } }
+        }
+    }
+}

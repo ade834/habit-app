@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 private struct BalancedGoalSummary: View {
+    @Environment(\.locale) private var locale
     let summary: String
     let fontSize: CGFloat
     let weight: UIFont.Weight
@@ -9,7 +10,7 @@ private struct BalancedGoalSummary: View {
 
     var body: some View {
         GeometryReader { proxy in
-            Text(wrappedSummary(summary, width: proxy.size.width, fontSize: fontSize, weight: weight))
+            Text(wrappedSummary(AppLanguage.text(summary), width: proxy.size.width, fontSize: fontSize, weight: weight))
                 .font(.system(size: fontSize, weight: weight == .bold ? .bold : .semibold))
                 .lineLimit(2)
                 .minimumScaleFactor(0.90)
@@ -19,7 +20,7 @@ private struct BalancedGoalSummary: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(height: fontSize * 2.65)
-        .accessibilityLabel(cleanedSummary(summary))
+        .accessibilityLabel(cleanedSummary(AppLanguage.text(summary)))
     }
 
     private func wrappedSummary(_ value: String, width: CGFloat, fontSize: CGFloat, weight: UIFont.Weight) -> String {
@@ -34,6 +35,7 @@ private struct BalancedGoalSummary: View {
         for index in 1..<characters.count {
             let first = String(characters[..<index])
             let second = String(characters[index...])
+            if text.contains(" ") && !characters[index - 1].isWhitespace && !characters[index].isWhitespace { continue }
             guard first.count > 1,
                   second.count > 1,
                   !second.first!.isPunctuation else { continue }
@@ -133,6 +135,9 @@ struct SelectedDeckCardSurface: View {
 struct GoalCardArtwork: View {
     let goal: Goal
     var widthScale: CGFloat = 0.96
+    var floats = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drift = false
 
     var body: some View {
         Group {
@@ -149,12 +154,46 @@ struct GoalCardArtwork: View {
                             x: geometry.size.width * 0.66,
                             y: geometry.size.height * 0.34
                         )
+                        .offset(x: floats && !reduceMotion ? (drift ? 9 : -9) : 0,
+                                y: floats && !reduceMotion ? (drift ? -14 : 14) : 0)
                 }
+                .opacity(0.30)
+            } else if let flora = goal.resolvedFloraType {
+                GeometryReader { geometry in
+                    // 统一与标准卡片插画尺寸一致 (与 card_goal 预置插画保持平衡协调，避免花头过大)
+                    let targetDiameter = geometry.size.width * (flora.isGiantFlora ? 0.38 : 0.42)
+                    let baseDim: CGFloat = flora.isGiantFlora ? 160 : 90
+                    let requiredScale = targetDiameter / baseDim
+
+                    PosyFlowerBloomCanvas(
+                        type: flora,
+                        progress: 1.0,
+                        breathingPhase: 0,
+                        windAngle: 0,
+                        seed: 42
+                    )
+                    .frame(width: baseDim, height: baseDim)
+                    .scaleEffect(requiredScale)
+                    .position(
+                        x: geometry.size.width * 0.66,
+                        y: geometry.size.height * 0.34
+                    )
+                    .offset(x: floats && !reduceMotion ? (drift ? 9 : -9) : 0,
+                            y: floats && !reduceMotion ? (drift ? -14 : 14) : 0)
+                }
+                .opacity(0.32)
             }
         }
-        .opacity(0.30)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onChange(of: floats && !reduceMotion, initial: true) { _, active in
+            if active {
+                drift = false
+                withAnimation(.easeInOut(duration: 4.5).repeatForever(autoreverses: true)) { drift = true }
+            } else {
+                withAnimation(.none) { drift = false }
+            }
+        }
     }
 }
 
@@ -167,6 +206,10 @@ struct TodayStackDeckView: View {
     @Binding var state: TodayGoalState
     let selectionTransitionNamespace: Namespace.ID
     var homeLaunchFrame: CGRect? = nil
+    var useCoverFlow = false
+    var compactCardScale: CGFloat = 1
+    @Binding var showingCustomCardsModal: Bool
+    var onReloadGoals: (() -> Void)? = nil
     @State private var homeEntrySettled = false
     @State private var homeLiftedCards: Set<Int> = []
     @State private var homeFlownCards: Set<Int> = []
@@ -180,6 +223,7 @@ struct TodayStackDeckView: View {
     @State private var ruleNoticeID = UUID()
     @State private var ruleNoticePhase: RuleNoticeExpansionPhase = .capsule
     @State private var ruleNoticeSourceFrame: CGRect = .zero
+    @State private var addCardButtonSourceFrame: CGRect = .zero
 
     private var focus: Int {
         goals.firstIndex { $0.id == state.focusedGoalID } ?? 0
@@ -196,21 +240,50 @@ struct TodayStackDeckView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .center) {
-                Text("右滑/取消选择今天的目标")
-                    .font(.system(size: 23, weight: .semibold))
+            HStack(alignment: .center, spacing: 8) {
+                let isDuo = UIDevice.current.name.contains("Duo")
+                    || ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true
+                    || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.contains("Duo") == true
+                    || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
+
+                Text(AppLanguage.text(useCoverFlow ? "选择今天的目标" : "右滑/取消选择今天的目标"))
+                    .font(.system(size: useCoverFlow ? (isDuo ? 30 : 44) : 23, weight: .semibold))
                     .tracking(-0.4)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.75)
                 Spacer(minLength: 8)
+
+                let counterFontSize: CGFloat = useCoverFlow ? (isDuo ? 20 : 28) : 17
+                let counterColor = colorTheme.card(colorTheme.cardBaseColor(at: 0, count: 2))
+                let capsuleHeight: CGFloat = useCoverFlow ? (isDuo ? 42 : 50) : 38
+
+                AddCustomCardButton(
+                    tint: counterColor,
+                    fontSize: counterFontSize * 0.72,
+                    horizontalPadding: 14,
+                    fixedHeight: capsuleHeight,
+                    isSelected: showingCustomCardsModal
+                ) {
+                    showingCustomCardsModal = true
+                }
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: AddCardButtonSourceFrameKey.self,
+                            value: proxy.frame(in: .global)
+                        )
+                    }
+                }
+
                 if ruleNotice == nil {
                     HStack(spacing: 5) {
                         Text("\(regularCount)").fontWeight(.semibold)
                         Text("/ 3")
                     }
-                    .font(.system(size: 17))
-                    .foregroundStyle(colorTheme.card(colorTheme.cardBaseColor(at: 0, count: 2)))
-                    .padding(.horizontal, 15).padding(.vertical, 9)
+                    .font(.system(size: counterFontSize))
+                    .foregroundStyle(counterColor)
+                    .padding(.horizontal, 14)
+                    .frame(height: capsuleHeight)
                     .background {
                         GeometryReader { geometry in
                             RuleNoticeBackground(shape: Capsule())
@@ -222,7 +295,7 @@ struct TodayStackDeckView: View {
                     }
                     .transition(.scale(scale: 0.92).combined(with: .opacity))
                 } else {
-                    Color.clear.frame(width: 68, height: 40)
+                    Color.clear.frame(width: 68, height: capsuleHeight)
                 }
             }
             .foregroundStyle(colorTheme == .lavender ? Color.white.opacity(0.94) : Color(red: 0.27, green: 0.23, blue: 0.29))
@@ -234,10 +307,14 @@ struct TodayStackDeckView: View {
                 legend("周期", color: periodicColor)
                 legend("星标", color: starredColor)
                 Spacer(minLength: 0)
-                Text("上下滑动浏览").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                Text(AppLanguage.text(useCoverFlow ? "左右滑动浏览" : "上下滑动浏览")).font(.system(size: useCoverFlow ? 19.25 : 11, weight: .medium)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 5)
 
+            if useCoverFlow {
+                coverFlow
+                    .padding(.top, 82)
+            } else {
             GeometryReader { geometry in
                 let cardHeight = min(geometry.size.height * 0.56, 390)
                 // 第三张作为主展示位，保留原第二张的露出高度；顶部增加一张。
@@ -358,11 +435,14 @@ struct TodayStackDeckView: View {
                         guard abs(value.translation.height) > abs(value.translation.width), abs(value.translation.height) > 48 else { return }
                         guard !goals.isEmpty else { return }
                         let next = (focus + (value.predictedEndTranslation.height < 0 ? 1 : -1) + goals.count) % goals.count
+                        if next != focus { interactionSound.play(.pageTurn, enabled: soundEffectsEnabled) }
                         withAnimation(spring) { state.focusedGoalID = goals[next].id }
                     })
                 .animation(spring, value: drag == 0)
                 .animation(spring, value: horizontalDrag == 0)
             }
+            .scaleEffect(compactCardScale, anchor: .top)
+            .padding(.horizontal, 8)
             .frame(maxHeight: .infinity)
             .task {
                 guard homeLaunchFrame != nil && !reduceMotion else {
@@ -386,11 +466,20 @@ struct TodayStackDeckView: View {
                     withAnimation(.spring(response: 0.78, dampingFraction: 0.84)) { homeEntrySettled = true }
                 } catch { }
             }
+            }
         }
         .padding(.horizontal, 24)
         .onPreferenceChange(RuleNoticeSourceFrameKey.self) { frame in
             guard frame.width > 0 else { return }
-            ruleNoticeSourceFrame = frame
+            if abs(frame.minX - ruleNoticeSourceFrame.minX) > 1 || abs(frame.minY - ruleNoticeSourceFrame.minY) > 1 || abs(frame.width - ruleNoticeSourceFrame.width) > 1 {
+                ruleNoticeSourceFrame = frame
+            }
+        }
+        .onPreferenceChange(AddCardButtonSourceFrameKey.self) { frame in
+            guard frame.width > 0 else { return }
+            if abs(frame.minX - addCardButtonSourceFrame.minX) > 1 || abs(frame.minY - addCardButtonSourceFrame.minY) > 1 || abs(frame.width - addCardButtonSourceFrame.width) > 1 {
+                addCardButtonSourceFrame = frame
+            }
         }
         .animation(spring, value: state.focusedGoalID)
         .animation(spring, value: state.selectedGoalIDs)
@@ -409,11 +498,73 @@ struct TodayStackDeckView: View {
             }
         }
         .onAppear {
-            // 数据库排序第一张固定落在 slot 2（第三张、主展示位）。
-            if let firstGoal = goals.first {
+            if DevelopmentLaunch.contains("--focus-custom"), let customGoal = goals.first(where: { $0.id.hasPrefix("custom-task:") }) {
+                state.focusedGoalID = customGoal.id
+            } else if let firstGoal = goals.first, !goals.contains(where: { $0.id == state.focusedGoalID }) {
                 state.focusedGoalID = firstGoal.id
             }
         }
+    }
+
+    private var coverFlow: some View {
+        GeometryReader { geometry in
+            let height = max(100, min(geometry.size.height - 58, 380))
+            let width = min(height * 0.86, geometry.size.width * 0.46)
+            ZStack {
+                if !goals.isEmpty {
+                    ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
+                        let raw = (index - focus + goals.count) % goals.count
+                        let distance = raw > goals.count / 2 ? raw - goals.count : raw
+                        if abs(distance) <= 3 {
+                            let selected = state.selectedGoalIDs.contains(goal.id)
+                            goalCard(goal, isHero: true, selected: selected, contentReveal: 1)
+                                .frame(width: width, height: height)
+                                .background { cardSurface(goal, isHero: distance == 0) }
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(.white.opacity(0.7), lineWidth: 1)
+                                }
+                                .overlay(alignment: .topTrailing) {
+                                    if distance == 0 { starButton(goal).padding(.top, 16).padding(.trailing, 12) }
+                                }
+                                .overlay(alignment: .bottom) {
+                                    if distance == 0 {
+                                        let isDuo = UIDevice.current.name.contains("Duo")
+                                            || ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true
+                                            || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.contains("Duo") == true
+                                            || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
+                                            || (UIScreen.main.bounds.width < 500 && UIScreen.main.bounds.height < 500)
+                                        Button(AppLanguage.text(selected ? "取消选择" : "选择此目标")) { toggle(goal) }
+                                            .font(.system(size: isDuo ? 13.5 : (width < 280 ? 15 : 19), weight: .semibold))
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.8)
+                                            .foregroundStyle(Color(white: 0.40))
+                                            .padding(.horizontal, isDuo ? 12 : 16).padding(.vertical, isDuo ? 6 : 8)
+                                            .background(.white.opacity(0.88), in: Capsule())
+                                            .padding(.bottom, isDuo ? 14 : 22)
+                                    }
+                                }
+                                .rotation3DEffect(.degrees(Double(distance == 0 ? 0 : (distance > 0 ? -50 : 50))), axis: (x: 0, y: 1, z: 0), perspective: 0.7)
+                                .scaleEffect(distance == 0 ? 1 : (abs(distance) == 1 ? 0.86 : (abs(distance) == 2 ? 0.76 : 0.68)))
+                                .offset(x: distance == 0 ? 0 : (distance > 0 ? 1 : -1) * width * (0.78 + CGFloat(abs(distance) - 1) * 0.40))
+                                .zIndex(Double(4 - abs(distance)))
+                                .accessibilityElement(children: .contain)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .offset(y: UIScreen.main.bounds.midY - geometry.frame(in: .global).minY - height / 2)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 25).onEnded { value in
+                guard !goals.isEmpty, abs(value.translation.width) > 45 else { return }
+                let next = (focus + (value.translation.width < 0 ? 1 : -1) + goals.count) % goals.count
+                interactionSound.play(.pageTurn, enabled: soundEffectsEnabled)
+                withAnimation(spring) { state.focusedGoalID = goals[next].id }
+            })
+        }
+        .frame(maxHeight: .infinity)
     }
 
     private struct HomeEntryPose {
@@ -451,7 +602,7 @@ struct TodayStackDeckView: View {
     private func legend(_ title: String, color: Color) -> some View {
         HStack(spacing: 4) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(title).font(.system(size: 11, weight: .medium))
+            Text(AppLanguage.text(title)).font(.system(size: useCoverFlow ? 19.25 : 11, weight: .medium))
         }.foregroundStyle(Color(red: 0.31, green: 0.25, blue: 0.33))
     }
 
@@ -483,15 +634,15 @@ struct TodayStackDeckView: View {
         }
         .frame(width: 27, height: 27)
         .allowsHitTesting(false)
-        .accessibilityLabel("已完成，保持选择")
+        .accessibilityLabel(AppLanguage.text("已完成，保持选择"))
     }
 
     private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
         let tint = colorTheme.selectedDeckCardColor(at: goal.order - 1, count: colorRangeEndOrder)
         return SelectedDeckCardSurface(tint: tint)
             .overlay {
-                if goal.cardArtworkAsset != nil {
-                    GoalCardArtwork(goal: goal, widthScale: 2.1875)
+                if goal.cardArtworkAsset != nil || goal.resolvedFloraType != nil {
+                    GoalCardArtwork(goal: goal, widthScale: 2.1875, floats: isHero)
                         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                 }
             }
@@ -501,17 +652,17 @@ struct TodayStackDeckView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 Text(String(format: "%02d", goal.order))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .frame(width: 34, height: 34)
+                    .font(.system(size: useCoverFlow ? 22.75 : 13, weight: .semibold, design: .rounded))
+                    .frame(width: useCoverFlow ? 42 : 34, height: useCoverFlow ? 42 : 34)
                     .background(.white.opacity(0.16), in: Circle())
 
-                Text(goal.title)
-                    .font(.system(size: isHero ? 17 : 16, weight: .semibold))
+                Text(AppLanguage.text(goal.title))
+                    .font(.system(size: useCoverFlow ? 29.75 : (isHero ? 17 : 16), weight: .semibold))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    .minimumScaleFactor(useCoverFlow ? 0.65 : 0.72)
 
-                if isHero {
-                    Text(taskTypeTitle(for: goal))
+                if isHero && !useCoverFlow {
+                    Text(AppLanguage.text(taskTypeTitle(for: goal)))
                         .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 7).padding(.vertical, 4)
                         .foregroundStyle(Color(red: 0.16, green: 0.18, blue: 0.22))
@@ -525,9 +676,18 @@ struct TodayStackDeckView: View {
                     .frame(width: 52, height: 52)
                     .hidden()
             }
-            .padding(.leading, 20).padding(.trailing, 12).padding(.top, 5)
+            .padding(.leading, 20).padding(.trailing, 12).padding(.top, useCoverFlow ? 16 : 5)
             .foregroundStyle(.white)
             .zIndex(2)
+
+            if isHero && useCoverFlow {
+                Text(AppLanguage.text(taskTypeTitle(for: goal)))
+                    .font(.system(size: 19.25, weight: .bold))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .foregroundStyle(Color(red: 0.16, green: 0.18, blue: 0.22))
+                    .background(taskTypeColor(for: goal), in: Capsule())
+                    .padding(.leading, 20)
+            }
 
             if isHero {
                 VStack(spacing: 10) {
@@ -547,6 +707,7 @@ struct TodayStackDeckView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .padding(.horizontal, 22)
                 .padding(.bottom, 30)
+                .offset(y: useCoverFlow ? -32 : 0)
                 .opacity(contentReveal)
             } else {
                 BalancedGoalSummary(
@@ -579,16 +740,18 @@ struct TodayStackDeckView: View {
         guard starred || canStar else {
             showRuleNotice(
                 state.isFirstSelection
-                    ? "首次选择需要先完成今日目标，之后才能设置星标。"
-                    : "星标习惯最多选择 \(state.starLimit) 个，请先取消一个已有星标。"
+                    ? AppLanguage.text("首次确认习惯选择后，才能设置星标。")
+                    : String(format: AppLanguage.text("星标习惯最多选择 %lld 个，请先取消一个已有星标。"), state.starLimit)
             )
             return
         }
 
+        if !starred { interactionSound.play(.starMarked, enabled: soundEffectsEnabled) }
         withAnimation(spring) {
             if starred {
                 state.starredGoalIDs.remove(goal.id)
-                if goal.countsTowardQuota && regularCount >= 3 {
+                let regularLimit = 3 + SubscriptionManager.currentExtraDailyHabitsQuota
+                if goal.countsTowardQuota && regularCount >= regularLimit {
                     state.selectedGoalIDs.remove(goal.id)
                 }
             } else if canStar {
@@ -676,12 +839,13 @@ struct TodayStackDeckView: View {
 
     private func toggle(_ goal: Goal) {
         guard !isCompletedToday(goal) else {
-            showRuleNotice("你很棒，任务已经完成了")
+            showRuleNotice(AppLanguage.text("你很棒，任务已经完成了"))
             return
         }
         let wasSelected = state.selectedGoalIDs.contains(goal.id)
-        guard wasSelected || !goal.countsTowardQuota || state.completedRegularGoalIDs.contains(goal.id) || regularCount < 3 else {
-            showRuleNotice("当天最多选择 3 个普通或周期目标，请先取消一个再选择。")
+        let regularLimit = 3 + SubscriptionManager.currentExtraDailyHabitsQuota
+        guard wasSelected || !goal.countsTowardQuota || state.completedRegularGoalIDs.contains(goal.id) || regularCount < regularLimit else {
+            showRuleNotice(String(format: AppLanguage.text("当天最多选择 %lld 个普通或周期目标，请先取消一个再选择。"), regularLimit))
             return
         }
         interactionSound.play(.selection, enabled: soundEffectsEnabled)
@@ -758,8 +922,8 @@ private struct StarTapControl: View {
             }
             .buttonStyle(.plain)
             .opacity(available ? 1 : 0.42)
-            .accessibilityLabel(starred ? "取消星标" : "设为星标")
-            .accessibilityHint(starred ? "取消星标；普通名额已满时会同时取消选择" : "设为星标并加入今日选择，不占普通名额")
+            .accessibilityLabel(starred ? AppLanguage.text("取消星标") : AppLanguage.text("设为星标"))
+            .accessibilityHint(starred ? AppLanguage.text("取消星标；普通名额已满时会同时取消选择") : AppLanguage.text("设为星标并加入今日选择，不占普通名额"))
     }
 }
 
@@ -791,7 +955,7 @@ private struct RuleNoticeBanner: View {
                     Image(systemName: "exclamationmark.circle.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .fixedSize()
-                    Text(message)
+                    Text(AppLanguage.text(message))
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)

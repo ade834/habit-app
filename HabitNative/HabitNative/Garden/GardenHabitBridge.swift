@@ -56,33 +56,33 @@ struct HabitGardenItem: Identifiable, Sendable {
     var isDissolving: Bool
 
     var stageTitle: String {
-        return (isDormant ? "休眠 · " : "") + HabitGrowthRules.stage(for: growthValue)
+        return (isDormant ? AppLanguage.text("休眠 · ") : "") + AppLanguage.text(HabitGrowthRules.stage(for: growthValue))
     }
 
     var stageDescription: String {
         switch targetLevel {
-        case 4: return "繁茂形态。这是长期坚持留下的生长痕迹。"
-        case 3: return "全盛绽放。这是你坚持打磨出的绚烂形态。"
-        case 2: return "花苞饱满，正在积蓄绽放的力量。"
-        case 1: return "已抽出一对嫩绿新芽，为你刚刚迈出的一步鼓劲。"
-        case 0: return "一小撮松软沃土与初生芽尖，等待你的第一次行动。"
-        case -1: return "稍显缺水与低垂，记得今天为它浇水打卡。"
-        case -2: return "花瓣暂时隐去，只留根茎静候复苏。"
-        default: return "种子在土里安眠，随时可以重新唤醒。"
+        case 4: return AppLanguage.text("繁茂形态。这是长期坚持留下的生长痕迹。")
+        case 3: return AppLanguage.text("全盛绽放。这是你坚持打磨出的绚烂形态。")
+        case 2: return AppLanguage.text("花苞饱满，正在积蓄绽放的力量。")
+        case 1: return AppLanguage.text("已抽出一对嫩绿新芽，为你刚刚迈出的一步鼓劲。")
+        case 0: return AppLanguage.text("一小撮松软沃土与初生芽尖，等待你的第一次行动。")
+        case -1: return AppLanguage.text("稍显缺水与低垂，记得今天为它浇水打卡。")
+        case -2: return AppLanguage.text("花瓣暂时隐去，只留根茎静候复苏。")
+        default: return AppLanguage.text("种子在土里安眠，随时可以重新唤醒。")
         }
     }
 
     var speciesChineseName: String {
-        if let flora = PosyFloraType(rawValue: record.species) { return flora.simpleName }
+        if let flora = PosyFloraType(rawValue: record.species) { return flora.localizedSimpleName }
         switch record.species {
-        case "peony": return "牡丹"
-        case "orchid": return "兰花"
-        case "rose": return "月季"
-        case "lily-of-valley": return "铃兰"
-        case "dandelion": return "蒲公英"
-        case "sunflower": return "向日葵"
-        case "lotus": return "莲花"
-        default: return "雏菊"
+        case "peony": return AppLanguage.text("牡丹")
+        case "orchid": return AppLanguage.text("兰花")
+        case "rose": return AppLanguage.text("月季")
+        case "lily-of-valley": return AppLanguage.text("铃兰")
+        case "dandelion": return AppLanguage.text("蒲公英")
+        case "sunflower": return AppLanguage.text("向日葵")
+        case "lotus": return AppLanguage.text("莲花")
+        default: return AppLanguage.text("雏菊")
         }
     }
 
@@ -105,7 +105,7 @@ struct HabitGardenItem: Identifiable, Sendable {
         guard level < 4 else { return (growthValue, 60, 1, "繁茂形态已达成") }
         let next = thresholds[level + 1]
         let progress = Double(growthValue - thresholds[level]) / Double(next - thresholds[level])
-        return (growthValue, next, min(1, max(0, progress)), "再积累 \(next - growthValue) 养成值进阶")
+        return (growthValue, next, min(1, max(0, progress)), String(format: AppLanguage.text("再积累 %lld 养成值进阶"), next - growthValue))
     }
 }
 
@@ -122,6 +122,8 @@ final class GardenHabitViewModel: ObservableObject {
     @Published var bannerMessage: String? = nil
     @Published var dataError: String? = nil
     private var lastSnapshot: HabitGardenLiveSnapshot?
+    private var lastPlantLimit: Int?
+    private var lastCustomCards: [CustomCard] = []
 
     private var debounceCancellable: AnyCancellable?
     private let positionsStorageKey = "garden_flower_positions_v1"
@@ -142,30 +144,68 @@ final class GardenHabitViewModel: ObservableObject {
     func loadHabitsAndFlowers(goals: [Goal]) {
         do {
             let snapshot = try HabitGardenLiveSnapshot.read()
-            guard snapshot != lastSnapshot || items.isEmpty else { return }
+            let plantLimit = SubscriptionManager.currentGardenPlantLimit
+            let cards = try CustomCardStore().read()
+            guard snapshot != lastSnapshot || plantLimit != lastPlantLimit || cards != lastCustomCards else { return }
             let savedPositions = loadSavedPositions()
             let oldItems = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-            items = SharedHabitRepository.catalog
+
+            func item(for goal: Goal, species: String, growth: Int, points: Int, completions: Int) -> HabitGardenItem {
+                let level = HabitPlantGrowth.level(growth)
+                let record = BloomRecord(id: goal.id, species: species, level: min(3, level),
+                                         position: savedPositions[goal.id] ?? CGPoint(x: 0.5, y: 0.2))
+                return HabitGardenItem(habit: goal, record: record, points: points, growthValue: growth,
+                    completions: completions, inactivityDays: snapshot.inactiveDays, isDormant: snapshot.inactiveDays >= 7,
+                    renderLevel: oldItems[goal.id]?.renderLevel ?? Double(level), targetLevel: level,
+                    lastLevelChangeTime: oldItems[goal.id]?.lastLevelChangeTime ?? .now, isDissolving: false)
+            }
+
+            var recent = snapshot.lastCompletedAt
+            var mappedItems = SharedHabitRepository.catalog
                 .filter { snapshot.habitIDsWithGrowth.contains($0.id) }
                 .map { goal in
-                let flora = PosyFloraType.forHabit(goal.id)
-                let growth = snapshot.growth[goal.id, default: 0]
-                let level = HabitPlantGrowth.level(growth)
-                let record = BloomRecord(id: goal.id, species: flora.rawValue, level: min(3, level),
-                                         position: savedPositions[goal.id] ?? CGPoint(x: 0.5, y: 0.2))
-                return HabitGardenItem(habit: goal, record: record,
-                    points: snapshot.points[goal.id, default: 0], growthValue: growth,
-                    completions: snapshot.completions[goal.id, default: 0],
-                    inactivityDays: snapshot.inactiveDays, isDormant: snapshot.inactiveDays >= 7,
-                    renderLevel: oldItems[goal.id]?.renderLevel ?? Double(level), targetLevel: level,
-                    lastLevelChangeTime: oldItems[goal.id]?.lastLevelChangeTime ?? .now,
-                    isDissolving: false)
+                    item(for: goal, species: PosyFloraType.forHabit(goal.id).rawValue,
+                         growth: snapshot.growth[goal.id, default: 0], points: snapshot.points[goal.id, default: 0],
+                         completions: snapshot.completions[goal.id, default: 0])
+                }
+            let active = CustomCard.activeIDs(in: cards, limit: SubscriptionManager.currentCustomCardLimit)
+            var usedSpecies = Set<String>()
+            for (index, card) in cards.filter({ active.contains($0.id) }).enumerated() {
+                // Devices can create the same species independently before a sync.
+                let species = ([card.plantSpecies] + CustomCard.species).first {
+                    CustomCard.species.contains($0) && !usedSpecies.contains($0)
+                }
+                guard let species else { continue }
+                usedSpecies.insert(species)
+                let goal = Goal(id: "custom-card:" + card.id, title: card.title, category: "自定义卡片", summary: "",
+                                previewTitle: card.title, previewSummary: "", inputPrimary: "", inputSecondary: "",
+                                completionLabel: "", tint: GoalTint(red: 0.41, green: 0.35, blue: 0.65, opacity: 1),
+                                order: 13 + index)
+                let completions = card.tasks.reduce(0) { $0 + snapshot.completions[$1.goalID, default: 0] }
+                let points = card.tasks.reduce(0) { $0 + snapshot.points[$1.goalID, default: 0] }
+                recent[goal.id] = card.lastInteractedAt
+                mappedItems.append(item(for: goal, species: species, growth: card.plantGrowthValue,
+                                        points: points, completions: completions))
             }
-            if focusedHabitId == nil || !items.contains(where: { $0.id == focusedHabitId }) {
-                focusedHabitId = items.first?.id
+
+            let sortedByRecent = mappedItems.sorted { a, b in
+                let aDate = recent[a.id] ?? .distantPast
+                let bDate = recent[b.id] ?? .distantPast
+                if aDate != bDate { return aDate > bDate }
+                if a.growthValue != b.growthValue { return a.growthValue > b.growthValue }
+                if a.completions != b.completions { return a.completions > b.completions }
+                return a.id < b.id
+            }
+            items = Array(sortedByRecent.prefix(plantLimit))
+            if DevelopmentLaunch.contains("--focus-early") {
+                focusedHabitId = items.first(where: { $0.targetLevel == 2 || $0.targetLevel == 1 })?.id ?? items.first?.id
+            } else if focusedHabitId == nil || !items.contains(where: { $0.id == focusedHabitId }) {
+                focusedHabitId = items.first(where: { $0.targetLevel == 3 })?.id ?? items.first?.id
             }
             if let id = selectedItem?.id { selectedItem = items.first { $0.id == id } }
             lastSnapshot = snapshot
+            lastPlantLimit = plantLimit
+            lastCustomCards = cards
             dataError = nil
         } catch {
             dataError = "读取养成数据失败：\(error.localizedDescription)"
@@ -213,7 +253,7 @@ final class GardenHabitViewModel: ObservableObject {
     // MARK: - Nurture / Water Action (浇水培育)
     func nurture(habitId: String) {
         guard let item = items.first(where: { $0.id == habitId }) else { return }
-        bannerMessage = "请在今日完成「\(item.habit.previewTitle)」，完成后将自动更新养成值。"
+        bannerMessage = String(format: AppLanguage.text("请在今日完成「%@」，完成后将自动更新养成值。"), AppLanguage.text(item.habit.previewTitle))
         loadHabitsAndFlowers(goals: [])
     }
 

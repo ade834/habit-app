@@ -53,10 +53,12 @@ enum AppSoundSettings {
 struct ReviewTypewriter: View {
     let field: ReviewWritingField
     let initialText: String
+    var sideSystemInset: CGFloat = 0
     let source: CGRect
     let onSave: (String) -> Void
     let onClose: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.habitBackgroundFrame) private var fullViewport
     @AppStorage("review.typewriter.night") private var night = false
     @AppStorage(AppSoundSettings.storageKey) private var sound = true
     @State private var text = ""
@@ -67,7 +69,6 @@ struct ReviewTypewriter: View {
     @State private var paperLightVisible = false
     @State private var saveFoldProgress: CGFloat = 0
     @State private var closing = false
-    @State private var keyboardFrame = CGRect.zero
     @State private var strike = 0
     @State private var caret = CGPoint(x: 54, y: 180)
     @State private var input = TypewriterInputControl()
@@ -75,28 +76,59 @@ struct ReviewTypewriter: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let global = geometry.frame(in: .global)
-            let keyboardOverlap = keyboardFrame.width >= geometry.size.width * 0.8 && keyboardFrame.intersects(global)
-                ? max(0, global.maxY - keyboardFrame.minY) : 0
-            let target = CGRect(x: 0, y: 0, width: geometry.size.width, height: max(240, geometry.size.height - keyboardOverlap))
+            let hasSideSystemArea = sideSystemInset >= 30
+            let localFrame = geometry.frame(in: .global)
+            let backgroundBounds = fullViewport.isEmpty ? localFrame : localFrame.union(fullViewport)
+            let fullWidth = hasSideSystemArea ? max(geometry.size.width, fullViewport.width) : geometry.size.width
+            let fullHeight = max(geometry.size.height, fullViewport.height)
+            let origin = hasSideSystemArea ? CGPoint(x: fullViewport.minX - localFrame.minX, y: fullViewport.minY - localFrame.minY) : .zero
+            let target = CGRect(x: origin.x, y: origin.y, width: max(1, fullWidth - (hasSideSystemArea ? sideSystemInset : 0)), height: fullHeight)
             let rect = expanded ? target : source
             ZStack(alignment: .topLeading) {
                 Rectangle()
                     .fill(.ultraThinMaterial)
                     .overlay(Color.black.opacity(night ? 0.40 : 0.24))
-                    .ignoresSafeArea()
+                    .frame(width: backgroundBounds.width, height: backgroundBounds.height)
+                    .offset(x: backgroundBounds.minX - localFrame.minX, y: backgroundBounds.minY - localFrame.minY)
                     .opacity(expanded ? 1 : 0)
                     .accessibilityHidden(true)
-                editor
+                editor(hasSideSystemArea: hasSideSystemArea)
                     .frame(width: target.width, height: target.height)
                     .scaleEffect(x: rect.width / target.width, y: rect.height / target.height)
                     .frame(width: rect.width, height: rect.height)
                     .clipShape(RoundedRectangle(cornerRadius: expanded ? 0 : 16))
                     .position(x: rect.midX, y: rect.midY)
                     .shadow(color: .black.opacity(0.35), radius: 28, y: 18)
+                if hasSideSystemArea && expanded {
+                    VStack(spacing: 12) {
+                        Button { finish(save: false) } label: { Image(systemName: "xmark").frame(width: 38, height: 48) }
+                            .accessibilityLabel(AppLanguage.text("取消编辑"))
+                        Button {
+                            if night { Task { await switchToDaylight() } }
+                            else { night = true; paperLightVisible = false; Task { await revealPaperLightAfterMechanism() } }
+                        } label: { Image(systemName: night ? "moon.fill" : "sun.max.fill").frame(width: 38, height: 48) }
+                            .accessibilityLabel(night ? AppLanguage.text("切换到白昼") : AppLanguage.text("切换到夜晚"))
+                        Button { sound.toggle(); if sound { feedback.play(.key, enabled: true) } else { feedback.stop() } } label: {
+                            Image(systemName: sound ? "speaker.fill" : "speaker.slash.fill").frame(width: 38, height: 48)
+                        }.accessibilityLabel(sound ? AppLanguage.text("关闭音效") : AppLanguage.text("开启音效"))
+                        Button { finish(save: true) } label: { Image(systemName: "checkmark").frame(width: 38, height: 48) }
+                            .accessibilityLabel(AppLanguage.text("保存"))
+                    }
+                    .font(.system(size: 23, weight: .medium))
+                    .foregroundStyle(night ? .white : .primary)
+                    .padding(3)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .position(x: origin.x + fullWidth - sideSystemInset / 2 - 6, y: origin.y + max(145, fullHeight - 140))
+                    .disabled(closing)
+                }
             }
         }
         .task {
+            #if DEBUG
+            if DevelopmentLaunch.contains("--typewriter-night") || DevelopmentLaunch.contains("--open-typewriter") {
+                night = true
+            }
+            #endif
             text = initialText
             input.visibleText = initialText
             input.selection = NSRange(location: (initialText as NSString).length, length: 0)
@@ -112,21 +144,22 @@ struct ReviewTypewriter: View {
             withAnimation(reduceMotion ? .none : .spring(response: 0.40, dampingFraction: 0.82)) { machineVisible = true }
             if night { await revealPaperLightAfterMechanism() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-            guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            withAnimation(reduceMotion ? .none : .easeOut(duration: 0.25)) { keyboardFrame = frame }
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            withAnimation(reduceMotion ? .none : .easeOut(duration: 0.25)) { keyboardFrame = .zero }
+            input.keyboardHidden = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            input.keyboardHidden = false
+        }
+        .ignoresSafeArea(.keyboard)
         .accessibilityAddTraits(.isModal)
     }
 
-    private var editor: some View {
+    private func editor(hasSideSystemArea: Bool) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button { finish(save: false) } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                    .accessibilityLabel("取消编辑")
+            if !hasSideSystemArea { HStack(spacing: 8) {
+                if !hasSideSystemArea { Button { finish(save: false) } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    .accessibilityLabel(AppLanguage.text("取消编辑"))
+                }
                 Spacer(minLength: 0)
                 Button {
                     if night {
@@ -136,7 +169,7 @@ struct ReviewTypewriter: View {
                         paperLightVisible = false
                         Task { await revealPaperLightAfterMechanism() }
                     }
-                } label: { Label(night ? "夜晚" : "白昼", systemImage: night ? "moon.fill" : "sun.max.fill").font(.system(size: 13, weight: .medium)).frame(height: 44) }
+                } label: { Label(night ? AppLanguage.text("夜晚") : AppLanguage.text("白昼"), systemImage: night ? "moon.fill" : "sun.max.fill").font(.system(size: 13, weight: .medium)).frame(height: 44) }
                 Button {
                     sound.toggle()
                     if sound { feedback.play(.key, enabled: true) }
@@ -147,11 +180,11 @@ struct ReviewTypewriter: View {
                         .frame(width: 38, height: 44)
                         .contentShape(Rectangle())
                 }
-                .accessibilityValue(sound ? "已开启" : "已关闭")
-                .accessibilityLabel(sound ? "关闭音效" : "开启音效")
+                .accessibilityValue(sound ? AppLanguage.text("已开启") : AppLanguage.text("已关闭"))
+                .accessibilityLabel(sound ? AppLanguage.text("关闭音效") : AppLanguage.text("开启音效"))
                 .accessibilityIdentifier("typewriter.sound")
                 Spacer(minLength: 0)
-                Button("保存") { finish(save: true) }
+                Button(AppLanguage.text("保存")) { finish(save: true) }
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 52, height: 44)
                     .accessibilityIdentifier("typewriter.save")
@@ -159,32 +192,46 @@ struct ReviewTypewriter: View {
             .padding(.horizontal, 12)
             .foregroundStyle(night ? Color.white.opacity(0.88) : Color.primary.opacity(0.84))
             .opacity(paperVisible ? 1 : 0)
+            }
             GeometryReader { stage in
                 let inset: CGFloat = 20
                 let paperWidth = max(140, stage.size.width - inset * 2)
-                let line = max(104, min(stage.size.height * 0.35, stage.size.height - stage.size.width * 0.29 - 12))
+                let paperTopInset: CGFloat = hasSideSystemArea ? 20 : 0
+                let line = max(245, min(stage.size.height * 0.35, stage.size.height - stage.size.width * 0.29 - 12))
                 let writingLine = max(86, line - 88)
                 let textInset = max(22, stage.size.width * 0.22 - inset)
                 let headX = min(max(caret.x, inset + textInset), stage.size.width - inset - textInset)
                 ZStack(alignment: .topLeading) {
                     ZStack(alignment: .topLeading) {
                         paper
-                        TypewriterPaperText(control: input, text: input.visibleText, selection: input.selection, markedRange: input.markedRange, baseline: writingLine, horizontalInset: textInset, reduceMotion: reduceMotion) { point in
-                            let next = CGPoint(x: point.x + inset, y: point.y)
-                            if caret != next { caret = next }
-                        }
-                        .accessibilityHidden(true)
+                        TypewriterPaperEditor(
+                            text: $text,
+                            composing: $composing,
+                            control: input,
+                            baseline: writingLine - paperTopInset,
+                            horizontalInset: textInset,
+                            reduceMotion: reduceMotion,
+                            onCaret: { point in
+                                let next = CGPoint(x: point.x + inset, y: point.y)
+                                if caret != next { caret = next }
+                            },
+                            onStrike: { kind in
+                                strike += 1
+                                feedback.play(kind, enabled: sound)
+                            }
+                        )
+                        .accessibilityLabel(AppLanguage.text(field.title))
+                        .accessibilityIdentifier("typewriter.input")
                         .mask(alignment: .top) {
                             paperCurlFade
-
                         }
                         VStack(spacing: 8) {
-                            Text(field.title)
+                            Text(AppLanguage.text(field.title))
                                 .font(.system(size: 20, weight: .bold, design: .serif))
                                 .foregroundStyle(Color(white: 0.12))
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
-                            Text("\(text.count) 字")
+                            Text(String(format: AppLanguage.text("%lld 字"), text.count))
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(Color(white: 0.48))
                             Rectangle()
@@ -202,24 +249,24 @@ struct ReviewTypewriter: View {
                         .rotation3DEffect(.degrees(-Double(headerCurl) * 38), axis: (x: 1, y: 0, z: 0), anchor: .top, perspective: 0.3)
                         .offset(y: -input.paperFeed)
                         .mask(alignment: .top) { paperCurlFade.frame(height: stage.size.height) }
-                        .animation(reduceMotion ? .none : .easeOut(duration: 0.17), value: input.paperFeed)
+                        .animation(reduceMotion || input.isPaperDragging ? .none : .easeOut(duration: 0.17), value: input.paperFeed)
                         .allowsHitTesting(false)
                         if input.visibleText.isEmpty {
-                            Text("把此刻的想法，留在纸上。")
+                            Text(AppLanguage.text("把此刻的想法，留在纸上。"))
                                 .font(.custom("Songti SC", size: 16))
                                 .foregroundStyle(Color.gray.opacity(0.50))
-                                .position(x: paperWidth / 2, y: writingLine - 16)
+                                .position(x: paperWidth / 2, y: writingLine - paperTopInset - 16)
                                 .allowsHitTesting(false)
                         }
                         if night {
-                            TypewriterNightLighting(headX: headX - inset, baseline: writingLine + 5, illumination: paperLightVisible ? 1 : 0)
+                            TypewriterNightLighting(headX: headX - inset, baseline: writingLine - paperTopInset + 5, illumination: paperLightVisible ? 1 : 0)
                                 .animation(reduceMotion ? .none : .easeInOut(duration: 1.15), value: paperLightVisible)
                                 .allowsHitTesting(false)
                         }
                     }
-                    .frame(width: paperWidth, height: stage.size.height)
+                    .frame(width: paperWidth, height: max(0, stage.size.height - paperTopInset))
                     .clipShape(TypewriterPaperShape())
-                    .position(x: stage.size.width / 2, y: stage.size.height / 2)
+                    .position(x: stage.size.width / 2, y: (stage.size.height + paperTopInset) / 2)
                     .shadow(color: .black.opacity(0.24), radius: 10, y: 4)
                     .opacity(paperVisible ? 1 : 0)
                     .offset(y: paperVisible ? 0 : 48)
@@ -237,17 +284,8 @@ struct ReviewTypewriter: View {
                         .allowsHitTesting(false)
                 }
                 .clipped()
-            }
-            .overlay(alignment: .bottom) {
-                // Keep the real IME anchor at the lower safe edge without a
-                // visible input strip or a second toolbar.
-                TypewriterNativeInput(text: $text, composing: $composing, caret: $caret, control: input, baseline: 0, reduceMotion: reduceMotion) { kind in
-                    strike += 1
-                    feedback.play(kind, enabled: sound)
-                }
-                .frame(height: 38)
-                .accessibilityLabel(field.title)
-                .accessibilityIdentifier("typewriter.input")
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { input.focus() })
             }
         }
         .background(.clear)
@@ -286,7 +324,7 @@ struct ReviewTypewriter: View {
                 }
                 .offset(y: -feed)
                 TypewriterPaperGrain(feed: input.paperFeed).opacity(0.14)
-                    .animation(reduceMotion ? .none : .easeOut(duration: 0.17), value: input.paperFeed)
+                    .animation(reduceMotion || input.isPaperDragging ? .none : .easeOut(duration: 0.17), value: input.paperFeed)
                 LinearGradient(stops: [
                     .init(color: .black.opacity(0.08), location: 0),
                     .init(color: .white.opacity(0.22), location: 0.035),
@@ -305,7 +343,7 @@ struct ReviewTypewriter: View {
                 ], startPoint: .top, endPoint: .bottom)
                 .frame(height: min(size.height, 36 + headerCurl * 72))
                 .frame(maxHeight: .infinity, alignment: .top)
-                .animation(reduceMotion ? .none : .easeOut(duration: 0.17), value: input.paperFeed)
+                .animation(reduceMotion || input.isPaperDragging ? .none : .easeOut(duration: 0.17), value: input.paperFeed)
             }
             .frame(width: size.width, height: size.height)
             .clipped()
@@ -423,10 +461,13 @@ private struct TypewriterNightLighting: View {
 
     var body: some View {
         GeometryReader { paper in
-            let height = max(288, (baseline + 30) * 1.62)
-            let width = min(560, paper.size.width * 1.68)
-            let center = CGPoint(x: headX, y: baseline + 7 - height / 2)
-            let fold = min(110, paper.size.height * 0.30) / max(paper.size.height, 1)
+            let height = max(320, (baseline + 30) * 1.62 + 36)
+            let width = min(680, paper.size.width * 1.80)
+            let sourceY = baseline + 42
+            let center = CGPoint(x: headX, y: sourceY - height / 2)
+            let ambientHeight = height * 1.08
+            let ambientCenter = CGPoint(x: headX, y: sourceY - ambientHeight / 2)
+            let fold = min(38, paper.size.height * 0.10) / max(paper.size.height, 1)
             let bendFade = LinearGradient(stops: [
                 .init(color: .clear, location: 0),
                 .init(color: .clear, location: fold * 0.24),
@@ -440,6 +481,14 @@ private struct TypewriterNightLighting: View {
                     .mask {
                         Rectangle().overlay {
                             TypewriterScatteredBeam()
+                                .fill(RadialGradient(colors: [.black.opacity(0.55), .black.opacity(0.22), .clear], center: .bottom, startRadius: 0, endRadius: ambientHeight * 1.15))
+                                .frame(width: width * 1.48, height: ambientHeight)
+                                .blur(radius: 42)
+                                .position(ambientCenter)
+                                .mask(bendFade)
+                                .opacity(illumination * 0.45)
+                                .blendMode(.destinationOut)
+                            TypewriterScatteredBeam()
                                 .fill(RadialGradient(stops: [.init(color: .black, location: 0), .init(color: .black.opacity(0.96), location: 0.18), .init(color: .black.opacity(0.65), location: 0.52), .init(color: .black.opacity(0.16), location: 0.85), .init(color: .clear, location: 1)], center: .bottom, startRadius: 0, endRadius: height * 1.08))
                                 .frame(width: width, height: height)
                                 .blur(radius: 18)
@@ -449,6 +498,14 @@ private struct TypewriterNightLighting: View {
                                 .blendMode(.destinationOut)
                         }.compositingGroup()
                     }
+                TypewriterScatteredBeam()
+                    .fill(RadialGradient(colors: [Color(red: 1, green: 0.92, blue: 0.80).opacity(0.18), Color(red: 1, green: 0.94, blue: 0.86).opacity(0.06), .clear], center: .bottom, startRadius: 0, endRadius: ambientHeight * 1.15))
+                    .frame(width: width * 1.48, height: ambientHeight)
+                    .blur(radius: 42)
+                    .position(ambientCenter)
+                    .mask(bendFade)
+                    .opacity(illumination)
+                    .blendMode(.screen)
                 TypewriterScatteredBeam()
                     .fill(RadialGradient(gradient: Gradient(stops: [
                         .init(color: Color(red: 1, green: 0.88, blue: 0.66).opacity(0.40), location: 0),
@@ -575,7 +632,6 @@ private struct TypewriterStrikePose {
 }
 
 @MainActor private struct TypewriterMechanism: View {
-    @Environment(\.habitColorTheme) private var colorTheme
     let headX: CGFloat
     let baseline: CGFloat
     let strike: Int
@@ -585,8 +641,6 @@ private struct TypewriterStrikePose {
     let reduceMotion: Bool
 
     var body: some View {
-        let carriageColor = colorTheme.largeOrbCenterColor
-        let supportColor = colorTheme.smallOrbCenterColor
         GeometryReader { geometry in
             // Align the outside of both black knobs with the screen edges.
             let scale = geometry.size.width / 1994
@@ -615,18 +669,6 @@ private struct TypewriterStrikePose {
                             layer("TypewriterHybridMechanism", width: width, height: height)
                                 .mask(HybridPartMask(part: .body))
                                 .mask(HybridPartMask(part: .notFan).fill(style: FillStyle(eoFill: true)))
-                            HybridOrbColorWash(
-                                part: .carriage,
-                                color: carriageColor,
-                                width: width,
-                                height: height
-                            )
-                            HybridOrbColorWash(
-                                part: .support,
-                                color: supportColor,
-                                width: width,
-                                height: height
-                            )
                             HybridNeedleStem(lift: pose.needleLift / scale)
                                 .frame(width: width, height: height)
                             layer("TypewriterHybridMechanism", width: width, height: height)
@@ -741,31 +783,6 @@ private struct HybridPartMask: Shape {
     }
 }
 
-/// Theme color glazes the moving carriage and its central support while the
-/// photographic metal grain remains visible underneath.
-private struct HybridOrbColorWash: View {
-    let part: HybridPartMask.Part
-    let color: Color
-    let width: CGFloat
-    let height: CGFloat
-
-    var body: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [color.opacity(0.58), color.opacity(0.94), color.opacity(0.76)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .mask(HybridPartMask(part: part).fill(style: FillStyle(eoFill: true)))
-            .frame(width: width, height: height)
-            .blendMode(.color)
-            .saturation(0.75)
-            .allowsHitTesting(false)
-    }
-}
-
 private struct HybridNeedleStem: View {
     let lift: CGFloat
     var body: some View {
@@ -803,88 +820,6 @@ private struct HybridActivityLamps: View {
     }
 }
 
-/// A TextKit mirror. The editable UITextView stays at the bottom so the IME
-/// uses that lower caret rectangle, while this paper supplies the machine's X.
-struct TypewriterPaperText: UIViewRepresentable {
-    let control: TypewriterInputControl
-    let text: String
-    let selection: NSRange
-    let markedRange: NSRange?
-    let baseline: CGFloat
-    var horizontalInset: CGFloat = 22
-    let reduceMotion: Bool
-    let onCaret: (CGPoint) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
-        view.backgroundColor = .clear
-        view.isOpaque = false
-        view.isEditable = false
-        view.isSelectable = false
-        view.isScrollEnabled = true
-        view.accessibilityIdentifier = "typewriter.paper.mirror"
-        view.showsVerticalScrollIndicator = false
-        view.contentInsetAdjustmentBehavior = .never
-        view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.placeCaret(_:))))
-        return view
-    }
-
-    func updateUIView(_ view: UITextView, context: Context) {
-        context.coordinator.parent = self
-        let attributes = styledText()
-        if !view.attributedText.isEqual(to: attributes) { view.attributedText = attributes }
-        view.textContainer.lineFragmentPadding = 0
-        view.textContainerInset = UIEdgeInsets(top: max(10, baseline - 27), left: horizontalInset, bottom: max(120, view.bounds.height - baseline + 40), right: horizontalInset)
-        DispatchQueue.main.async {
-            guard !view.isDragging, !view.isDecelerating else { return }
-            view.layoutIfNeeded()
-            let offset = min(NSMaxRange(selection), (text as NSString).length)
-            guard let position = view.position(from: view.beginningOfDocument, offset: offset) else { return }
-            let rect = view.caretRect(for: position)
-            let paperOffset = max(0, rect.maxY - baseline)
-            if abs(control.paperFeed - paperOffset) > 0.5 { control.paperFeed = paperOffset }
-            if abs(view.contentOffset.y - paperOffset) > 0.5 {
-                if reduceMotion { view.contentOffset = CGPoint(x: 0, y: paperOffset) }
-                else { UIView.animate(withDuration: 0.17, delay: 0, options: [.beginFromCurrentState, .curveEaseOut]) { view.contentOffset = CGPoint(x: 0, y: paperOffset) } }
-            }
-            onCaret(CGPoint(x: rect.midX, y: baseline))
-        }
-    }
-
-    private func styledText() -> NSAttributedString {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 7
-        let english = UIFont(name: "AmericanTypewriter", size: 20) ?? .monospacedSystemFont(ofSize: 20, weight: .regular)
-        let chinese = UIFont(name: "STSongti-SC-Regular", size: 21) ?? .systemFont(ofSize: 21)
-        let result = NSMutableAttributedString(string: text, attributes: [.font: english, .foregroundColor: UIColor(red: 0.17, green: 0.16, blue: 0.13, alpha: 0.94), .paragraphStyle: paragraph])
-        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byComposedCharacterSequences) { substring, range, _, _ in
-            if substring?.unicodeScalars.contains(where: { $0.value >= 0x2e80 && $0.value <= 0x9fff }) == true {
-                result.addAttribute(.font, value: chinese, range: NSRange(range, in: text))
-            }
-        }
-        if let markedRange, NSMaxRange(markedRange) <= result.length {
-            result.addAttributes([.underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: UIColor.brown.withAlphaComponent(0.5)], range: markedRange)
-        }
-        return result
-    }
-
-    @MainActor final class Coordinator: NSObject {
-        var parent: TypewriterPaperText
-        init(_ parent: TypewriterPaperText) { self.parent = parent }
-        @objc func placeCaret(_ gesture: UITapGestureRecognizer) {
-            guard let paper = gesture.view as? UITextView, let input = parent.control.view else { return }
-            if input.markedTextRange == nil, let point = paper.closestPosition(to: gesture.location(in: paper)) {
-                let index = paper.offset(from: paper.beginningOfDocument, to: point)
-                input.selectedRange = NSRange(location: min(index, (input.text as NSString).length), length: 0)
-                parent.control.synchronize(input)
-            }
-            parent.control.focus()
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class TypewriterInputControl {
@@ -893,8 +828,10 @@ final class TypewriterInputControl {
     var selection = NSRange(location: 0, length: 0)
     var markedRange: NSRange?
     var paperFeed: CGFloat = 0
+    var isPaperDragging = false
     var activeTypebar = 22
     var keyEnergy: CGFloat = 0.6
+    @ObservationIgnored var keyboardHidden = false
     @ObservationIgnored private var lastStrokeTime = CFAbsoluteTimeGetCurrent()
     func registerStroke() {
         let now = CFAbsoluteTimeGetCurrent()
@@ -914,7 +851,21 @@ final class TypewriterInputControl {
             markedRange = NSRange(location: start, length: view.offset(from: range.start, to: range.end))
         } else { markedRange = nil }
     }
-    func focus() { view?.becomeFirstResponder() }
+    func focus() {
+        guard let view else { return }
+        #if DEBUG
+        if DevelopmentLaunch.contains("--open-typewriter") {
+            return
+        }
+        #endif
+        if keyboardHidden && view.isFirstResponder && view.markedTextRange == nil {
+            keyboardHidden = false
+            view.resignFirstResponder()
+            DispatchQueue.main.async { [weak view] in view?.becomeFirstResponder() }
+        } else if !view.isFirstResponder {
+            view.becomeFirstResponder()
+        }
+    }
     func blur() { view?.resignFirstResponder() }
     func toggleKeyboard() { if view?.isFirstResponder == true { blur() } else { focus() } }
     func deleteBackward() { view?.deleteBackward() }
@@ -931,81 +882,254 @@ final class TypewriterInputControl {
     }
 }
 
-struct TypewriterNativeInput: UIViewRepresentable {
+private final class TypewriterTextView: UITextView {
+    var onMarkedTextChange: (() -> Void)?
+    override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        if markedText != nil { onMarkedTextChange?() }
+        super.setMarkedText(markedText, selectedRange: selectedRange)
+    }
+}
+
+/// Real editable UITextView directly on the paper so native iOS long-press
+/// loupe, selection handles, and system Copy/Cut/Paste edit menus work cleanly.
+struct TypewriterPaperEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var composing: Bool
-    @Binding var caret: CGPoint
     let control: TypewriterInputControl
     let baseline: CGFloat
+    var horizontalInset: CGFloat = 22
     let reduceMotion: Bool
+    let onCaret: (CGPoint) -> Void
     let onStrike: (AppSoundFeedback.Kind) -> Void
+
+    private static let inkColor = UIColor(red: 0.17, green: 0.16, blue: 0.13, alpha: 0.94)
+    private static let caretTintColor = UIColor(red: 0.36, green: 0.25, blue: 0.16, alpha: 0.92)
+    private static let englishFont = UIFont(name: "AmericanTypewriter", size: 20) ?? .monospacedSystemFont(ofSize: 20, weight: .regular)
+    private static let chineseFont = UIFont(name: "STSongti-SC-Regular", size: 21) ?? .systemFont(ofSize: 21)
+    private static let allowedAttributeKeys: Set<NSAttributedString.Key> = [.font, .foregroundColor, .paragraphStyle]
+
+    private static func makeParagraphStyle() -> NSParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 7
+        return paragraph
+    }
+
+    private static func baseTypingAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .font: chineseFont,
+            .foregroundColor: inkColor,
+            .paragraphStyle: makeParagraphStyle()
+        ]
+    }
+
+    private static func isCJK(_ substring: String) -> Bool {
+        substring.unicodeScalars.contains(where: { $0.value >= 0x2e80 && $0.value <= 0x9fff })
+    }
+
+    private static func needsPaperStyling(_ storage: NSTextStorage, text: String) -> Bool {
+        let fullRange = NSRange(location: 0, length: storage.length)
+        var dirty = false
+        storage.enumerateAttributes(in: fullRange, options: []) { attrs, _, stop in
+            if !Set(attrs.keys).isSubset(of: allowedAttributeKeys) {
+                dirty = true
+                stop.pointee = true
+                return
+            }
+            if (attrs[.foregroundColor] as? UIColor) != inkColor {
+                dirty = true
+                stop.pointee = true
+                return
+            }
+            if (attrs[.paragraphStyle] as? NSParagraphStyle)?.lineSpacing != 7 {
+                dirty = true
+                stop.pointee = true
+                return
+            }
+        }
+        if dirty { return true }
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byComposedCharacterSequences) { substring, range, _, stop in
+            guard let substring else { return }
+            let nsRange = NSRange(range, in: text)
+            guard nsRange.location < storage.length else { return }
+            let expectedFont = isCJK(substring) ? chineseFont : englishFont
+            if (storage.attribute(.font, at: nsRange.location, effectiveRange: nil) as? UIFont) != expectedFont {
+                dirty = true
+                stop = true
+            }
+        }
+        return dirty
+    }
+
+    @MainActor
+    static func applyPaperStyling(to view: UITextView) {
+        let typing = baseTypingAttributes()
+        guard view.markedTextRange == nil else {
+            view.typingAttributes = typing
+            return
+        }
+        let currentText = view.text ?? ""
+        let storage = view.textStorage
+        if storage.length > 0 && needsPaperStyling(storage, text: currentText) {
+            let savedSelection = view.selectedRange
+            let fullRange = NSRange(location: 0, length: storage.length)
+            let baseAttributes: [NSAttributedString.Key: Any] = [
+                .font: englishFont,
+                .foregroundColor: inkColor,
+                .paragraphStyle: makeParagraphStyle()
+            ]
+            storage.beginEditing()
+            storage.setAttributes(baseAttributes, range: fullRange)
+            currentText.enumerateSubstrings(in: currentText.startIndex..<currentText.endIndex, options: .byComposedCharacterSequences) { substring, range, _, _ in
+                guard let substring, isCJK(substring) else { return }
+                let nsRange = NSRange(range, in: currentText)
+                if NSMaxRange(nsRange) <= storage.length {
+                    storage.addAttribute(.font, value: chineseFont, range: nsRange)
+                }
+            }
+            storage.endEditing()
+            if view.selectedRange != savedSelection && NSMaxRange(savedSelection) <= storage.length {
+                view.selectedRange = savedSelection
+            }
+        }
+        view.typingAttributes = typing
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
+
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = TypewriterTextView()
+        view.onMarkedTextChange = { [weak coordinator = context.coordinator] in coordinator?.markedTextChanged() }
         view.backgroundColor = .clear
-        // This real editor lives at the bottom. Its system caret anchors IME
-        // candidates there; the paper above mirrors its text and selection.
-        view.textColor = .clear
-        view.tintColor = .clear
-        view.markedTextStyle = [.foregroundColor: UIColor.clear, .backgroundColor: UIColor.clear]
+        view.isOpaque = false
+        view.isEditable = true
+        view.isSelectable = true
+        view.isScrollEnabled = true
+        view.allowsEditingTextAttributes = false
+        view.dataDetectorTypes = []
+        view.textColor = Self.inkColor
+        view.tintColor = Self.caretTintColor
+        view.font = Self.chineseFont
+        view.typingAttributes = Self.baseTypingAttributes()
+        view.markedTextStyle = [
+            .foregroundColor: Self.inkColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .underlineColor: UIColor.brown.withAlphaComponent(0.5)
+        ]
         view.textContentType = nil
         view.spellCheckingType = .no
         view.inlinePredictionType = .no
-        view.inputAssistantItem.leadingBarButtonGroups = []
-        view.inputAssistantItem.trailingBarButtonGroups = []
-        view.keyboardAppearance = .dark
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 7
-        view.typingAttributes = [.font: UIFont(name: "STSongti-SC-Regular", size: 21) ?? UIFont.monospacedSystemFont(ofSize: 21, weight: .regular), .foregroundColor: view.textColor!, .paragraphStyle: paragraph]
-        view.font = UIFont(name: "STSongti-SC-Regular", size: 21) ?? .monospacedSystemFont(ofSize: 21, weight: .regular)
-        view.textContainer.lineFragmentPadding = 0
-        view.keyboardDismissMode = .none
-        view.contentInsetAdjustmentBehavior = .never
         view.autocorrectionType = .no
         view.smartQuotesType = .no
+        view.keyboardAppearance = .dark
+        view.keyboardDismissMode = .none
         view.showsVerticalScrollIndicator = false
+        view.contentInsetAdjustmentBehavior = .never
+        view.textContainer.lineFragmentPadding = 0
+        view.inputAssistantItem.leadingBarButtonGroups = []
+        view.inputAssistantItem.trailingBarButtonGroups = []
+        #if DEBUG
+        if DevelopmentLaunch.contains("--open-typewriter") {
+            view.inputView = UIView(frame: .zero)
+        }
+        #endif
         view.delegate = context.coordinator
         view.text = text
+        Self.applyPaperStyling(to: view)
         control.view = view
         return view
     }
+
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
+        var insetChanged = false
+        if view.bounds.height > 1 {
+            let targetInset = UIEdgeInsets(
+                top: max(10, baseline - 27),
+                left: horizontalInset,
+                bottom: max(120, view.bounds.height - baseline + 40),
+                right: horizontalInset
+            )
+            let current = view.textContainerInset
+            if abs(current.top - targetInset.top) > 0.5 ||
+                abs(current.left - targetInset.left) > 0.5 ||
+                abs(current.bottom - targetInset.bottom) > 0.5 ||
+                abs(current.right - targetInset.right) > 0.5 {
+                view.textContainerInset = targetInset
+                insetChanged = true
+            }
+        }
         // Never overwrite marked text: UIKit owns the pinyin candidate transaction.
         if view.markedTextRange == nil, view.text != text {
-            let selection = view.text.isEmpty ? NSRange(location: (text as NSString).length, length: 0) : view.selectedRange
+            let wasEmpty = view.text.isEmpty
+            let previousSelection = view.selectedRange
             view.text = text
+            Self.applyPaperStyling(to: view)
             context.coordinator.lastVisible = text
-            view.selectedRange = NSRange(location: min(selection.location, (text as NSString).length), length: 0)
-            DispatchQueue.main.async { context.coordinator.align(view, animated: false) }
-        }
-        let inset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        if view.textContainerInset != inset {
-            view.textContainerInset = inset
-            DispatchQueue.main.async { context.coordinator.align(view, animated: false) }
+            let length = (text as NSString).length
+            let targetLocation = wasEmpty ? length : min(previousSelection.location, length)
+            view.selectedRange = NSRange(location: targetLocation, length: 0)
+            control.synchronize(view)
+            DispatchQueue.main.async {
+                context.coordinator.align(view, feedPaper: true, animated: false)
+            }
+        } else if insetChanged, !context.coordinator.isUserInteracting(view) {
+            DispatchQueue.main.async {
+                context.coordinator.align(view, feedPaper: view.selectedRange.length == 0, animated: false)
+            }
         }
     }
+
+    @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: TypewriterNativeInput
+        var parent: TypewriterPaperEditor
         var lastVisible = ""
-        init(_ parent: TypewriterNativeInput) { self.parent = parent; lastVisible = parent.text }
+        private var lastDelegateStroke = CFAbsoluteTimeGetCurrent() - 1
+
+        init(_ parent: TypewriterPaperEditor) {
+            self.parent = parent
+            self.lastVisible = parent.text
+        }
+
+        func isUserInteracting(_ view: UITextView) -> Bool {
+            if view.isDragging || view.isDecelerating || view.isTracking { return true }
+            if let recognizers = view.gestureRecognizers {
+                for recognizer in recognizers where recognizer.state == .began || recognizer.state == .changed {
+                    return true
+                }
+            }
+            return false
+        }
+
+        func markedTextChanged() {
+            // Some third-party keyboards update marked text without shouldChangeTextIn.
+            guard CFAbsoluteTimeGetCurrent() - lastDelegateStroke > 0.04 else { return }
+            lastDelegateStroke = CFAbsoluteTimeGetCurrent()
+            parent.control.registerStroke()
+            parent.onStrike(.key)
+        }
+
         func textViewDidChange(_ view: UITextView) {
             let next = view.text ?? ""
             if view.markedTextRange != nil {
                 // The IME owns provisional pinyin. Keep saved text committed;
                 // physical-key feedback comes from shouldChangeTextIn.
                 parent.composing = true
-                align(view, animated: !parent.reduceMotion)
+                align(view, feedPaper: true, animated: !parent.reduceMotion)
                 return
             }
             parent.composing = false
+            TypewriterPaperEditor.applyPaperStyling(to: view)
             if next != lastVisible {
                 lastVisible = next
             }
-            parent.text = next
-            align(view, animated: !parent.reduceMotion)
+            if parent.text != next {
+                parent.text = next
+            }
+            align(view, feedPaper: true, animated: !parent.reduceMotion)
         }
+
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
+            lastDelegateStroke = CFAbsoluteTimeGetCurrent()
             let kind: AppSoundFeedback.Kind
             if replacement.isEmpty {
                 kind = .delete
@@ -1027,23 +1151,65 @@ struct TypewriterNativeInput: UIViewRepresentable {
             parent.onStrike(kind)
             return true
         }
+
         func textViewDidChangeSelection(_ view: UITextView) {
+            parent.control.synchronize(view)
             DispatchQueue.main.async { [weak self, weak view] in
                 guard let self, let view else { return }
-                self.align(view, animated: false)
+                // Never force paper scroll while user is selecting or dragging the loupe.
+                self.align(view, feedPaper: false, animated: false)
             }
         }
-        func align(_ view: UITextView, animated: Bool) {
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            parent.control.isPaperDragging = true
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if !decelerate { parent.control.isPaperDragging = false }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            parent.control.isPaperDragging = false
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            let feed = max(0, scrollView.contentOffset.y)
+            if abs(parent.control.paperFeed - feed) > 0.5 {
+                parent.control.paperFeed = feed
+            }
+        }
+
+        func align(_ view: UITextView, feedPaper: Bool, animated: Bool) {
             parent.control.synchronize(view)
-            guard !view.isDragging, !view.isDecelerating else { return }
-            view.scrollRangeToVisible(view.selectedRange)
+            view.layoutIfNeeded()
+            let length = (view.text as NSString).length
+            let offset = min(NSMaxRange(view.selectedRange), length)
+            guard let position = view.position(from: view.beginningOfDocument, offset: offset) else { return }
+            let rect = view.caretRect(for: position)
+            guard !rect.isNull, !rect.isInfinite, rect.midX.isFinite, rect.maxY.isFinite else { return }
+            parent.onCaret(CGPoint(x: rect.midX, y: parent.baseline))
+            guard feedPaper, view.selectedRange.length == 0, !isUserInteracting(view) else { return }
+            let paperOffset = max(0, rect.maxY - parent.baseline)
+            if abs(parent.control.paperFeed - paperOffset) > 0.5 {
+                parent.control.paperFeed = paperOffset
+            }
+            if abs(view.contentOffset.y - paperOffset) > 0.5 {
+                if animated && !parent.reduceMotion {
+                    UIView.animate(withDuration: 0.17, delay: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
+                        view.contentOffset = CGPoint(x: 0, y: paperOffset)
+                    }
+                } else {
+                    view.contentOffset = CGPoint(x: 0, y: paperOffset)
+                }
+            }
         }
     }
 }
 
 @MainActor
 final class AppSoundFeedback {
-    enum Kind: Int { case key, candidate, delete, returnCarriage, lampIgnition, lampOff, completion, selection, navigation, navigationToday, navigationGarden, navigationReview, goalStartClick, settingsTap, timerStart, timerPause, timerResume, gardenSelect, nurture, wind }
+    enum Kind: Int { case key, candidate, delete, returnCarriage, lampIgnition, lampOff, completion, selection, navigation, navigationToday, navigationGarden, navigationReview, goalStartClick, settingsTap, timerStart, timerPause, timerResume, gardenSelect, flowerTouch, flowerInfo, pageTurn, starMarked, waterDrop, stageSprout, stageGrow, stageBloom, stageFlourish, nurture, wind }
     private var players: [Int: [AVAudioPlayer]] = [:]
     private var windPlayer: AVAudioPlayer?
     private var windStopTask: Task<Void, Never>?
@@ -1120,12 +1286,17 @@ final class AppSoundFeedback {
 
     private static func volume(for kind: Kind) -> Float {
         switch kind {
+        case .key, .candidate, .delete, .returnCarriage: 0.14
         case .lampIgnition, .lampOff: 0.78
         case .completion: 0.72
         case .navigation: 0.07
         case .navigationToday, .navigationGarden, .navigationReview: 0.07
         case .goalStartClick: 0.085
         case .settingsTap: 0.065
+        case .pageTurn: 0.09
+        case .starMarked, .flowerTouch, .flowerInfo: 0.14
+        case .waterDrop: 0.16
+        case .stageSprout, .stageGrow, .stageBloom, .stageFlourish: 0.22
         case .selection, .gardenSelect: 0.14
         case .timerPause: 0.18
         case .timerStart, .timerResume: 0.24
@@ -1140,8 +1311,11 @@ final class AppSoundFeedback {
         case .completion: 14_336
         case .lampIgnition, .lampOff: 9000
         case .nurture: 8600
+        case .stageSprout, .stageGrow, .stageBloom, .stageFlourish: 16000
         case .timerStart, .timerResume: 5200
-        case .gardenSelect: 3800
+        case .gardenSelect, .flowerInfo, .starMarked: 3800
+        case .flowerTouch, .waterDrop: 2400
+        case .pageTurn: 3200
         case .navigation, .navigationToday, .navigationGarden, .navigationReview: 2100
         case .goalStartClick: 1800
         case .settingsTap: 1600
@@ -1207,6 +1381,25 @@ final class AppSoundFeedback {
                 let pitch = 440 + 520 * progress
                 sample = (sin(t * pitch * 2 * .pi) * 0.38 + sin(t * pitch * 1.5 * 2 * .pi) * 0.12)
                     * min(1, t * 80) * exp(-t * 5.8)
+            } else if kind == .pageTurn {
+                let envelope = min(1, t * 70) * exp(-t * 24)
+                sample = noise * envelope * 0.12 + sin(t * 380 * 2 * .pi) * exp(-t * 65) * 0.08
+            } else if [.stageSprout, .stageGrow, .stageBloom, .stageFlourish].contains(kind) {
+                let stage = kind.rawValue - Kind.stageSprout.rawValue
+                let base = [523.25, 659.25, 783.99, 987.77][stage]
+                let envelope = min(1, t * 12) * exp(-t * 4.5)
+                sample = (sin(t * base * 2 * .pi) * 0.20 + sin(t * base * 1.5 * 2 * .pi) * (0.07 + Double(stage) * 0.025)) * envelope
+            } else if kind == .waterDrop {
+                let pitch = 1450 - 520 * min(1, t / 0.10)
+                let phase = 2 * .pi * (1450 * t - 2600 * min(t, 0.10) * min(t, 0.10))
+                sample = sin(phase + (pitch - 930) * t * 0.02) * min(1, t * 160) * exp(-t * 32) * 0.38
+            } else if kind == .flowerTouch {
+                sample = sin(t * 690 * 2 * .pi) * min(1, t * 90) * exp(-t * 23) * 0.22
+                    + sin(t * 1035 * 2 * .pi) * exp(-t * 30) * 0.08
+            } else if kind == .flowerInfo || kind == .starMarked {
+                let delay = max(0, t - 0.055)
+                sample = sin(t * 880 * 2 * .pi) * min(1, t * 100) * exp(-t * 22) * 0.23
+                    + sin(delay * 1320 * 2 * .pi) * min(1, delay * 100) * exp(-delay * 24) * 0.18
             } else if kind == .gardenSelect {
                 sample = (sin(t * 1760 * 2 * .pi) * 0.38 + sin(t * 2640 * 2 * .pi) * 0.14)
                     * min(1, t * 100) * exp(-t * 15)

@@ -4,23 +4,41 @@ import SwiftUI
 struct GardenView: View {
     @StateObject private var viewModel: GardenHabitViewModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppSoundSettings.storageKey) private var soundEnabled = true
+    @State private var stageSound = AppSoundFeedback()
+    @State private var celebration: HabitGardenItem?
+    @State private var showNewStage = false
+    @State private var glowScale: CGFloat = 0
+    @State private var glowOpacity: Double = 0
+    private let stageBaselineKey = "garden.stageCelebration.baseline.v1"
     @State private var introVisible = true
+    @State private var badgeToCelebrate: BadgeDefinition?
+    @State private var liveFlowerHeads: [String: CGPoint] = [:]
+    @AppStorage(AppLanguage.storageKey) private var language = "system"
     let goals: [Goal]
     let onStartHabit: ((Goal) -> Void)?
     let onIntroVisibilityChange: ((Bool) -> Void)?
     let onSharePhoto: ((UIImage) -> Void)?
+    let usesSideNavigation: Bool
+    let navigationFrame: CGRect
 
     init(
         goals: [Goal] = [],
         onStartHabit: ((Goal) -> Void)? = nil,
         onIntroVisibilityChange: ((Bool) -> Void)? = nil,
-        onSharePhoto: ((UIImage) -> Void)? = nil
+        onSharePhoto: ((UIImage) -> Void)? = nil,
+        usesSideNavigation: Bool = false,
+        navigationFrame: CGRect = .zero
     ) {
         self.goals = goals
         self.onStartHabit = onStartHabit
         self.onIntroVisibilityChange = onIntroVisibilityChange
         self.onSharePhoto = onSharePhoto
+        self.usesSideNavigation = usesSideNavigation
+        self.navigationFrame = navigationFrame
         _viewModel = StateObject(wrappedValue: GardenHabitViewModel(goals: goals))
+        _introVisible = State(initialValue: !GardenIntroPlaybackSession.hasPlayedInCurrentAppSession && !DevelopmentLaunch.contains("--skip-intro"))
     }
 
     var body: some View {
@@ -33,11 +51,11 @@ struct GardenView: View {
                 GardenStudioView(
                     embedded: true,
                     plantProgress: Dictionary(uniqueKeysWithValues: viewModel.items.map {
-                        ($0.record.species, HabitPlantGrowth.progress($0.growthValue))
+                        ($0.record.species, displayedProgress(for: $0))
                     }),
                     visibleFlora: Set(viewModel.items.map(\.record.species)),
                     habitNames: Dictionary(uniqueKeysWithValues: viewModel.items.map {
-                        ($0.record.species, $0.habit.previewTitle)
+                        ($0.record.species, AppLanguage.text($0.habit.previewTitle))
                     }),
                     onSelectFlora: { flora in
                         if let item = viewModel.items.first(where: { $0.record.species == flora.rawValue }) {
@@ -48,7 +66,10 @@ struct GardenView: View {
                         introVisible = isVisible
                         onIntroVisibilityChange?(isVisible)
                     },
-                    onSharePhoto: onSharePhoto
+                    onSharePhoto: onSharePhoto,
+                    onFlowerHeadsChange: { positions in
+                        if celebration != nil { liveFlowerHeads = positions }
+                    }
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
 
@@ -61,12 +82,22 @@ struct GardenView: View {
                         .animation(.easeOut(duration: 0.5), value: introVisible)
                 } else {
                     HabitFlowerProgressCarouselStrip(viewModel: viewModel)
+                        .frame(maxWidth: max(1, min(proxy.size.width - 48, UIDevice.current.userInterfaceIdiom == .pad ? 520 : (usesSideNavigation ? 600 : 700))))
+                        .frame(maxWidth: .infinity)
                         // The stage now fills beneath the persistent navigation bar.
                         // Keep this content above it without shrinking the stage.
-                        .padding(.bottom, 102)
+                        .padding(.bottom, usesSideNavigation ? 22 : (navigationFrame.height > 0 ? max(0, proxy.frame(in: .global).maxY - navigationFrame.minY) + 12 : 112))
                         .opacity(introVisible ? 0 : 1)
                         .allowsHitTesting(!introVisible)
                         .animation(.easeOut(duration: 0.5), value: introVisible)
+                }
+
+                if let item = celebration {
+                    let layout = PosyBouquetLayout.arrangement.first { $0.type.rawValue == item.record.species }
+                    let x = proxy.size.width * (layout?.normX ?? 0.5)
+                    let y = proxy.size.height * 0.65 - (layout?.height ?? 180) * 0.7
+                    StageBloomGlow(level: item.targetLevel, expansion: glowScale, opacity: glowOpacity)
+                        .position(liveFlowerHeads[item.record.species] ?? CGPoint(x: x, y: y)).zIndex(1000)
                 }
 
                 if let error = viewModel.dataError {
@@ -81,9 +112,24 @@ struct GardenView: View {
         }
         // Let the garden, its door transition, and touch particles paint through the entire screen.
         .ignoresSafeArea(.container, edges: .all)
+        .fullScreenCover(item: $badgeToCelebrate) { badge in
+            BadgeUnlockCelebration(badge: badge) {
+                do { try BadgeProgressStore().markPresented(badge.id); badgeToCelebrate = nil }
+                catch { viewModel.dataError = String(format: AppLanguage.text("保存徽章状态失败：%@"), error.localizedDescription) }
+            }
+        }
         .task {
+            do { _ = try BadgeProgressStore().refresh() }
+            catch { viewModel.dataError = String(format: AppLanguage.text("读取徽章失败：%@"), error.localizedDescription) }
             while !Task.isCancelled {
                 viewModel.loadHabitsAndFlowers(goals: goals)
+                if !introVisible && celebration == nil && badgeToCelebrate == nil {
+                    do {
+                        if let id = try BadgeProgressStore().pending() {
+                            badgeToCelebrate = try BadgeCatalog.load().first { $0.id == id }
+                        } else { await celebrateNextStage() }
+                    } catch { viewModel.dataError = String(format: AppLanguage.text("读取徽章失败：%@"), error.localizedDescription) }
+                }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }
@@ -91,6 +137,56 @@ struct GardenView: View {
             if phase == .active { viewModel.loadHabitsAndFlowers(goals: goals) }
         }
     }
+    private func displayedProgress(for item: HabitGardenItem) -> Double {
+        guard celebration?.id == item.id, !showNewStage else { return HabitPlantGrowth.progress(item.growthValue) }
+        let threshold = [0, 3, 10, 25, 60][min(4, max(0, item.targetLevel))]
+        return HabitPlantGrowth.progress(max(0, threshold - 1))
+    }
+
+    private func stageTint(_ level: Int) -> Color {
+        switch level {
+        case 1: Color(red: 0.73, green: 0.94, blue: 0.73)
+        case 2: Color(red: 0.89, green: 0.86, blue: 1.0)
+        case 3: Color(red: 1.0, green: 0.72, blue: 0.85)
+        default: Color(red: 1.0, green: 0.85, blue: 0.55)
+        }
+    }
+
+    @MainActor private func celebrateNextStage() async {
+        let defaults = UserDefaults.standard
+        let current = Dictionary(uniqueKeysWithValues: viewModel.items.map { ($0.id, $0.targetLevel) })
+        guard var saved = defaults.dictionary(forKey: stageBaselineKey) as? [String: Int] else {
+            defaults.set(current, forKey: stageBaselineKey)
+            return
+        }
+        // New habits begin at seed; do not replay old achievements on first install.
+        for (id, level) in current where saved[id] == nil { saved[id] = min(level, 0) }
+        for (id, level) in current where level < (saved[id] ?? level) { saved[id] = level }
+        guard let item = viewModel.items.first(where: { $0.targetLevel > (saved[$0.id] ?? $0.targetLevel) }) else {
+            defaults.set(saved, forKey: stageBaselineKey)
+            return
+        }
+        celebration = item
+        showNewStage = false
+        glowScale = reduceMotion ? 2.5 : 0.08
+        glowOpacity = 0
+        let sounds: [AppSoundFeedback.Kind] = [.stageSprout, .stageGrow, .stageBloom, .stageFlourish]
+        stageSound.play(sounds[min(3, max(0, item.targetLevel - 1))], enabled: soundEnabled)
+        withAnimation(.easeOut(duration: reduceMotion ? 0.2 : 0.8)) { glowOpacity = 0.75; glowScale = reduceMotion ? 0.9 : 0.55 }
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 200 : 800))
+        guard !Task.isCancelled else { return }
+        showNewStage = true
+        withAnimation(.easeInOut(duration: reduceMotion ? 0.25 : 1.5)) { glowScale = reduceMotion ? 0.9 : 2.5; glowOpacity = 0.5 }
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 250 : 1500))
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeOut(duration: 0.8)) { glowOpacity = 0 }
+        try? await Task.sleep(for: .milliseconds(800))
+        guard !Task.isCancelled else { return }
+        saved[item.id] = item.targetLevel
+        defaults.set(saved, forKey: stageBaselineKey)
+        celebration = nil
+    }
+
 }
 
 private struct EmptyGardenBloomHint: View {
@@ -100,7 +196,7 @@ private struct EmptyGardenBloomHint: View {
     private let ink = Color(red: 1, green: 0.95, blue: 0.97)
 
     var body: some View {
-        Text("你的坚持和付出\n终会破土开出花朵")
+        Text(AppLanguage.text("你的坚持和付出\n终会破土开出花朵"))
             .font(.system(size: 18.7, weight: .heavy))
             .lineLimit(2)
             .multilineTextAlignment(.center)
@@ -160,6 +256,7 @@ private struct UnifiedLiquidGardenBackground: View {
 private struct HabitFlowerProgressCarouselStrip: View {
     @ObservedObject var viewModel: GardenHabitViewModel
     @State private var currentIndex: Int = 0
+    @State private var initialized = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -173,6 +270,12 @@ private struct HabitFlowerProgressCarouselStrip: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(height: 104)
+            .onAppear {
+                if let index = viewModel.items.firstIndex(where: { $0.id == viewModel.focusedHabitId }) {
+                    currentIndex = index
+                }
+                initialized = true
+            }
             .onChange(of: currentIndex) { _, newIdx in
                 if newIdx >= 0 && newIdx < viewModel.items.count {
                     let item = viewModel.items[newIdx]
@@ -183,7 +286,8 @@ private struct HabitFlowerProgressCarouselStrip: View {
             }
             .onChange(of: viewModel.focusedHabitId) { _, id in
                 if let index = viewModel.items.firstIndex(where: { $0.id == id }), index != currentIndex {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { currentIndex = index }
+                    if initialized { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { currentIndex = index } }
+                    else { currentIndex = index }
                 }
             }
 
@@ -233,13 +337,13 @@ private struct HabitProgressGlassCard: View {
                 // Habit Title & Species Info
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(item.habit.previewTitle)
+                        Text(AppLanguage.text(item.habit.previewTitle))
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(Color(red: 0.22, green: 0.18, blue: 0.22))
                             .lineLimit(1)
 
                         // Stage Badge Pill
-                        Text("Lv.\(item.targetLevel) \(item.speciesChineseName)")
+                        Text("Lv.\(item.targetLevel) \(AppLanguage.text(item.speciesChineseName))")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(detailAccent)
                             .brightness(0.10)
@@ -281,7 +385,7 @@ private struct HabitProgressGlassCard: View {
                 .frame(height: 6)
 
                 HStack {
-                    Text("打卡 \(item.completions) 次 · 积分 \(item.points) · 养成值 \(item.growthValue)")
+                    Text(String(format: AppLanguage.text("打卡 %lld 次 · 积分 %lld · 养成值 %lld"), item.completions, item.points, item.growthValue))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(detailAccent)
                         .saturation(0.50)
@@ -317,7 +421,7 @@ private struct GardenTopBar: View {
 
     var body: some View {
         HStack {
-            Text("POSY")
+            Text("MAYBII")
                 .font(.system(size: 18, weight: .semibold, design: .serif))
                 .tracking(3)
                 .foregroundStyle(Color(red: 0.35, green: 0.28, blue: 0.34))
@@ -455,11 +559,11 @@ private struct QuickSendPill: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 2) {
-                Text(title)
+                Text(AppLanguage.text(title))
                     .font(.system(size: 14, weight: .medium, design: .serif))
                     .italic()
                     .foregroundStyle(Color.white)
-                Text(meaning)
+                Text(AppLanguage.text(meaning))
                     .font(.system(size: 9))
                     .foregroundStyle(Color.white.opacity(0.8))
             }
@@ -578,15 +682,15 @@ private struct FlowerDetailSheetView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text(recipe.nameZh)
+                        Text(AppLanguage.text(recipe.nameZh))
                             .font(.system(size: 24, weight: .bold))
-                        Text(recipe.tier.displayName)
+                        Text(AppLanguage.text(recipe.tier.displayName))
                             .font(.system(size: 12, weight: .bold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(Color(red: 0.95, green: 0.85, blue: 0.90), in: Capsule())
                     }
-                    Text("对应习惯: \(item.habit.title) · \(item.habit.category)")
+                    Text(String(format: AppLanguage.text("对应习惯: %@ · %@"), AppLanguage.text(item.habit.title), AppLanguage.text(item.habit.category)))
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                 }
@@ -597,15 +701,15 @@ private struct FlowerDetailSheetView: View {
             // Flower stage status
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("当前阶段")
+                    Text(AppLanguage.text("当前阶段"))
                         .font(.system(size: 15, weight: .semibold))
                     Spacer()
-                    Text(item.stageTitle)
+                    Text(AppLanguage.text(item.stageTitle))
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color(red: 0.88, green: 0.28, blue: 0.54))
                 }
 
-                Text(item.stageDescription)
+                Text(AppLanguage.text(item.stageDescription))
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .lineSpacing(3)
@@ -613,9 +717,9 @@ private struct FlowerDetailSheetView: View {
                 Divider()
 
                 HStack {
-                    Label("\(item.points) 培育积分", systemImage: "sparkles")
+                    Label(String(format: AppLanguage.text("%lld 培育积分"), item.points), systemImage: "sparkles")
                     Spacer()
-                    Label("累计完成 \(item.completions) 次", systemImage: "checkmark.circle.fill")
+                    Label(String(format: AppLanguage.text("累计完成 %lld 次"), item.completions), systemImage: "checkmark.circle.fill")
                 }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color(red: 0.38, green: 0.32, blue: 0.36))
@@ -632,7 +736,7 @@ private struct FlowerDetailSheetView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "drop.fill")
-                    Text("浇水培育 (推进等级)")
+                    Text(AppLanguage.text("浇水培育 (推进等级)"))
                 }
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
@@ -664,30 +768,30 @@ private struct GardenCatalogAndRulesSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section(header: Text("7 阶段生命历程 (Garden Levels)")) {
-                    StageRow(level: "3", name: "开花 blooming", desc: "100% 盛开，S档分层绽放、瓣缘发光、冲击波")
-                    StageRow(level: "2", name: "花苞 budding", desc: "70% 茎高，苞衣包紧缓缓鼓胀，呼吸脉动")
-                    StageRow(level: "1", name: "发芽 sprouting", desc: "30% 茎高，两片真叶顶出，轻微晃动")
-                    StageRow(level: "0", name: "埋种 seeded", desc: "6% 茎高，一小撮松土与初生芽尖")
-                    StageRow(level: "-1", name: "枯萎 wilting", desc: "88% 茎高，褪色 45%，垂头 28°")
-                    StageRow(level: "-2", name: "凋谢 faded", desc: "70% 茎高，余瓣落尽，只剩干茎花萼")
-                    StageRow(level: "-3", name: "休眠 gone", desc: "不画花，保留花位，等级回升时原地复活")
+                Section(header: Text(AppLanguage.text("7 阶段生命历程 (Garden Levels)"))) {
+                    StageRow(level: "3", name: AppLanguage.text("开花 blooming"), desc: AppLanguage.text("100% 盛开，S档分层绽放、瓣缘发光、冲击波"))
+                    StageRow(level: "2", name: AppLanguage.text("花苞 budding"), desc: AppLanguage.text("70% 茎高，苞衣包紧缓缓鼓胀，呼吸脉动"))
+                    StageRow(level: "1", name: AppLanguage.text("发芽 sprouting"), desc: AppLanguage.text("30% 茎高，两片真叶顶出，轻微晃动"))
+                    StageRow(level: "0", name: AppLanguage.text("埋种 seeded"), desc: AppLanguage.text("6% 茎高，一小撮松土与初生芽尖"))
+                    StageRow(level: "-1", name: AppLanguage.text("枯萎 wilting"), desc: AppLanguage.text("88% 茎高，褪色 45%，垂头 28°"))
+                    StageRow(level: "-2", name: AppLanguage.text("凋谢 faded"), desc: AppLanguage.text("70% 茎高，余瓣落尽，只剩干茎花萼"))
+                    StageRow(level: "-3", name: AppLanguage.text("休眠 gone"), desc: AppLanguage.text("不画花，保留花位，等级回升时原地复活"))
                 }
 
-                Section(header: Text("12 种程序化花卉配方 (Species)")) {
+                Section(header: Text(AppLanguage.text("12 种程序化花卉配方 (Species)"))) {
                     ForEach(GardenRecipeRegistry.shared.allSpecies) { recipe in
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 6) {
-                                    Text(recipe.nameZh)
+                                    Text(AppLanguage.text(recipe.nameZh))
                                         .font(.system(size: 16, weight: .semibold))
-                                    Text(recipe.tier.displayName)
+                                    Text(AppLanguage.text(recipe.tier.displayName))
                                         .font(.system(size: 11, weight: .bold))
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
                                         .background(Color.pink.opacity(0.12), in: Capsule())
                                 }
-                                Text("结构: \(recipe.archetype.rawValue) · 招牌: \(recipe.signature)")
+                                Text(String(format: AppLanguage.text("结构: %@ · 招牌: %@"), recipe.archetype.rawValue, AppLanguage.text(recipe.signature)))
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                             }
@@ -704,11 +808,11 @@ private struct GardenCatalogAndRulesSheet: View {
                     }
                 }
             }
-            .navigationTitle("花园规格与图鉴")
+            .navigationTitle(AppLanguage.text("花园规格与图鉴"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button(AppLanguage.text("关闭")) { dismiss() }
                 }
             }
         }
@@ -728,9 +832,9 @@ private struct StageRow: View {
                 .foregroundStyle(Color(red: 0.88, green: 0.28, blue: 0.54))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
+                Text(AppLanguage.text(name))
                     .font(.system(size: 14, weight: .semibold))
-                Text(desc)
+                Text(AppLanguage.text(desc))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -749,33 +853,33 @@ private struct GardenMeaningsSheet: View {
                 let recipe = GardenRecipeRegistry.shared.recipe(for: item.record.species)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(item.habit.title)
+                        Text(AppLanguage.text(item.habit.title))
                             .font(.system(size: 16, weight: .semibold))
                         Spacer()
-                        Text(recipe.nameZh)
+                        Text(AppLanguage.text(recipe.nameZh))
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(Color(red: 0.88, green: 0.28, blue: 0.54))
                     }
-                    Text(item.habit.summary)
+                    Text(AppLanguage.text(item.habit.summary))
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                     HStack {
-                        Text("当前生命状态: \(item.stageTitle)")
+                        Text(String(format: AppLanguage.text("当前生命状态: %@"), AppLanguage.text(item.stageTitle)))
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color(red: 0.35, green: 0.55, blue: 0.38))
                         Spacer()
-                        Text("拖拽可重新编排花束位置")
+                        Text(AppLanguage.text("拖拽可重新编排花束位置"))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.vertical, 4)
             }
-            .navigationTitle("花语与习惯寄托")
+            .navigationTitle(AppLanguage.text("花语与习惯寄托"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    Button(AppLanguage.text("完成")) { dismiss() }
                 }
             }
         }

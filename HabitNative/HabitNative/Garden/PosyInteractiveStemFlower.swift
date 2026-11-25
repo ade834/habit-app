@@ -7,6 +7,8 @@ public struct PosyPlantPlacement: Codable, Equatable {
     public var tipOffsetY: Double = 0
     public var restSupportFraction: Double? = nil
     public var windSupportFraction: Double? = nil
+    public var normSaucerX: Double? = nil
+    public var normSaucerY: Double? = nil
 
     // Optional fields keep placements saved before these traits readable.
     mutating func assignSupportIfNeeded() {
@@ -49,13 +51,13 @@ public struct PosyInteractiveStemFlower: View {
     @State private var dragStartTipPos: CGPoint? = nil
     @State private var isDraggingFlower: Bool = false
 
-    // 根部整体植物位置持久偏移 (拖拽根部放手后保留水平位置，垂直可记录区间为上下 10pt)
-    @State private var persistentRootOffsetX: CGFloat = 0.0
-    @State private var persistentRootOffsetY: CGFloat = 0.0
-    @State private var activeRootX: CGFloat? = nil
-    @State private var activeRootY: CGFloat? = nil
-    @State private var dragStartRootX: CGFloat? = nil
-    @State private var dragStartRootY: CGFloat? = nil
+    // 根部整体植物位置持久偏移 (以浅盘椭圆中心与半径归一化 [-1.0, 1.0] 存储，彻底消除折叠屏跨屏形变跳变)
+    @State private var persistentNormSaucerX: CGFloat = 0.0
+    @State private var persistentNormSaucerY: CGFloat = 0.0
+    @State private var activeNormSaucerX: CGFloat? = nil
+    @State private var activeNormSaucerY: CGFloat? = nil
+    @State private var dragStartNormX: CGFloat? = nil
+    @State private var dragStartNormY: CGFloat? = nil
     @State private var isDraggingRoot: Bool = false
 
     @State private var showLabel: Bool = false
@@ -71,6 +73,9 @@ public struct PosyInteractiveStemFlower: View {
 
 
     // MARK: - 迪士尼双击灵动交互 (无论处于植物哪个阶段均生动响应)
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
+    @AppStorage(AppLanguage.storageKey) private var language = "system"
+    @State private var flowerSound = AppSoundFeedback()
     @State private var disneyAnimStartTime: Double? = nil
     @State private var activeDisneyRule: PosyDisneyRule = .dewSplash
     @State private var activeDewDrops: [PosyDewDrop] = []
@@ -120,8 +125,34 @@ public struct PosyInteractiveStemFlower: View {
         self.onPlacementChange = onPlacementChange
         self.habitName = habitName
         self.onSelected = onSelected
-        _persistentRootOffsetX = State(initialValue: CGFloat(initialPlacement.rootOffsetX))
-        _persistentRootOffsetY = State(initialValue: CGFloat(initialPlacement.rootOffsetY))
+
+        let w = canvasSize.width > 0 ? canvasSize.width : (basePosition.x > 0 ? (basePosition.x > 300 ? basePosition.x / 0.5 : 402.0) : 402.0)
+        let saucerRadX = w * 0.66 * 0.48
+        let saucerCentX = w * 0.5
+        let defaultNormX: CGFloat = saucerRadX > 0 ? (basePosition.x - saucerCentX) / saucerRadX : 0.0
+
+        let initNormX: CGFloat = {
+            if let nx = initialPlacement.normSaucerX {
+                return CGFloat(nx)
+            }
+            if abs(initialPlacement.rootOffsetX) > 0.001 && saucerRadX > 0 {
+                let absX = basePosition.x + CGFloat(initialPlacement.rootOffsetX)
+                return max(-1.0, min(1.0, (absX - saucerCentX) / saucerRadX))
+            }
+            return max(-1.0, min(1.0, defaultNormX))
+        }()
+        let initNormY: CGFloat = {
+            if let ny = initialPlacement.normSaucerY {
+                return CGFloat(ny)
+            }
+            if abs(initialPlacement.rootOffsetY) > 0.001 {
+                return max(-1.0, min(1.0, CGFloat(initialPlacement.rootOffsetY) / 10.0))
+            }
+            return 0.0
+        }()
+
+        _persistentNormSaucerX = State(initialValue: initNormX)
+        _persistentNormSaucerY = State(initialValue: initNormY)
         _persistentTipOffset = State(initialValue: CGSize(
             width: CGFloat(initialPlacement.tipOffsetX),
             height: CGFloat(initialPlacement.tipOffsetY)
@@ -129,20 +160,28 @@ public struct PosyInteractiveStemFlower: View {
     }
 
     private var currentPlacement: PosyPlantPlacement {
-        PosyPlantPlacement(
-            rootOffsetX: Double(persistentRootOffsetX),
-            rootOffsetY: Double(persistentRootOffsetY),
+        let w = canvasSize.width > 0 ? canvasSize.width : (basePosition.x > 0 ? (basePosition.x > 300 ? basePosition.x / 0.5 : 402.0) : 402.0)
+        let saucerRadX = w * 0.66 * 0.48
+        let saucerCentX = w * 0.5
+        let currentAbsX = saucerCentX + persistentNormSaucerX * saucerRadX
+        let backwardCompatOffsetX = currentAbsX - basePosition.x
+
+        return PosyPlantPlacement(
+            rootOffsetX: Double(backwardCompatOffsetX),
+            rootOffsetY: Double(persistentNormSaucerY * 10.0),
             tipOffsetX: Double(persistentTipOffset.width),
             tipOffsetY: Double(persistentTipOffset.height),
             restSupportFraction: initialPlacement.restSupportFraction,
-            windSupportFraction: initialPlacement.windSupportFraction
+            windSupportFraction: initialPlacement.windSupportFraction,
+            normSaucerX: Double(persistentNormSaucerX),
+            normSaucerY: Double(persistentNormSaucerY)
         )
     }
 
     public var body: some View {
         let palette = type.palette
-        let screenW = canvasSize.width > 0 ? canvasSize.width : 402.0
-        let screenH = canvasSize.height > 0 ? canvasSize.height : 874.0
+        let screenW = canvasSize.width > 0 ? canvasSize.width : (basePosition.x > 0 ? (basePosition.x > 300 ? basePosition.x / 0.5 : 402.0) : 402.0)
+        let screenH = canvasSize.height > 0 ? canvasSize.height : (basePosition.y > 0 ? basePosition.y / 0.65 : 874.0)
         let safeMargin: CGFloat = 10.0
 
         // 固有形态伪随机化：同一种植物即使多次出现，也会因 seed 拥有独特的茎长与自然弯曲
@@ -175,12 +214,18 @@ public struct PosyInteractiveStemFlower: View {
             isDragging: isAnySelfDragging
         )
 
-        // 1. 浅盘活动范围与茎杆末端 (根部) 实时精准坐标 (底部区域收窄 25%，Y 轴可记录上下 10pt)
-        let minSaucerX: CGFloat = max(safeMargin, screenW * 0.17)
-        let maxSaucerX: CGFloat = min(screenW - safeMargin, screenW * 0.83)
+        // 1. 浅盘活动范围与茎杆末端 (根部) 实时精准坐标 (基于浅盘椭圆所处位置比例严格归一化锚定，杜绝跨屏跳变)
+        let saucerW: CGFloat = screenW * 0.66
+        let saucerCenterX: CGFloat = screenW * 0.5
+        let saucerRadiusX: CGFloat = saucerW * 0.48
+        let saucerCenterY: CGFloat = basePosition.y
+        let saucerRadiusY: CGFloat = 10.0
 
-        let currentRootX: CGFloat = activeRootX ?? max(minSaucerX, min(maxSaucerX, basePosition.x + persistentRootOffsetX))
-        let currentRootY: CGFloat = activeRootY ?? max(basePosition.y - 10.0, min(basePosition.y + 10.0, basePosition.y + persistentRootOffsetY))
+        let effectiveNormX: CGFloat = activeNormSaucerX ?? persistentNormSaucerX
+        let effectiveNormY: CGFloat = activeNormSaucerY ?? persistentNormSaucerY
+
+        let currentRootX: CGFloat = saucerCenterX + max(-1.0, min(1.0, effectiveNormX)) * saucerRadiusX
+        let currentRootY: CGFloat = saucerCenterY + max(-1.0, min(1.0, effectiveNormY)) * saucerRadiusY
         let rootPoint = CGPoint(
             x: currentRootX,
             y: currentRootY
@@ -274,10 +319,11 @@ public struct PosyInteractiveStemFlower: View {
             if type == .dandelion || type == .mimosa || type == .cherryBlossom {
                 return stemTangentAngle
             }
+            if progress < 0.25 {
+                return stemTangentAngle
+            }
             if type == .bayWreath || type == .allium {
-                if progress < 0.25 {
-                    return stemTangentAngle
-                } else if progress < 0.35 {
+                if progress < 0.35 {
                     let blend = (0.35 - progress) / 0.10
                     return stemTangentAngle * blend
                 }
@@ -335,40 +381,35 @@ public struct PosyInteractiveStemFlower: View {
                         withTransaction(tx) {
                             if !isDraggingRoot {
                                 isDraggingRoot = true
-                                dragStartRootX = rootPoint.x
-                                dragStartRootY = rootPoint.y
+                                dragStartNormX = effectiveNormX
+                                dragStartNormY = effectiveNormY
                                 onDragStateChanged?(true)
                             }
-                            let startX = dragStartRootX ?? rootPoint.x
-                            let targetX = startX + value.translation.width
-                            activeRootX = max(minSaucerX, min(maxSaucerX, targetX))
+                            let startNormX = dragStartNormX ?? effectiveNormX
+                            let deltaNormX = saucerRadiusX > 0 ? (value.translation.width / saucerRadiusX) : 0
+                            activeNormSaucerX = max(-1.0, min(1.0, startNormX + deltaNormX))
 
-                            let startY = dragStartRootY ?? rootPoint.y
-                            let targetY = startY + value.translation.height
-                            activeRootY = max(basePosition.y - 10.0, min(basePosition.y + 10.0, targetY))
+                            let startNormY = dragStartNormY ?? effectiveNormY
+                            let deltaNormY = saucerRadiusY > 0 ? (value.translation.height / saucerRadiusY) : 0
+                            activeNormSaucerY = max(-1.0, min(1.0, startNormY + deltaNormY))
                         }
                     }
                     .onEnded { value in
                         var tx = Transaction()
                         tx.disablesAnimations = true
                         withTransaction(tx) {
-                            let startX = dragStartRootX ?? rootPoint.x
-                            let targetX = startX + value.translation.width
-                            let finalRootX = max(minSaucerX, min(maxSaucerX, targetX))
-                            let deltaRootX = finalRootX - (basePosition.x + persistentRootOffsetX)
-                            persistentRootOffsetX += deltaRootX
+                            let startNormX = dragStartNormX ?? effectiveNormX
+                            let deltaNormX = saucerRadiusX > 0 ? (value.translation.width / saucerRadiusX) : 0
+                            persistentNormSaucerX = max(-1.0, min(1.0, startNormX + deltaNormX))
 
-                            let startY = dragStartRootY ?? rootPoint.y
-                            let targetY = startY + value.translation.height
-                            let finalRootY = max(basePosition.y - 10.0, min(basePosition.y + 10.0, targetY))
-                            let deltaRootY = finalRootY - (basePosition.y + persistentRootOffsetY)
-                            persistentRootOffsetY += deltaRootY
+                            let startNormY = dragStartNormY ?? effectiveNormY
+                            let deltaNormY = saucerRadiusY > 0 ? (value.translation.height / saucerRadiusY) : 0
+                            persistentNormSaucerY = max(-1.0, min(1.0, startNormY + deltaNormY))
 
-                            // 下端移动时上端保持相对形态与下端整体平移，无需对冲 persistentTipOffset
-                            activeRootX = nil
-                            activeRootY = nil
-                            dragStartRootX = nil
-                            dragStartRootY = nil
+                            activeNormSaucerX = nil
+                            activeNormSaucerY = nil
+                            dragStartNormX = nil
+                            dragStartNormY = nil
                             isDraggingRoot = false
                             onDragStateChanged?(false)
                         }
@@ -395,6 +436,7 @@ public struct PosyInteractiveStemFlower: View {
             )
             .position(tipPoint)
         }
+        .preference(key: FlowerHeadPositionsKey.self, value: [type.rawValue: tipPoint])
         .onChange(of: elapsed) { previousTime, currentTime in
             guard !isAnySelfDragging else {
                 stemWindOffset = 0
@@ -542,11 +584,12 @@ public struct PosyInteractiveStemFlower: View {
             // 雅致标签与花语 (仅在单次点击时平滑展示，拖拽时不触发跳出)
             if showLabel {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(type.titleZh.uppercased())
+                    Text(type.localizedTitle.uppercased())
                         .font(.system(size: 11, weight: .semibold, design: .serif))
                         .tracking(2.0)
                         .foregroundColor(Color(red: 0.25, green: 0.20, blue: 0.25))
-                    Text([habitName, type.meaningZh.components(separatedBy: " (").first].compactMap { $0 }.joined(separator: " · "))
+                    let displayHabitName = habitName.map { AppLanguage.text($0) }
+                    Text([displayHabitName, type.localizedMeaning.components(separatedBy: " (").first].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 10, weight: .regular, design: .serif))
                         .foregroundColor(Color(red: 0.45, green: 0.40, blue: 0.45))
                 }
@@ -570,6 +613,7 @@ public struct PosyInteractiveStemFlower: View {
         .contentShape(Circle())
         .highPriorityGesture(
             TapGesture(count: 2).onEnded {
+                flowerSound.play(.flowerTouch, enabled: soundEffectsEnabled)
                 triggerDisneyReaction(elapsed: elapsed)
             }
         )
@@ -580,6 +624,7 @@ public struct PosyInteractiveStemFlower: View {
                     tx.disablesAnimations = true
                     withTransaction(tx) {
                         if !isDraggingFlower {
+                            flowerSound.play(.flowerTouch, enabled: soundEffectsEnabled)
                             dragReleaseOffset = .zero
                             dragReleaseVelocity = .zero
                             isDraggingFlower = true
@@ -633,6 +678,7 @@ public struct PosyInteractiveStemFlower: View {
                 }
         )
         .onTapGesture(count: 1) {
+            flowerSound.play(showLabel ? .flowerTouch : .flowerInfo, enabled: soundEffectsEnabled)
             triggerDisneyReaction(elapsed: elapsed)
             onSelected?()
             withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
@@ -640,13 +686,26 @@ public struct PosyInteractiveStemFlower: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([type.titleZh, habitName].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityLabel([type.localizedTitle, habitName.map { AppLanguage.text($0) }].compactMap { $0 }.joined(separator: "，"))
         .accessibilityIdentifier("posy-flower-\(type.rawValue)")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
+            flowerSound.play(showLabel ? .flowerTouch : .flowerInfo, enabled: soundEffectsEnabled)
             triggerDisneyReaction(elapsed: elapsed)
             onSelected?()
             showLabel.toggle()
+        }
+        .onChange(of: initialPlacement) { newPlacement in
+            if let nx = newPlacement.normSaucerX {
+                persistentNormSaucerX = CGFloat(nx)
+            }
+            if let ny = newPlacement.normSaucerY {
+                persistentNormSaucerY = CGFloat(ny)
+            }
+            persistentTipOffset = CGSize(
+                width: CGFloat(newPlacement.tipOffsetX),
+                height: CGFloat(newPlacement.tipOffsetY)
+            )
         }
     }
 
@@ -829,6 +888,10 @@ public struct PosyInteractiveStemFlower: View {
         activeDisneyRule = chosenRule
 
         if chosenRule == .dewSplash {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(90))
+                flowerSound.play(.waterDrop, enabled: soundEffectsEnabled)
+            }
             let dropCount = Int.random(in: 3...5)
             var drops: [PosyDewDrop] = []
             for _ in 0..<dropCount {

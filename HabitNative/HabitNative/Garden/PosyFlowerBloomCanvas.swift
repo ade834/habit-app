@@ -57,6 +57,10 @@ public struct PosyFlowerBloomCanvas: View {
             case .cherryBlossom: renderSpecies10(ctx: context, c: center, pal: palette, p: p, b: breath, phase: phase, s: s)
             case .cosmos:        renderSpecies11(ctx: context, c: center, pal: palette, p: p, b: breath, phase: phase, s: s)
             case .nightJasmine:  renderSpecies12(ctx: context, c: center, pal: palette, p: p, b: breath, phase: phase, s: s)
+            case .ginkgo:        renderSpecies13(ctx: context, c: center, pal: palette, p: p, b: breath, phase: phase, s: s)
+            case .iris:          renderSpecies14(ctx: context, c: center, pal: palette, p: p, b: breath, phase: phase, s: s)
+            case .magnolia:      renderSpecies15(ctx: context, c: center, pal: palette, p: p, b: breath, phase: phase, s: s)
+            case .thistle:       renderSpecies16(ctx: context, c: center, pal: palette, p: p, b: breath, phase: phase, s: s)
             }
         }
     }
@@ -168,6 +172,12 @@ public struct PosyFlowerBloomCanvas: View {
                 (0.2, 35.0 * clampedS, 11.0 * clampedS, 9.5 * clampedS, Color(red: 0.28, green: 0.75, blue: 0.78), 0.19),
                 (2.1, 34.0 * clampedS, 11.5 * clampedS, 10.0 * clampedS, Color(red: 0.68, green: 0.48, blue: 0.82), -0.21),
                 (3.9, 37.0 * clampedS, 10.5 * clampedS, 9.0 * clampedS, Color(red: 0.95, green: 0.78, blue: 0.40), 0.15)
+            ]
+        case .magnolia:
+            orbs = [
+                (-0.5, 35.0 * clampedS, 11.0 * clampedS, 9.5 * clampedS, Color(red: 0.85, green: 0.42, blue: 0.52), 0.17),
+                (1.5, 33.0 * clampedS, 10.5 * clampedS, 9.0 * clampedS, Color(red: 0.30, green: 0.68, blue: 0.62), -0.19),
+                (3.4, 36.0 * clampedS, 12.0 * clampedS, 10.5 * clampedS, Color(red: 0.94, green: 0.90, blue: 0.86), 0.16)
             ]
         default:
             orbs = []
@@ -2435,5 +2445,562 @@ public struct PosyFlowerBloomCanvas: View {
             bead.addEllipse(in: CGRect(x: pt.x - 1.2, y: pt.y - 1.2, width: 2.4, height: 2.4))
             ctx.fill(bead, with: .color(Color(red: 0.96, green: 0.86, blue: 0.58)))
         }
+    }
+
+    // =========================================================================
+    // MARK: - 13. 银杏金扇 (Ginkgo / Bifurcated Fan Lattice & Autumn Amber)
+    // =========================================================================
+    private func renderSpecies13(ctx: GraphicsContext, c: CGPoint, pal: PosyPalette, p: Double, b: Double, phase: Double, s: CGFloat) {
+        let goldAmber = Color(red: 0.92, green: 0.74, blue: 0.22)
+        let apricotOrange = Color(red: 0.88, green: 0.50, blue: 0.24)
+        let darkTeal = Color(red: 0.20, green: 0.45, blue: 0.48)
+        let darkStem = Color(red: 0.32, green: 0.42, blue: 0.28)
+
+        if p < 0.25 {
+            drawHaloRings(ctx: ctx, c: c, maxR: 24 * s, count: 3, phase: phase)
+            var stem = Path()
+            stem.move(to: CGPoint(x: c.x, y: c.y + 12 * s))
+            stem.addQuadCurve(to: c, control: CGPoint(x: c.x - 2 * s, y: c.y + 6 * s))
+            ctx.stroke(stem, with: .color(darkStem), lineWidth: 0.75)
+
+            var forkL = Path()
+            forkL.move(to: c)
+            forkL.addQuadCurve(to: CGPoint(x: c.x - 7 * s, y: c.y - 12 * s), control: CGPoint(x: c.x - 5 * s, y: c.y - 6 * s))
+            ctx.stroke(forkL, with: .color(darkStem), lineWidth: 0.65)
+            drawTopologicalNode(ctx: ctx, pt: CGPoint(x: c.x - 7 * s, y: c.y - 12 * s), ringColor: goldAmber, coreColor: darkTeal, r: 2.3 * min(s, 1.35))
+
+            var forkR = Path()
+            forkR.move(to: c)
+            forkR.addQuadCurve(to: CGPoint(x: c.x + 8 * s, y: c.y - 14 * s), control: CGPoint(x: c.x + 6 * s, y: c.y - 6 * s))
+            ctx.stroke(forkR, with: .color(darkStem), lineWidth: 0.65)
+            drawTopologicalNode(ctx: ctx, pt: CGPoint(x: c.x + 8 * s, y: c.y - 14 * s), ringColor: apricotOrange, coreColor: darkTeal, r: 2.5 * min(s, 1.35))
+            return
+        }
+
+        if p < 0.50 {
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y - 8 * s), color: goldAmber, rx: 22 * s, ry: 18 * s, opacity: 0.38)
+            let ribCount = 7
+            let startA = -0.82 * Double.pi
+            let endA = -0.18 * Double.pi
+            var ribPts: [CGPoint] = []
+
+            for i in 0..<ribCount {
+                let frac = Double(i) / Double(ribCount - 1)
+                let a = startA + (endA - startA) * frac
+                let r: CGFloat = 22.0 * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                ribPts.append(pt)
+
+                var rib = Path()
+                rib.move(to: c)
+                rib.addLine(to: pt)
+                ctx.stroke(rib, with: .color(darkStem.opacity(0.80)), lineWidth: 0.60)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: (i % 2 == 0) ? goldAmber : apricotOrange, coreColor: darkTeal, r: 2.2 * min(s, 1.35))
+            }
+
+            var fanArc = Path()
+            fanArc.move(to: c)
+            for pt in ribPts { fanArc.addLine(to: pt) }
+            fanArc.closeSubpath()
+            ctx.fill(fanArc, with: .color(goldAmber.opacity(0.25)))
+            ctx.stroke(fanArc, with: .color(darkTeal.opacity(0.50)), lineWidth: 0.55)
+            return
+        }
+
+        if p < 0.75 {
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x + 6 * s, y: c.y - 10 * s), color: goldAmber, rx: 28 * s, ry: 24 * s, opacity: 0.42)
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x - 8 * s, y: c.y - 6 * s), color: apricotOrange, rx: 22 * s, ry: 18 * s, opacity: 0.32)
+            drawHaloRings(ctx: ctx, c: c, maxR: 34 * s, count: 3, phase: phase)
+
+            let ribCount = 11
+            let startA = -0.85 * Double.pi
+            let endA = -0.15 * Double.pi
+            var rimPts: [CGPoint] = []
+
+            for i in 0..<ribCount {
+                let frac = Double(i) / Double(ribCount - 1)
+                let a = startA + (endA - startA) * frac
+                let centerDip: CGFloat = (i == ribCount / 2) ? -5.0 : 0.0
+                let r: CGFloat = (28.0 + centerDip) * CGFloat(b) * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                rimPts.append(pt)
+
+                var rib = Path()
+                rib.move(to: c)
+                rib.addLine(to: pt)
+                ctx.stroke(rib, with: .color(goldAmber), lineWidth: 0.65)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: goldAmber, coreColor: darkTeal, r: 2.3 * min(s, 1.35))
+            }
+
+            var fan = Path()
+            fan.move(to: c)
+            for pt in rimPts { fan.addLine(to: pt) }
+            fan.closeSubpath()
+            ctx.fill(fan, with: .color(goldAmber.opacity(0.35)))
+
+            for i in 0..<(rimPts.count - 1) {
+                var chord = Path()
+                chord.move(to: rimPts[i])
+                chord.addLine(to: rimPts[i + 1])
+                ctx.stroke(chord, with: .color(apricotOrange.opacity(0.70)), lineWidth: 0.55)
+            }
+            return
+        }
+
+        // Stage 4
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x + 8 * s, y: c.y - 12 * s), color: goldAmber, rx: 36 * s, ry: 30 * s, opacity: 0.48)
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x - 10 * s, y: c.y - 4 * s), color: apricotOrange, rx: 30 * s, ry: 24 * s, opacity: 0.36)
+        drawGlowBlob(ctx: ctx, c: c, color: darkTeal, rx: 14 * s, ry: 12 * s, opacity: 0.28)
+        drawHaloRings(ctx: ctx, c: c, maxR: 42 * s, count: 3, phase: phase)
+
+        let ribCount4 = 15
+        let startA4 = -0.88 * Double.pi
+        let endA4 = -0.12 * Double.pi
+        var rimPts4: [CGPoint] = []
+
+        for i in 0..<ribCount4 {
+            let petalScale = computeSequentialPetalScale(index: i, total: ribCount4, phase: phase, progress: p, isCircular: false)
+            let frac = Double(i) / Double(ribCount4 - 1)
+            let a = startA4 + (endA4 - startA4) * frac
+            let notch = (i == 7) ? -7.0 : ((abs(i - 7) == 1) ? -3.5 : 0.0)
+            let shimmer = sin(phase * 2.2 + Double(i) * 0.7) * 1.5
+            let r: CGFloat = (36.0 + CGFloat(notch) + CGFloat(shimmer)) * CGFloat(b) * s * petalScale
+            let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+            rimPts4.append(pt)
+
+            var rib = Path()
+            rib.move(to: c)
+            rib.addLine(to: pt)
+            ctx.stroke(rib, with: .color(goldAmber), lineWidth: 0.65)
+
+            if i % 2 == 1 {
+                let midPt = CGPoint(x: (c.x + pt.x) * 0.5, y: (c.y + pt.y) * 0.5)
+                let subAngle = a + 0.08
+                let subPt = CGPoint(x: midPt.x + CGFloat(cos(subAngle)) * 14.0 * s, y: midPt.y + CGFloat(sin(subAngle)) * 14.0 * s)
+                var subRib = Path()
+                subRib.move(to: midPt)
+                subRib.addLine(to: subPt)
+                ctx.stroke(subRib, with: .color(apricotOrange.opacity(0.60)), lineWidth: 0.45)
+            }
+
+            drawTopologicalNode(ctx: ctx, pt: pt, ringColor: (i % 2 == 0) ? goldAmber : apricotOrange, coreColor: darkTeal, r: 2.5 * min(s, 1.35) * min(1.3, petalScale))
+        }
+
+        var fullFan = Path()
+        fullFan.move(to: c)
+        for pt in rimPts4 { fullFan.addLine(to: pt) }
+        fullFan.closeSubpath()
+        ctx.fill(fullFan, with: .color(goldAmber.opacity(0.32)))
+
+        for i in 0..<(rimPts4.count - 1) {
+            var waveEdge = Path()
+            let p1 = rimPts4[i]
+            let p2 = rimPts4[i + 1]
+            let mid = CGPoint(x: (p1.x + p2.x) * 0.5, y: (p1.y + p2.y) * 0.5 - 2.0 * s)
+            waveEdge.move(to: p1)
+            waveEdge.addQuadCurve(to: p2, control: mid)
+            ctx.stroke(waveEdge, with: .color(apricotOrange), lineWidth: 0.60)
+        }
+
+        var petiole = Path()
+        let petioleR: CGFloat = 5.0 * min(s, 1.35)
+        petiole.addEllipse(in: CGRect(x: c.x - petioleR, y: c.y - petioleR, width: petioleR * 2, height: petioleR * 2))
+        ctx.fill(petiole, with: .color(darkTeal.opacity(0.90)))
+        ctx.stroke(petiole, with: .color(goldAmber), lineWidth: 0.70)
+
+        drawFloatingAuraLines(ctx: ctx, c: c, s: s, phase: phase, colors: [goldAmber, apricotOrange], crownTopY: c.y - 36 * s)
+    }
+
+    // =========================================================================
+    // MARK: - 14. 晶棱鸢尾 (Iris / Trigonal Prism Lattice & Royal Violet)
+    // =========================================================================
+    private func renderSpecies14(ctx: GraphicsContext, c: CGPoint, pal: PosyPalette, p: Double, b: Double, phase: Double, s: CGFloat) {
+        let twilightPlum = Color(red: 0.42, green: 0.28, blue: 0.68)
+        let moonViolet = Color(red: 0.62, green: 0.58, blue: 0.85)
+        let lemonGold = Color(red: 0.95, green: 0.88, blue: 0.28)
+        let darkStem = Color(red: 0.24, green: 0.20, blue: 0.32)
+
+        if p < 0.25 {
+            drawHaloRings(ctx: ctx, c: c, maxR: 24 * s, count: 3, phase: phase)
+
+            for i in 0..<3 {
+                let a = Double(i) * (2.0 * Double.pi / 3.0) - Double.pi / 2.0
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * 14.0 * s, y: c.y + CGFloat(sin(a)) * 14.0 * s)
+                var spire = Path()
+                spire.move(to: c)
+                spire.addLine(to: pt)
+                ctx.stroke(spire, with: .color(pal.stem), lineWidth: 0.75)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: moonViolet, coreColor: twilightPlum, r: 2.3 * min(s, 1.35))
+            }
+            return
+        }
+
+        if p < 0.50 {
+            drawGlowBlob(ctx: ctx, c: c, color: twilightPlum, rx: 22 * s, ry: 20 * s, opacity: 0.38)
+            var triPts: [CGPoint] = []
+            for i in 0..<3 {
+                let a = Double(i) * (2.0 * Double.pi / 3.0) - Double.pi / 2.0
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * 22.0 * s, y: c.y + CGFloat(sin(a)) * 22.0 * s)
+                triPts.append(pt)
+                var ray = Path()
+                ray.move(to: c)
+                ray.addLine(to: pt)
+                ctx.stroke(ray, with: .color(twilightPlum), lineWidth: 0.65)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: lemonGold, coreColor: twilightPlum, r: 2.4 * min(s, 1.35))
+            }
+            for i in 0..<3 {
+                var chord = Path()
+                chord.move(to: triPts[i])
+                chord.addLine(to: triPts[(i + 1) % 3])
+                ctx.stroke(chord, with: .color(moonViolet.opacity(0.70)), lineWidth: 0.55)
+            }
+            return
+        }
+
+        if p < 0.75 {
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y + 6 * s), color: twilightPlum, rx: 26 * s, ry: 22 * s, opacity: 0.42)
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y - 8 * s), color: moonViolet, rx: 24 * s, ry: 20 * s, opacity: 0.35)
+            drawHaloRings(ctx: ctx, c: c, maxR: 36 * s, count: 3, phase: phase)
+
+            for i in 0..<3 {
+                let baseAngle = Double(i) * (2.0 * Double.pi / 3.0)
+                let fallA = baseAngle + Double.pi / 2.0
+                let fallPt = CGPoint(x: c.x + CGFloat(cos(fallA)) * 26.0 * CGFloat(b) * s, y: c.y + CGFloat(sin(fallA)) * 26.0 * CGFloat(b) * s)
+                var fall = Path()
+                fall.move(to: c)
+                fall.addQuadCurve(to: fallPt, control: CGPoint(x: c.x + CGFloat(cos(fallA)) * 14.0 * s, y: c.y + CGFloat(sin(fallA)) * 14.0 * s + 6.0 * s))
+                ctx.stroke(fall, with: .color(twilightPlum), lineWidth: 0.70)
+                drawTopologicalNode(ctx: ctx, pt: fallPt, ringColor: lemonGold, coreColor: twilightPlum, r: 2.4 * min(s, 1.35))
+
+                let standA = baseAngle - Double.pi / 6.0
+                let standPt = CGPoint(x: c.x + CGFloat(cos(standA)) * 20.0 * CGFloat(b) * s, y: c.y + CGFloat(sin(standA)) * 20.0 * CGFloat(b) * s)
+                var stand = Path()
+                stand.move(to: c)
+                stand.addLine(to: standPt)
+                ctx.stroke(stand, with: .color(moonViolet), lineWidth: 0.60)
+                drawTopologicalNode(ctx: ctx, pt: standPt, ringColor: moonViolet, coreColor: lemonGold, r: 2.0 * min(s, 1.35))
+            }
+            return
+        }
+
+        // Stage 4
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y - 10 * s), color: moonViolet, rx: 32 * s, ry: 28 * s, opacity: 0.45)
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y + 10 * s), color: twilightPlum, rx: 34 * s, ry: 30 * s, opacity: 0.48)
+        drawGlowBlob(ctx: ctx, c: c, color: lemonGold, rx: 16 * s, ry: 16 * s, opacity: 0.50)
+        drawHaloRings(ctx: ctx, c: c, maxR: 42 * s, count: 3, phase: phase)
+
+        let totalPetals = 6
+        var outerPts: [CGPoint] = []
+
+        for i in 0..<totalPetals {
+            let petalScale = computeSequentialPetalScale(index: i, total: totalPetals, phase: phase, progress: p, isCircular: true)
+            let a = Double(i) * (2.0 * Double.pi / Double(totalPetals)) - Double.pi / 2.0
+            let isFall = (i % 2 == 0)
+            let stretch: CGFloat = (isFall ? 36.0 : 26.0) * CGFloat(b) * s * petalScale
+            let pt = CGPoint(x: c.x + CGFloat(cos(a)) * stretch, y: c.y + CGFloat(sin(a)) * stretch)
+            outerPts.append(pt)
+
+            var petal = Path()
+            petal.move(to: c)
+            let sideOffset: CGFloat = isFall ? 12.0 * s : 8.0 * s
+            let cp1 = CGPoint(x: c.x + CGFloat(cos(a - 0.3)) * sideOffset, y: c.y + CGFloat(sin(a - 0.3)) * sideOffset)
+            let cp2 = CGPoint(x: c.x + CGFloat(cos(a + 0.3)) * sideOffset, y: c.y + CGFloat(sin(a + 0.3)) * sideOffset)
+            petal.addQuadCurve(to: pt, control: cp1)
+            petal.addQuadCurve(to: c, control: cp2)
+            ctx.fill(petal, with: .color(isFall ? twilightPlum.opacity(0.35) : moonViolet.opacity(0.30)))
+            ctx.stroke(petal, with: .color(isFall ? twilightPlum : moonViolet), lineWidth: 0.65)
+
+            if isFall {
+                var beard = Path()
+                beard.move(to: c)
+                beard.addLine(to: CGPoint(x: c.x + CGFloat(cos(a)) * stretch * 0.65, y: c.y + CGFloat(sin(a)) * stretch * 0.65))
+                ctx.stroke(beard, with: .color(lemonGold), lineWidth: 0.75)
+            }
+
+            drawTopologicalNode(ctx: ctx, pt: pt, ringColor: isFall ? lemonGold : moonViolet, coreColor: twilightPlum, r: 2.5 * min(s, 1.35) * min(1.3, petalScale))
+        }
+
+        for i in 0..<totalPetals {
+            var chord = Path()
+            chord.move(to: outerPts[i])
+            chord.addLine(to: outerPts[(i + 2) % totalPetals])
+            ctx.stroke(chord, with: .color(lemonGold.opacity(0.55)), lineWidth: 0.50)
+        }
+
+        var core = Path()
+        let coreR: CGFloat = 5.0 * min(s, 1.35)
+        core.addEllipse(in: CGRect(x: c.x - coreR, y: c.y - coreR, width: coreR * 2, height: coreR * 2))
+        ctx.fill(core, with: .color(lemonGold))
+        ctx.stroke(core, with: .color(darkStem), lineWidth: 0.70)
+
+        drawSatelliteDots(ctx: ctx, c: c, r: 38.0 * s, count: 12, colors: [lemonGold, moonViolet], phase: phase)
+    }
+
+    // =========================================================================
+    // MARK: - 15. 雪霁玉兰 (Magnolia / Spiral Chalice & Porcelain Rose Aura)
+    // =========================================================================
+    private func renderSpecies15(ctx: GraphicsContext, c: CGPoint, pal: PosyPalette, p: Double, b: Double, phase: Double, s: CGFloat) {
+        let duskPink = Color(red: 0.85, green: 0.42, blue: 0.52)
+        let jadeWhite = Color(red: 0.94, green: 0.90, blue: 0.86)
+        let seaTurquoise = Color(red: 0.30, green: 0.68, blue: 0.62)
+        let darkStem = Color(red: 0.30, green: 0.38, blue: 0.32)
+
+        if p < 0.25 {
+            let budCenter = CGPoint(x: c.x, y: c.y - 12 * s)
+            drawHaloRings(ctx: ctx, c: budCenter, maxR: 24 * s, count: 3, phase: phase)
+
+            var calyxL = Path()
+            calyxL.move(to: c)
+            calyxL.addQuadCurve(to: CGPoint(x: c.x - 6 * s, y: c.y - 16 * s), control: CGPoint(x: c.x - 7 * s, y: c.y - 7 * s))
+            ctx.stroke(calyxL, with: .color(pal.stem), lineWidth: 0.85)
+
+            var calyxR = Path()
+            calyxR.move(to: c)
+            calyxR.addQuadCurve(to: CGPoint(x: c.x + 6 * s, y: c.y - 18 * s), control: CGPoint(x: c.x + 7 * s, y: c.y - 7 * s))
+            ctx.stroke(calyxR, with: .color(pal.stem), lineWidth: 0.85)
+
+            drawTopologicalNode(ctx: ctx, pt: CGPoint(x: c.x - 6 * s, y: c.y - 16 * s), ringColor: seaTurquoise, coreColor: duskPink, r: 2.3 * min(s, 1.35))
+            drawTopologicalNode(ctx: ctx, pt: CGPoint(x: c.x + 6 * s, y: c.y - 18 * s), ringColor: duskPink, coreColor: jadeWhite, r: 2.5 * min(s, 1.35))
+            return
+        }
+
+        if p < 0.50 {
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y - 6 * s), color: duskPink, rx: 24 * s, ry: 20 * s, opacity: 0.38)
+            let petalCount = 6
+            var tips: [CGPoint] = []
+            for i in 0..<petalCount {
+                let a = Double(i) / Double(petalCount) * Double.pi * 2.0 - Double.pi / 2.0
+                let r: CGFloat = 24.0 * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                tips.append(pt)
+
+                var petal = Path()
+                petal.move(to: c)
+                petal.addLine(to: pt)
+                ctx.stroke(petal, with: .color(darkStem.opacity(0.70)), lineWidth: 0.60)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: duskPink, coreColor: jadeWhite, r: 2.4 * min(s, 1.35))
+            }
+            for i in 0..<petalCount {
+                var arc = Path()
+                arc.move(to: tips[i])
+                arc.addLine(to: tips[(i + 1) % petalCount])
+                ctx.stroke(arc, with: .color(duskPink.opacity(0.60)), lineWidth: 0.55)
+            }
+            return
+        }
+
+        if p < 0.75 {
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y - 10 * s), color: jadeWhite, rx: 30 * s, ry: 26 * s, opacity: 0.42)
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y + 6 * s), color: duskPink, rx: 28 * s, ry: 24 * s, opacity: 0.40)
+            drawHaloRings(ctx: ctx, c: c, maxR: 38 * s, count: 3, phase: phase)
+
+            let count3 = 9
+            var pts3: [CGPoint] = []
+            for i in 0..<count3 {
+                let a = Double(i) / Double(count3) * Double.pi * 2.0 - Double.pi / 2.0
+                let r: CGFloat = (i % 2 == 0 ? 30.0 : 22.0) * CGFloat(b) * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                pts3.append(pt)
+
+                var ray = Path()
+                ray.move(to: c)
+                ray.addLine(to: pt)
+                ctx.stroke(ray, with: .color(duskPink), lineWidth: 0.65)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: duskPink, coreColor: seaTurquoise, r: 2.5 * min(s, 1.35))
+            }
+            for i in 0..<count3 {
+                var chord = Path()
+                chord.move(to: pts3[i])
+                chord.addLine(to: pts3[(i + 1) % count3])
+                ctx.stroke(chord, with: .color(seaTurquoise.opacity(0.60)), lineWidth: 0.50)
+            }
+            return
+        }
+
+        // Stage 4 (Giant Flora scale 0.80)
+        let s4: CGFloat = s * 0.80
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x + 8 * s4, y: c.y - 12 * s4), color: jadeWhite, rx: 40 * s4, ry: 34 * s4, opacity: 0.50)
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x - 10 * s4, y: c.y + 8 * s4), color: duskPink, rx: 38 * s4, ry: 32 * s4, opacity: 0.48)
+        drawGlowBlob(ctx: ctx, c: c, color: seaTurquoise, rx: 18 * s4, ry: 18 * s4, opacity: 0.35)
+        drawHaloRings(ctx: ctx, c: c, maxR: 44 * s4, count: 4, phase: phase)
+
+        let count4 = 12
+        var petalPts: [CGPoint] = []
+
+        for i in 0..<count4 {
+            let petalScale = computeSequentialPetalScale(index: i, total: count4, phase: phase, progress: p, isCircular: true)
+            let a = Double(i) / Double(count4) * Double.pi * 2.0 - Double.pi / 2.0
+            let isOuter = (i % 2 == 0)
+            let stretch: CGFloat = (isOuter ? 36.0 : 26.0) * CGFloat(b) * s4 * petalScale
+            let pt = CGPoint(x: c.x + CGFloat(cos(a)) * stretch, y: c.y + CGFloat(sin(a)) * stretch)
+            petalPts.append(pt)
+
+            var petal = Path()
+            petal.move(to: c)
+            let cp1 = CGPoint(x: c.x + CGFloat(cos(a - 0.25)) * stretch * 0.6, y: c.y + CGFloat(sin(a - 0.25)) * stretch * 0.6)
+            let cp2 = CGPoint(x: c.x + CGFloat(cos(a + 0.25)) * stretch * 0.6, y: c.y + CGFloat(sin(a + 0.25)) * stretch * 0.6)
+            petal.addQuadCurve(to: pt, control: cp1)
+            petal.addQuadCurve(to: c, control: cp2)
+            ctx.fill(petal, with: .color(isOuter ? duskPink.opacity(0.28) : jadeWhite.opacity(0.40)))
+            ctx.stroke(petal, with: .color(duskPink), lineWidth: 0.65)
+
+            drawTopologicalNode(ctx: ctx, pt: pt, ringColor: isOuter ? duskPink : seaTurquoise, coreColor: jadeWhite, r: 2.6 * min(s4, 1.35) * min(1.3, petalScale))
+        }
+
+        for i in 0..<count4 {
+            var chord = Path()
+            chord.move(to: petalPts[i])
+            chord.addLine(to: petalPts[(i + 1) % count4])
+            ctx.stroke(chord, with: .color(seaTurquoise.opacity(0.55)), lineWidth: 0.50)
+        }
+
+        var core = Path()
+        let coreR: CGFloat = 6.0 * min(s4, 1.35)
+        core.addEllipse(in: CGRect(x: c.x - coreR, y: c.y - coreR, width: coreR * 2, height: coreR * 2))
+        ctx.fill(core, with: .color(seaTurquoise))
+        ctx.stroke(core, with: .color(duskPink), lineWidth: 0.75)
+
+        let beePt = CGPoint(x: c.x + 28 * s4, y: c.y - 26 * s4)
+        drawLittleBee(ctx: ctx, pt: beePt, phase: phase)
+    }
+
+    // =========================================================================
+    // MARK: - 16. 银霜蓟星 (Thistle / Fibonacci Involucre & Aurora Filaments)
+    // =========================================================================
+    private func renderSpecies16(ctx: GraphicsContext, c: CGPoint, pal: PosyPalette, p: Double, b: Double, phase: Double, s: CGFloat) {
+        let glacialBlue = Color(red: 0.32, green: 0.60, blue: 0.72)
+        let auroraViolet = Color(red: 0.72, green: 0.62, blue: 0.78)
+        let pinkGold = Color(red: 0.94, green: 0.76, blue: 0.40)
+        let darkStem = Color(red: 0.22, green: 0.30, blue: 0.36)
+
+        if p < 0.25 {
+            drawHaloRings(ctx: ctx, c: c, maxR: 22 * s, count: 3, phase: phase)
+
+            let budPts = 6
+            var bud = Path()
+            for i in 0..<budPts {
+                let a = Double(i) / Double(budPts) * Double.pi * 2.0 - Double.pi / 2.0
+                let r: CGFloat = 12.0 * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                if i == 0 { bud.move(to: pt) } else { bud.addLine(to: pt) }
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: glacialBlue, coreColor: pal.stem, r: 2.1 * min(s, 1.35))
+            }
+            bud.closeSubpath()
+            ctx.fill(bud, with: .color(glacialBlue.opacity(0.35)))
+            ctx.stroke(bud, with: .color(pal.stem), lineWidth: 0.70)
+            return
+        }
+
+        if p < 0.50 {
+            drawGlowBlob(ctx: ctx, c: c, color: glacialBlue, rx: 20 * s, ry: 18 * s, opacity: 0.38)
+            let scaleCount = 10
+            for i in 0..<scaleCount {
+                let a = Double(i) / Double(scaleCount) * Double.pi * 2.0
+                let r: CGFloat = 18.0 * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                var scaleLine = Path()
+                scaleLine.move(to: c)
+                scaleLine.addLine(to: pt)
+                ctx.stroke(scaleLine, with: .color(glacialBlue), lineWidth: 0.60)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: pinkGold, coreColor: darkStem, r: 2.2 * min(s, 1.35))
+            }
+            for i in 0..<5 {
+                let frac = Double(i) / 4.0
+                let a = -0.75 * Double.pi + frac * 0.5 * Double.pi
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * 24.0 * s, y: c.y + CGFloat(sin(a)) * 24.0 * s)
+                var ray = Path()
+                ray.move(to: c)
+                ray.addLine(to: pt)
+                ctx.stroke(ray, with: .color(auroraViolet), lineWidth: 0.65)
+            }
+            return
+        }
+
+        if p < 0.75 {
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y - 10 * s), color: auroraViolet, rx: 26 * s, ry: 20 * s, opacity: 0.42)
+            drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y + 6 * s), color: glacialBlue, rx: 24 * s, ry: 20 * s, opacity: 0.38)
+            drawHaloRings(ctx: ctx, c: c, maxR: 34 * s, count: 3, phase: phase)
+
+            let scaleCount3 = 14
+            for i in 0..<scaleCount3 {
+                let a = Double(i) / Double(scaleCount3) * Double.pi * 2.0
+                let r: CGFloat = 22.0 * CGFloat(b) * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                var spine = Path()
+                spine.move(to: c)
+                spine.addLine(to: pt)
+                ctx.stroke(spine, with: .color(glacialBlue), lineWidth: 0.60)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: pinkGold, coreColor: glacialBlue, r: 2.2 * min(s, 1.35))
+            }
+
+            for i in 0..<15 {
+                let frac = Double(i) / 14.0
+                let a = -0.85 * Double.pi + frac * 0.70 * Double.pi
+                let r: CGFloat = 30.0 * CGFloat(b) * s
+                let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+                var filament = Path()
+                filament.move(to: c)
+                filament.addLine(to: pt)
+                ctx.stroke(filament, with: .color(auroraViolet), lineWidth: 0.65)
+                drawTopologicalNode(ctx: ctx, pt: pt, ringColor: pinkGold, coreColor: auroraViolet, r: 1.8 * min(s, 1.35))
+            }
+            return
+        }
+
+        // Stage 4
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y - 12 * s), color: auroraViolet, rx: 34 * s, ry: 26 * s, opacity: 0.48)
+        drawGlowBlob(ctx: ctx, c: CGPoint(x: c.x, y: c.y + 8 * s), color: glacialBlue, rx: 30 * s, ry: 26 * s, opacity: 0.40)
+        drawGlowBlob(ctx: ctx, c: c, color: pinkGold, rx: 16 * s, ry: 16 * s, opacity: 0.50)
+        drawHaloRings(ctx: ctx, c: c, maxR: 40 * s, count: 3, phase: phase)
+
+        let basketSpines = 18
+        var basketPts: [CGPoint] = []
+        for i in 0..<basketSpines {
+            let a = Double(i) / Double(basketSpines) * Double.pi * 2.0
+            let r: CGFloat = (i % 2 == 0 ? 24.0 : 18.0) * CGFloat(b) * s
+            let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+            basketPts.append(pt)
+
+            var spine = Path()
+            spine.move(to: c)
+            spine.addLine(to: pt)
+            ctx.stroke(spine, with: .color(glacialBlue), lineWidth: 0.65)
+            drawTopologicalNode(ctx: ctx, pt: pt, ringColor: pinkGold, coreColor: darkStem, r: 2.3 * min(s, 1.35))
+        }
+
+        for i in 0..<basketSpines {
+            var chord = Path()
+            chord.move(to: basketPts[i])
+            chord.addLine(to: basketPts[(i + 1) % basketSpines])
+            ctx.stroke(chord, with: .color(glacialBlue.opacity(0.60)), lineWidth: 0.50)
+        }
+
+        let filamentCount = 21
+        for i in 0..<filamentCount {
+            let petalScale = computeSequentialPetalScale(index: i, total: filamentCount, phase: phase, progress: p, isCircular: false)
+            let frac = Double(i) / Double(filamentCount - 1)
+            let a = -0.88 * Double.pi + frac * 0.76 * Double.pi
+            let shimmer = sin(phase * 2.4 + Double(i) * 0.8) * 1.5
+            let r: CGFloat = (36.0 + CGFloat(shimmer)) * CGFloat(b) * s * petalScale
+            let pt = CGPoint(x: c.x + CGFloat(cos(a)) * r, y: c.y + CGFloat(sin(a)) * r)
+
+            var filament = Path()
+            filament.move(to: c)
+            filament.addLine(to: pt)
+            ctx.stroke(filament, with: .color(auroraViolet), lineWidth: 0.65)
+
+            var tipDot = Path()
+            let tipR: CGFloat = 1.4 * min(s, 1.35)
+            tipDot.addEllipse(in: CGRect(x: pt.x - tipR, y: pt.y - tipR, width: tipR * 2, height: tipR * 2))
+            ctx.fill(tipDot, with: .color(pinkGold.opacity(0.92)))
+        }
+
+        var core = Path()
+        let coreR: CGFloat = 5.2 * min(s, 1.35)
+        core.addEllipse(in: CGRect(x: c.x - coreR, y: c.y - coreR, width: coreR * 2, height: coreR * 2))
+        ctx.fill(core, with: .color(pinkGold))
+        ctx.stroke(core, with: .color(darkStem), lineWidth: 0.75)
+
+        drawFloatingAuraLines(ctx: ctx, c: c, s: s, phase: phase, colors: [auroraViolet, glacialBlue], crownTopY: c.y - 34 * s)
     }
 }

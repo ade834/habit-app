@@ -1,9 +1,8 @@
 import SwiftUI
 
-// The value lives for the app process only. It resets when the app restarts,
-// while later visits to the garden can render without replaying the intro.
-private enum GardenIntroPlaybackSession {
-    static var hasAutomaticallyPlayed = false
+// MARK: - 开场门扉动画状态（进程会话级，单次打开 APP 仅在首次进入花园时播放一次）
+enum GardenIntroPlaybackSession {
+    static var hasPlayedInCurrentAppSession = false
     static var lastSceneSnapshots: [HabitColorTheme: UIImage] = [:]
 }
 
@@ -84,10 +83,12 @@ public struct GardenStudioView: View {
     let onSelectFlora: ((PosyFloraType) -> Void)?
     let onIntroVisibilityChange: ((Bool) -> Void)?
     let onSharePhoto: ((UIImage) -> Void)?
+    let onFlowerHeadsChange: (([String: CGPoint]) -> Void)?
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.habitBackgroundFrame) private var backgroundFrame
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
+    @AppStorage(AppLanguage.storageKey) private var language = "system"
     @State private var selectedFlora: PosyFloraType = .mimosa
     @State private var windSound = AppSoundFeedback()
     @State private var growthProgress: Double = 0.95
@@ -140,13 +141,21 @@ public struct GardenStudioView: View {
     // 电影级门扉漫游入场转场状态
     @State private var introStartTime: Double? = nil        // 漫游起始时间戳 (由首帧或重播驱动)
     @State private var isIntroSkipped: Bool = false         // 用户是否点击跳过
+    @State private var isIntroComplete: Bool = false        // introProgress >= 0.98，用于跨闭包传递
+    @State private var showingTipsOverlay: Bool = false
+    @AppStorage("garden.interactionTips.presented.v3") private var hasShownTipsOverlay: Bool = false
     @State private var cachedStageSnapshot: UIImage? = nil  // 漫游穿门期间静态快照缓存 (闪白前展示，闪白达峰后换入实时动画)
     @State private var plantPlacements: [String: PosyPlantPlacement]
+    @State private var isBadgeGalleryPresented = false
+    @State private var showingGrowthRules = false
+    @State private var previewStageGlow = false
+    @State private var previewStageLevel = 4
+    @State private var previewHeadPositions: [String: CGPoint] = [:]
     @State private var isActionMenuExpanded = false
     @State private var isContinuousWindEnabled = false
     @State private var continuousWindStartTime: Double?
 
-    public init(embedded: Bool = false, plantProgress: [String: Double] = [:], visibleFlora: Set<String> = Set(PosyFloraType.allCases.map(\.rawValue)), habitNames: [String: String] = [:], onSelectFlora: ((PosyFloraType) -> Void)? = nil, onIntroVisibilityChange: ((Bool) -> Void)? = nil, onSharePhoto: ((UIImage) -> Void)? = nil) {
+    public init(embedded: Bool = false, plantProgress: [String: Double] = [:], visibleFlora: Set<String> = Set(PosyFloraType.allCases.map(\.rawValue)), habitNames: [String: String] = [:], onSelectFlora: ((PosyFloraType) -> Void)? = nil, onIntroVisibilityChange: ((Bool) -> Void)? = nil, onSharePhoto: ((UIImage) -> Void)? = nil, onFlowerHeadsChange: (([String: CGPoint]) -> Void)? = nil) {
         self.embedded = embedded
         self.plantProgress = plantProgress
         self.visibleFlora = visibleFlora
@@ -154,16 +163,23 @@ public struct GardenStudioView: View {
         self.onSelectFlora = onSelectFlora
         self.onIntroVisibilityChange = onIntroVisibilityChange
         self.onSharePhoto = onSharePhoto
+        self.onFlowerHeadsChange = onFlowerHeadsChange
         _plantPlacements = State(initialValue: GardenPlantPlacementStore.load(visibleFlora: visibleFlora))
-        if CommandLine.arguments.contains("--skip-intro") {
+        if DevelopmentLaunch.contains("--skip-intro") || GardenIntroPlaybackSession.hasPlayedInCurrentAppSession {
             _isIntroSkipped = State(initialValue: true)
             _introStartTime = State(initialValue: Date().timeIntervalSinceReferenceDate - 10.0)
+        } else {
+            _isIntroSkipped = State(initialValue: false)
+            _introStartTime = State(initialValue: Date().timeIntervalSinceReferenceDate)
         }
     }
 
     public var body: some View {
         GeometryReader { proxy in
             let canvasWidth = proxy.size.width
+            let introCoverageWidth = max(canvasWidth, backgroundFrame.width)
+            let introOrigin = CGPoint(x: backgroundFrame.minX - proxy.frame(in: .global).minX,
+                                      y: backgroundFrame.minY - proxy.frame(in: .global).minY)
             let canvasHeight = proxy.size.height
             let stageFrame = proxy.frame(in: .global)
             let viewport = !backgroundFrame.isEmpty ? backgroundFrame : stageFrame
@@ -311,6 +327,8 @@ public struct GardenStudioView: View {
                         }
                     }
                     .frame(width: canvasWidth, height: canvasHeight)
+                    .scaleEffect(embedded ? 1.08 : 1, anchor: UnitPoint(x: 0.5, y: 0.65))
+                    .offset(y: embedded ? (UIDevice.current.userInterfaceIdiom == .phone ? 67 : 47) : 0)
                     .background(alignment: .topLeading) {
                         if introProgress >= 0.78 {
                             PosyAmbientBokehParticles(
@@ -512,26 +530,44 @@ public struct GardenStudioView: View {
             // Keep the portal out of the ZStack's layout calculation. Its
             // safe-area-spanning bounds used to move the entire live stage
             // when the portal disappeared at the end of the intro.
-            .overlay {
+            .overlay(alignment: .topLeading) {
                 if introProgress < 1.0 {
                     PosyCinematicDoorIntroView(
                         usesLavenderPalette: colorTheme == .lavender,
                         progress: introProgress,
-                        canvasSize: CGSize(width: canvasWidth, height: canvasHeight + proxy.safeAreaInsets.top),
-                        doorLayoutHeight: canvasHeight,
+                        canvasSize: CGSize(width: introCoverageWidth, height: max(canvasHeight, backgroundFrame.height)),
+                        doorLayoutHeight: max(canvasHeight, backgroundFrame.height),
                         interiorSnapshot: cachedStageSnapshot,
                         elapsed: elapsed,
                         safeAreaTop: proxy.safeAreaInsets.top,
+                        safeAreaTrailing: max(resolvedSafeAreaTrailing, viewport.maxX - stageFrame.maxX),
                         onSkip: {
                             skipDoorIntro()
                         }
                     )
-                    .ignoresSafeArea()
+                    .frame(width: introCoverageWidth, height: max(canvasHeight, backgroundFrame.height), alignment: .topLeading)
+                    .offset(x: introOrigin.x, y: introOrigin.y)
                 }
             }
-            .onChange(of: introProgress >= 0.98, initial: true) { _, ready in
-                onIntroVisibilityChange?(!ready)
+        }
+        .overlay {
+            if !embedded {
+                GeometryReader { proxy in
+                    let layout = PosyBouquetLayout.arrangement.first { $0.type == selectedFlora }
+                    let x = isMultiBouquetMode ? proxy.size.width * (layout?.normX ?? 0.5) : proxy.size.width * 0.5
+                    let fallback = CGPoint(x: x, y: proxy.size.height * 0.65 - (layout?.height ?? 180) * 0.7)
+                    StageBloomGlow(level: previewStageLevel, expansion: previewStageGlow ? (reduceMotion ? 0.8 : 2.5) : 0.10, opacity: previewStageGlow ? 0.65 : 0)
+                        .position(previewHeadPositions[selectedFlora.rawValue] ?? fallback)
+                }.allowsHitTesting(false).accessibilityHidden(true)
             }
+        }
+        // MARK: Garden Tips Overlay
+        .overlay {
+            GardenTipsOverlayView(isPresented: $showingTipsOverlay)
+        }
+        .onPreferenceChange(FlowerHeadPositionsKey.self) { positions in
+            if previewStageGlow { previewHeadPositions = positions }
+            onFlowerHeadsChange?(positions)
         }
         .task(id: "\(canvasWidth)_\(canvasHeight)_\(growthProgress)_\(isMultiBouquetMode)_\(selectedFlora.rawValue)_\(studioResetToken)_\(colorTheme.rawValue)_\(plantProgress.sorted(by: { $0.key < $1.key }).description)") {
             updateStageSnapshot(width: canvasWidth, height: canvasHeight)
@@ -544,28 +580,41 @@ public struct GardenStudioView: View {
             if let lastSceneSnapshot = GardenIntroPlaybackSession.lastSceneSnapshots[colorTheme] {
                 cachedStageSnapshot = lastSceneSnapshot
             }
-            if CommandLine.arguments.contains("--skip-intro") {
+            if DevelopmentLaunch.contains("--skip-intro") || GardenIntroPlaybackSession.hasPlayedInCurrentAppSession {
                 isIntroSkipped = true
                 introStartTime = Date().timeIntervalSinceReferenceDate - 10.0
-            } else if introStartTime == nil {
-                if GardenIntroPlaybackSession.hasAutomaticallyPlayed {
-                    isIntroSkipped = true
-                } else {
-                    GardenIntroPlaybackSession.hasAutomaticallyPlayed = true
-                    introStartTime = Date().timeIntervalSinceReferenceDate
+                handleIntroCompletion()
+            } else {
+                isIntroSkipped = false
+                isIntroComplete = false
+                introStartTime = Date().timeIntervalSinceReferenceDate
+                onIntroVisibilityChange?(true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.20) {
+                    handleIntroCompletion()
                 }
             }
             updateStageSnapshot(width: canvasWidth, height: canvasHeight)
 
-            if CommandLine.arguments.contains("--test-wind-right") {
+            if DevelopmentLaunch.contains("--garden-showcase") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    let w = canvasWidth > 50 ? canvasWidth : 393.0
+                    let h = canvasHeight > 50 ? canvasHeight : 852.0
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.25, y: h * 0.28))
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.45, y: h * 0.22))
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.60, y: h * 0.24))
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.75, y: h * 0.30))
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.50, y: h * 0.35))
+                    spawnFloatingParticles(at: CGPoint(x: w * 0.32, y: h * 0.38))
+                }
+            } else if DevelopmentLaunch.contains("--test-wind-right") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     triggerSimulatedWindGust(duration: 5.0, direction: 1.0)
                 }
-            } else if CommandLine.arguments.contains("--test-wind-left") {
+            } else if DevelopmentLaunch.contains("--test-wind-left") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     triggerSimulatedWindGust(duration: 5.0, direction: -1.0)
                 }
-            } else if CommandLine.arguments.contains("--test-tap") {
+            } else if DevelopmentLaunch.contains("--test-tap") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     let w = canvasWidth > 50 ? canvasWidth : 393.0
                     let h = canvasHeight > 50 ? canvasHeight : 852.0
@@ -574,7 +623,7 @@ public struct GardenStudioView: View {
                     spawnFloatingParticles(at: CGPoint(x: w * 0.25, y: 28.0)) // 顶栏状态栏安全区生成
                     spawnFloatingParticles(at: CGPoint(x: w * 0.75, y: h - 35.0)) // 底栏触控条安全区生成
                 }
-            } else if CommandLine.arguments.contains("--test-post-wind-tap") {
+            } else if DevelopmentLaunch.contains("--test-post-wind-tap") {
                 // 1. 先触发 2.5 秒的右向风
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     triggerSimulatedWindGust(duration: 2.5, direction: 1.0)
@@ -594,6 +643,12 @@ public struct GardenStudioView: View {
                 spawnFloatingParticles(at: CGPoint(x: w * 0.32, y: h * 0.35))
                 spawnFloatingParticles(at: CGPoint(x: w * 0.68, y: h * 0.28))
             }
+        }
+        .alert(LocalizedStringKey("growth.rules.title"), isPresented: $showingGrowthRules) {
+            Button(LocalizedStringKey("reminder.done"), role: .cancel) {}
+        } message: { Text(LocalizedStringKey("growth.rules.body")) }
+        .fullScreenCover(isPresented: $isBadgeGalleryPresented) {
+            BadgeGallery()
         }
         .onChange(of: visibleFlora) { _, flora in
             plantPlacements = GardenPlantPlacementStore.registering(flora, in: plantPlacements)
@@ -690,9 +745,10 @@ public struct GardenStudioView: View {
                     }
                 }()
 
+                AnimatedFlowerProgress(progress: growthProgress) { progress in
                 PosyInteractiveStemFlower(
                     type: selectedFlora,
-                    progress: growthProgress,
+                    progress: progress,
                     basePosition: CGPoint(x: canvasWidth * 0.5, y: canvasHeight * 0.65),
                     stemHeight: stemH,
                     ambientSway: singleStemSwayX,
@@ -714,7 +770,7 @@ public struct GardenStudioView: View {
                         GardenPlantPlacementStore.save(plantPlacements)
                     }
                 )
-                .id(studioResetToken)
+                }.id(studioResetToken)
             }
 
             // 点击空白处生成的浅玫红/浅橙带光晕漂浮粒子 (全屏幕渲染，忽略安全范围限制)
@@ -990,9 +1046,10 @@ public struct GardenStudioView: View {
                 }
             }()
 
+            AnimatedFlowerProgress(progress: itemProg) { progress in
             PosyInteractiveStemFlower(
                 type: item.type,
-                progress: itemProg,
+                progress: progress,
                 basePosition: CGPoint(x: canvasWidth * item.normX, y: canvasHeight * 0.65),
                 stemHeight: item.height,
                 ambientSway: stemSway,
@@ -1019,6 +1076,7 @@ public struct GardenStudioView: View {
                     GardenPlantPlacementStore.save(plantPlacements)
                 }
             )
+            }
             .animation(.spring(response: 0.9, dampingFraction: 0.86), value: itemProg)
             .zIndex(selectedFlora == item.type ? 100 : Double(idx))
         }
@@ -1041,63 +1099,104 @@ public struct GardenStudioView: View {
         return 59.0 // 现代全面屏 iPhone 灵动岛安全基线
     }
 
+    private var resolvedSafeAreaTrailing: CGFloat {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive }
+        return scene?.windows.first(where: { $0.isKeyWindow })?.safeAreaInsets.right ?? 0
+    }
+
     // MARK: - 子视图：顶部状态条 (独立图层，严格遵守 Apple HIG 安全范围，不阻挡下方交互)
     @ViewBuilder
     private func topHeaderBar(safeAreaTop: CGFloat, canvasWidth: CGFloat, canvasHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             ZStack(alignment: .trailing) {
-                // 默认顶部栏：左侧标题 + 右侧按钮/菜单
+                // 默认顶部栏：左侧品牌标题 + 右侧常驻功能按钮
                 HStack(alignment: .center, spacing: 8) {
-                    // 左侧品牌标题与副标题（单行防重叠）
+                    // 左侧品牌标题与副标题（固定优先级，彻底防止任何挤压变形）
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("POSY GARDEN")
+                        Text("MAYBII GARDEN")
                             .font(.system(size: 15, weight: .bold, design: .serif))
                             .tracking(1.6)
                             .foregroundColor(colorTheme == .lavender ? Color(red: 0.94, green: 0.89, blue: 1.0) : Color(red: 0.28, green: 0.20, blue: 0.28))
-                        Text("成长花园 · 持续绽放")
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        Text(AppLanguage.text("成长花园 · 持续绽放"))
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .tracking(0.7)
                             .foregroundColor(colorTheme == .lavender ? Color(red: 0.82, green: 0.74, blue: 0.92) : Color(red: 0.48, green: 0.40, blue: 0.48))
+                            .lineLimit(1)
+                            .layoutPriority(1)
                     }
 
-                    Spacer()
+                    Spacer(minLength: 8)
 
-                    HStack(spacing: 3) {
-                        if isActionMenuExpanded {
-                            gardenActionButton("arrow.clockwise", label: "重播入场") {
-                                isActionMenuExpanded = false
-                                playDoorIntro()
-                            }
-                            gardenActionButton(isContinuousWindEnabled ? "wind.circle.fill" : "wind", label: isContinuousWindEnabled ? "关闭吹风" : "持续吹风") {
-                                toggleContinuousWind()
-                            }
-                            gardenActionButton("square.and.arrow.up", label: "制作拍立得") {
-                                isActionMenuExpanded = false
-                                shareCurrentGarden(width: canvasWidth, height: canvasHeight)
+                    // 右侧常驻按钮组（保留原始间距与触控体验）
+                    HStack(spacing: 2) {
+                        // 1. 成长徽章
+                        gardenActionButton("medal", label: AppLanguage.text("garden.header.badge")) {
+                            isBadgeGalleryPresented = true
+                        }
+                        // 2. 常驻互动指南 Tips 按钮
+                        gardenActionButton("sparkles", label: AppLanguage.text("garden.tips.title")) {
+                            withAnimation(.spring(response: 0.52, dampingFraction: 0.78)) {
+                                showingTipsOverlay = true
                             }
                         }
-
+                        // 3. 成长与休眠规则
+                        gardenActionButton("info.circle", label: AppLanguage.text("growth.rules.title")) {
+                            showingGrowthRules = true
+                        }
+                        // 4. 花园操作展开开关
                         Button {
                             withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
                                 isActionMenuExpanded.toggle()
                             }
                         } label: {
                             Image(systemName: isActionMenuExpanded ? "xmark" : "camera.macro")
-                                .font(.system(size: 16, weight: .medium))
+                                .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(colorTheme == .lavender ? Color(red: 0.28, green: 0.16, blue: 0.40) : Color(red: 0.36, green: 0.25, blue: 0.35))
                                 .frame(width: 34, height: 34)
-                                .background(Circle().fill(colorTheme == .lavender ? Color(red: 0.76, green: 0.61, blue: 0.94).opacity(0.90) : Color.white.opacity(0.75)))
+                                .background(Circle().fill(colorTheme == .lavender ? Color(red: 0.76, green: 0.61, blue: 0.94).opacity(0.90) : Color.white.opacity(0.82)))
                                 .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
                                 .frame(width: 44, height: 44)
                                 .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(isActionMenuExpanded ? "收起花园操作" : "展开花园操作")
+                        .accessibilityLabel(AppLanguage.text("garden.header.expand"))
                         .accessibilityAddTraits(isActionMenuExpanded ? [.isSelected] : [])
                     }
                 }
                 .opacity(isWindHintVisible ? 0.0 : 1.0)
                 .animation(.easeInOut(duration: 0.32), value: isWindHintVisible)
+
+                // 展开时的操作菜单浮层：悬浮于右侧下方，绝不挤压或改变主标题排版
+                if isActionMenuExpanded {
+                    HStack(spacing: 6) {
+                        gardenActionButton("arrow.clockwise", label: AppLanguage.text("重播入场")) {
+                            isActionMenuExpanded = false
+                            playDoorIntro()
+                        }
+                        gardenActionButton(isContinuousWindEnabled ? "wind.circle.fill" : "wind", label: isContinuousWindEnabled ? AppLanguage.text("关闭吹风") : AppLanguage.text("持续吹风")) {
+                            toggleContinuousWind()
+                        }
+                        gardenActionButton("square.and.arrow.up", label: AppLanguage.text("制作拍立得")) {
+                            isActionMenuExpanded = false
+                            shareCurrentGarden(width: canvasWidth, height: canvasHeight)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(colorTheme == .lavender ? Color(red: 0.76, green: 0.61, blue: 0.94).opacity(0.92) : Color.white.opacity(0.90))
+                            .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
+                    )
+                    .overlay(Capsule().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                    .offset(y: 46)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.85, anchor: .topTrailing).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                }
 
                 // 吹风触发时：从右上角图标处胶囊变化浮现小提示
                 if isWindHintVisible {
@@ -1124,7 +1223,8 @@ public struct GardenStudioView: View {
                     .allowsHitTesting(false)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.leading, 16)
+            .padding(.trailing, max(16, resolvedSafeAreaTrailing + 16))
             .padding(.top, safeAreaTop + 6.0)
             .padding(.bottom, 6)
         }
@@ -1143,7 +1243,7 @@ public struct GardenStudioView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        .accessibilityLabel(Text(LocalizedStringKey(label)))
         .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
@@ -1204,7 +1304,7 @@ public struct GardenStudioView: View {
     @ViewBuilder
     private func modePillButton(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 12, weight: isActive ? .bold : .regular))
                 .foregroundColor(isActive ? Color.white : Color(red: 0.4, green: 0.3, blue: 0.4))
                 .padding(.horizontal, 12)
@@ -1227,7 +1327,7 @@ public struct GardenStudioView: View {
                         }
                     }) {
                         VStack(spacing: 3) {
-                            Text(flora.titleZh)
+                            Text(LocalizedStringKey(flora.titleZh))
                                 .font(.system(size: 11, weight: selectedFlora == flora ? .bold : .regular))
                             HStack(spacing: 2) {
                                 Circle()
@@ -1261,7 +1361,7 @@ public struct GardenStudioView: View {
                     Image(systemName: "leaf.fill")
                         .foregroundColor(Color(red: 0.4, green: 0.7, blue: 0.4))
                         .font(.system(size: 12))
-                    Text(stageDescription)
+                    Text(LocalizedStringKey(stageDescription))
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(Color(red: 0.3, green: 0.2, blue: 0.3))
                 }
@@ -1294,11 +1394,14 @@ public struct GardenStudioView: View {
         }()
 
         Button(action: {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.82)) {
-                growthProgress = targetProgress
+            previewStageLevel = targetProgress < 0.25 ? 1 : targetProgress < 0.52 ? 2 : targetProgress < 0.78 ? 3 : 4
+            withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .easeInOut(duration: 1.5)) { previewStageGlow = true }
+            withAnimation(.spring(response: 0.9, dampingFraction: 0.82)) { growthProgress = targetProgress }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.2 : 1.8)) {
+                withAnimation(.easeOut(duration: reduceMotion ? 0.2 : 1.2)) { previewStageGlow = false }
             }
         }) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 10, weight: isCurrent ? .bold : .regular))
                 .foregroundColor(isCurrent ? Color.white : Color(red: 0.35, green: 0.25, blue: 0.35))
                 .padding(.vertical, 5)
@@ -1589,13 +1692,35 @@ public struct GardenStudioView: View {
     }
 
     // MARK: - 电影级开场门扉漫游控制
+    private func handleIntroCompletion() {
+        guard !isIntroComplete else { return }
+        isIntroComplete = true
+        GardenIntroPlaybackSession.hasPlayedInCurrentAppSession = true
+        onIntroVisibilityChange?(false)
+        if !hasShownTipsOverlay {
+            hasShownTipsOverlay = true
+            UserDefaults.standard.synchronize()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                withAnimation(.spring(response: 0.52, dampingFraction: 0.78)) {
+                    showingTipsOverlay = true
+                }
+            }
+        }
+    }
+
     private func playDoorIntro() {
         isIntroSkipped = false
+        isIntroComplete = false
         introStartTime = Date().timeIntervalSinceReferenceDate
+        onIntroVisibilityChange?(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.20) {
+            handleIntroCompletion()
+        }
     }
 
     private func skipDoorIntro() {
         isIntroSkipped = true
+        handleIntroCompletion()
     }
 }
 
@@ -2068,18 +2193,22 @@ public struct PosyFloatingHaloParticlesView: View {
 // MARK: - 花束统一部局参数 (共享于静态快照与实时动态渲染，底部区域收窄 25%)
 public struct PosyBouquetLayout {
     public static let arrangement: [(type: PosyFloraType, normX: CGFloat, height: CGFloat, progScale: Double, seed: Int)] = [
+        (.ginkgo,        0.180, 205, 0.88, 113), // 13. 银杏金扇
         (.dandelion,     0.230, 195, 0.85, 105), // 2.  珊瑚伞花
         (.cosmos,        0.275, 250, 0.95, 111), // 11. 经纬金晕葱
         (.bayWreath,     0.335, 215, 0.90, 102), // 3.  孔雀彩扇
         (.hydrangea,     0.390, 135, 0.75, 107), // 7.  青绒蒲公英
+        (.iris,          0.420, 225, 0.90, 114), // 14. 晶棱鸢尾
         (.cherryBlossom, 0.450, 175, 0.88, 110), // 10. 双色几何伞
         (.hawthorn,      0.500, 270, 1.00, 101), // 1.  蓝金星芒 (大 20%)
-        (.nightJasmine,  0.560, 235, 0.92, 112), // 12. 极夜十二星
-        (.lotusPod,      0.610, 185, 0.85, 108), // 9.  珊瑚霞光球
+        (.magnolia,      0.535, 255, 0.96, 115), // 15. 雪霁玉兰 (宏伟)
+        (.nightJasmine,  0.570, 235, 0.92, 112), // 12. 极夜十二星
+        (.lotusPod,      0.620, 185, 0.85, 108), // 9.  珊瑚霞光球
         (.redBerries,    0.670, 160, 0.88, 104), // 5.  垂帘浆果
         (.allium,        0.725, 245, 0.95, 109), // 8.  珊瑚晶球
         (.cornflower,    0.780, 220, 0.92, 103), // 4.  几何风车 (小 15%)
-        (.mimosa,        0.820, 140, 0.75, 106)  // 6.  金琥珀阳
+        (.mimosa,        0.820, 140, 0.75, 106), // 6.  金琥珀阳
+        (.thistle,       0.865, 180, 0.86, 116)  // 16. 银霜蓟星
     ]
 }
 
@@ -2201,5 +2330,17 @@ public struct PosyMultiBouquetStaticView: View, Equatable {
             )
             .zIndex(Double(idx))
         }
+    }
+}
+
+private struct AnimatedFlowerProgress<Content: View>: View, Animatable {
+    var progress: Double
+    let content: (Double) -> Content
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+    var body: some View {
+        content(progress).transaction { $0.animation = nil }
     }
 }

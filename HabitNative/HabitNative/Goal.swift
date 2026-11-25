@@ -26,6 +26,29 @@ struct Goal: Identifiable, Hashable, Sendable {
     var isPeriodic: Bool = false
     var completedToday: Bool = false
     var isStarred: Bool = false
+    var plantSpecies: String? = nil
+
+    var isCustomTask: Bool { id.hasPrefix(CustomTaskItem.idPrefix) }
+
+    var resolvedFloraType: PosyFloraType? {
+        if let plantSpecies {
+            if let type = PosyFloraType(rawValue: plantSpecies) {
+                return type
+            }
+            switch plantSpecies.lowercased() {
+            case "peony": return .cosmos
+            case "orchid": return .iris
+            case "rose": return .hawthorn
+            case "sunflower": return .cosmos
+            case "lotus": return .lotusPod
+            default: break
+            }
+        }
+        if isCustomTask {
+            return .iris
+        }
+        return nil
+    }
 
     /// Habit-bound artwork. Cards and their expanded detail surface resolve
     /// their background from the same goal model.
@@ -89,7 +112,7 @@ struct SharedHabitRepository: GoalRepository {
     func availableGoals(for date: Date) async throws -> [Goal] {
         let data = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
         let selection = try SharedHabitSelectionStore().snapshot(at: date)
-        let visible = Self.catalog.filter { !selection.completedPeriodicIDs.contains($0.id) }
+        let visible = try selectableCatalog().filter { !selection.completedPeriodicIDs.contains($0.id) }
         return makeGoals(visible, selection: selection, data: data)
     }
 
@@ -97,10 +120,20 @@ struct SharedHabitRepository: GoalRepository {
         let selection = try SharedHabitSelectionStore().snapshot(at: date)
         let selectedIDs = selection.activeIDs.union(selection.starredIDs)
         let metrics = try database.withConnection { db in try database.goalMetrics(in: db, today: date) }
-        let selected = Self.catalog.filter {
+        let selected = try selectableCatalog().filter {
             selectedIDs.contains($0.id) && !metrics.completedTodayIDs.contains($0.id)
         }
         return makeGoals(selected, selection: selection, data: metrics)
+    }
+
+    private func selectableCatalog() throws -> [Goal] {
+        let cards = try CustomCardStore(database: database).read()
+        let active = CustomCard.activeIDs(in: cards, limit: SubscriptionManager.currentCustomCardLimit)
+        return Self.catalog + CustomCard.goals(from: cards.filter { active.contains($0.id) })
+    }
+
+    static func historyCatalog() -> [Goal] {
+        catalog + CustomCard.goals(from: (try? CustomCardStore().read()) ?? [], includeArchived: true)
     }
 
     private func makeGoals(_ source: [Goal], selection: HabitSelectionSnapshot, data: HabitGoalMetrics) -> [Goal] {
@@ -115,7 +148,8 @@ struct SharedHabitRepository: GoalRepository {
                         countsTowardQuota: !selection.retainedPeriodicIDs.contains(goal.id),
                         isPeriodic: SharedHabitSelectionStore.isPeriodic(goal.id),
                         completedToday: data.completedTodayIDs.contains(goal.id),
-                        isStarred: selection.starredIDs.contains(goal.id))
+                        isStarred: selection.starredIDs.contains(goal.id),
+                        plantSpecies: goal.plantSpecies)
         }
     }
 
@@ -198,11 +232,23 @@ enum AppTab: Equatable {
     case today, garden, review, settings
 }
 
+enum DevelopmentLaunch {
+    static func contains(_ argument: String) -> Bool {
+        #if DEBUG
+        return CommandLine.arguments.contains { item in
+            item == argument || item.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).contains(Substring(argument))
+        }
+        #else
+        return false
+        #endif
+    }
+}
+
 struct TodayGoalState: Equatable {
-    var tab: AppTab = CommandLine.arguments.contains("--garden-tab") ? .garden : .today
-    var mode: TodayMode = .homeUnselected
+    var tab: AppTab = DevelopmentLaunch.contains("--garden-tab") ? .garden : (DevelopmentLaunch.contains("--review-tab") ? .review : .today)
+    var mode: TodayMode = DevelopmentLaunch.contains("--browsing-deck") ? .browsingDeck : (DevelopmentLaunch.contains("--executing") ? .executing(goalID: "H6") : .homeUnselected)
     var focusedGoalID = "H6"
-    var selectedGoalIDs: Set<String> = []
+    var selectedGoalIDs: Set<String> = DevelopmentLaunch.contains("--executing") ? ["H6", "H2", "H3"] : []
     var starredGoalIDs: Set<String> = []
     var completedRegularGoalIDs: Set<String> = []
     var completedSelectedGoalIDs: Set<String> = []

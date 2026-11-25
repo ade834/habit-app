@@ -15,21 +15,27 @@ struct GardenPolaroidView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let cardWidth = min(proxy.size.width - 40, 380.0)
+            let trailingInset = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow)?.safeAreaInsets.right ?? 0
+            let usesSideActions = trailingInset >= 30 && proxy.size.width > proxy.size.height
+            let contentWidth = proxy.size.width - (usesSideActions ? trailingInset : 0)
+            let cardWidth = min(contentWidth - 40, 380.0)
 
             ZStack {
                 GardenBackdropBlur()
-                    .ignoresSafeArea()
+                    .fullViewportSurface()
                 Color.black.opacity(0.25)
-                    .ignoresSafeArea()
+                    .fullViewportSurface()
 
                 VStack(spacing: 0) {
                     HStack {
-                        Text("这一刻，值得珍藏")
+                        Text(AppLanguage.text("这一刻，值得珍藏"))
                             .font(.system(size: 15, weight: .semibold, design: .serif))
                             .foregroundStyle(.white)
                         Spacer()
-                        Button(action: onDismiss) {
+                        if !usesSideActions { Button(action: onDismiss) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(Color(red: 0.27, green: 0.22, blue: 0.27))
@@ -39,7 +45,8 @@ struct GardenPolaroidView: View {
                                 .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("关闭拍立得")
+                        .accessibilityLabel(AppLanguage.text("关闭拍立得"))
+                        }
                     }
                     .frame(maxWidth: cardWidth)
                     .padding(.top, 12)
@@ -56,19 +63,20 @@ struct GardenPolaroidView: View {
                             // Center the controls in the quiet space beneath the print.
                             Spacer(minLength: 68)
 
-                            GardenPolaroidActions(
+                            if !usesSideActions { GardenPolaroidActions(
                                 isSaving: isSaving,
                                 onSave: saveToPhotos,
                                 onShare: {
                                     if let image = renderedPrint() {
                                         shareItem = GardenShareItem(image: image)
                                     } else {
-                                        notice = "照片暂时无法生成，请重试。"
+                                        notice = AppLanguage.text("照片暂时无法生成，请重试。")
                                     }
                                 }
                             )
                             .frame(width: cardWidth)
                             .padding(.bottom, 16)
+                            }
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -76,9 +84,28 @@ struct GardenPolaroidView: View {
                     .scrollDismissesKeyboard(.interactively)
                 }
                 .padding(.horizontal, 20)
+                .frame(width: contentWidth)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if usesSideActions {
+                    VStack(spacing: 18) {
+                        sideAction(AppLanguage.text("关闭拍立得"), systemImage: "xmark", action: onDismiss)
+                        sideAction(AppLanguage.text("保存到相册"), systemImage: "square.and.arrow.down", action: saveToPhotos)
+                            .disabled(isSaving)
+                        sideAction(AppLanguage.text("分享"), systemImage: "square.and.arrow.up") {
+                            if let image = renderedPrint() {
+                                shareItem = GardenShareItem(image: image)
+                            } else {
+                                notice = AppLanguage.text("照片暂时无法生成，请重试。")
+                            }
+                        }
+                    }
+                    .position(x: contentWidth + trailingInset / 2, y: proxy.size.height / 2)
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
+        .ignoresSafeArea(.container, edges: .trailing)
         .onAppear {
             withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.62, dampingFraction: 0.82)) {
                 hasAppeared = true
@@ -87,11 +114,23 @@ struct GardenPolaroidView: View {
         .sheet(item: $shareItem) { item in
             GardenActivitySheet(image: item.image)
         }
-        .alert("拍立得", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("知道了", role: .cancel) { notice = nil }
+        .alert(AppLanguage.text("拍立得"), isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Button(AppLanguage.text("知道了"), role: .cancel) { notice = nil }
         } message: {
             Text(notice ?? "")
         }
+    }
+
+    private func sideAction(_ label: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 21, weight: .semibold))
+                .foregroundStyle(Color(red: 0.27, green: 0.22, blue: 0.27))
+                .frame(width: 48, height: 48)
+                .background(Circle().fill(Color.white.opacity(0.78)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
     }
 
     @MainActor
@@ -104,7 +143,7 @@ struct GardenPolaroidView: View {
 
     private func saveToPhotos() {
         guard let image = renderedPrint() else {
-            notice = "照片暂时无法生成，请重试。"
+            notice = AppLanguage.text("照片暂时无法生成，请重试。")
             return
         }
         isSaving = true
@@ -112,16 +151,16 @@ struct GardenPolaroidView: View {
             let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else {
                 isSaving = false
-                notice = "请在系统设置中允许添加照片。"
+                shareItem = GardenShareItem(image: image)
                 return
             }
             do {
                 try await PHPhotoLibrary.shared().performChanges {
                     PHAssetChangeRequest.creationRequestForAsset(from: image)
                 }
-                notice = "已保存到照片图库。"
+                notice = AppLanguage.text("已保存到照片图库。")
             } catch {
-                notice = "保存失败：\(error.localizedDescription)"
+                notice = String(format: AppLanguage.text("保存失败：%@"), error.localizedDescription)
             }
             isSaving = false
         }
@@ -144,7 +183,7 @@ private struct GardenPolaroidPrint: View {
                 .scaledToFill()
                 .frame(width: imageWidth, height: imageWidth * 1.04)
                 .compositingGroup()
-                .accessibilityLabel("养成花园照片")
+                .accessibilityLabel(AppLanguage.text("养成花园照片"))
                 .overlay {
                     // A nearly imperceptible edge keeps the snapshot contained
                     // without introducing a bottom seam above the caption area.
@@ -181,14 +220,14 @@ private struct GardenPolaroidPrint: View {
                 Spacer(minLength: 18)
                 Group {
                     if isEditable {
-                        TextField("写下这一刻的心情", text: $caption, axis: .vertical)
+                        TextField(AppLanguage.text("写下这一刻的心情"), text: $caption, axis: .vertical)
                             .lineLimit(1...3)
-                            .accessibilityLabel("写下这一刻的心情")
+                            .accessibilityLabel(AppLanguage.text("写下这一刻的心情"))
                             .onChange(of: caption) { _, value in
                                 if value.count > 40 { caption = String(value.prefix(40)) }
                             }
                     } else {
-                        Text(caption.isEmpty ? "持续绽放" : caption)
+                        Text(caption.isEmpty ? AppLanguage.text("持续绽放") : caption)
                     }
                 }
                 .font(.system(size: 18, weight: .medium, design: .serif))
@@ -198,7 +237,7 @@ private struct GardenPolaroidPrint: View {
 
                 Spacer(minLength: 10)
 
-                Text("POSY GARDEN · HABIT APP")
+                Text("MAYBII GARDEN · HABIT APP")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .tracking(0.675)
                 .foregroundStyle(Color(red: 0.58, green: 0.51, blue: 0.54))
@@ -221,13 +260,13 @@ private struct GardenPolaroidActions: View {
         GlassEffectContainer(spacing: 12) {
             HStack(spacing: 12) {
                 Button(action: onSave) {
-                    Label(isSaving ? "保存中" : "保存到相册", systemImage: "square.and.arrow.down")
+                    Label(isSaving ? AppLanguage.text("保存中") : AppLanguage.text("保存到相册"), systemImage: "square.and.arrow.down")
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(isSaving)
 
                 Button(action: onShare) {
-                    Label("分享", systemImage: "square.and.arrow.up")
+                    Label(AppLanguage.text("分享"), systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
             }

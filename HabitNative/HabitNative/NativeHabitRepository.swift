@@ -111,6 +111,14 @@ extension NativeDatabase {
                     try saveActivity(habitID: id, primary: primary, secondary: secondary, first: first, second: second, at: entry.date, in: db)
                     let multiplier = id == "H5" || id == "H7" ? 3 : id == "H10" ? 4 : 1
                     try recordCompletion(id, at: entry.date, points: multiplier, in: db)
+                case let (id, .activity(primary, _, _, _)) where id.hasPrefix(CustomTaskItem.idPrefix):
+                    let active = try CustomCardStore.activeTaskIDs(in: db, limit: SubscriptionManager.currentCustomCardLimit)
+                    guard active.contains(id) else { throw CustomCardStore.StoreError.unavailable }
+                    guard !primary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        throw HabitSubmissionError.invalid(AppLanguage.text("请填写必填内容。"))
+                    }
+                    try saveActivity(habitID: id, primary: primary, secondary: "", first: nil, second: nil, at: entry.date, in: db)
+                    try recordCompletion(id, at: entry.date, points: 1, in: db)
                 case let ("H11", .travelPlan(destination, days, focus, preparation, summary, completed)):
                     guard !destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                           !focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -125,6 +133,7 @@ extension NativeDatabase {
                     throw HabitSubmissionError.invalid("提交内容与习惯类型不匹配。")
                 }
                 try Self.execute("COMMIT", in: db)
+                NotificationCenter.default.post(name: Notification.Name("HabitReminderDataChanged"), object: nil)
             } catch {
                 try? Self.execute("ROLLBACK", in: db)
                 throw error
@@ -145,7 +154,7 @@ extension NativeDatabase {
             if habitID == "H4" {
                 let status = try disconnectAttemptState(in: db, now: date)
                 if let lockedUntil = status.lockedUntil, date < lockedUntil {
-                    throw HabitSubmissionError.invalid("断网任务正在冷却，\(lockedUntil.formatted(date: .omitted, time: .shortened)) 后再试。")
+                    throw HabitSubmissionError.invalid(String(format: AppLanguage.text("断网任务正在冷却，%@ 后再试。"), lockedUntil.formatted(.dateTime.hour().minute().locale(AppLanguage.locale))))
                 }
             }
             let statement = try Self.prepare("INSERT INTO timer_sessions(habit_id, target_seconds, started_at, accumulated_pause_seconds, status, focus_topic) VALUES (?, ?, ?, 0, 'running', ?)", in: db)
@@ -433,8 +442,9 @@ extension NativeDatabase {
         }.count
         let key = Self.localDate(date)
         try Self.execute("INSERT INTO review_entries(local_date, decision, result, improvement, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(local_date) DO UPDATE SET decision=excluded.decision, result=excluded.result, improvement=excluded.improvement, updated_at=excluded.updated_at", bindings: [key, decision, result, improvement, "\(Int(Date.now.timeIntervalSince1970))"], in: db)
-        if count >= 100 && Calendar.current.isDate(date, inSameDayAs: .now) {
-            try recordCompletion("H1", at: .now, points: 1, in: db)
+        // 2026-11-09 用户定案：补打计次——过去日期（今天或之前 3 天内）的复盘写满 100 字同样计完成，完成记在复盘当天，勿改回「仅限今天」。
+        if count >= 100 {
+            try recordCompletion("H1", at: date, points: 1, in: db)
         }
     }
 

@@ -91,6 +91,7 @@ private struct ReceiptRetainedStrip: Shape {
 
 /// The floating paper and the saved report use identical text, width and spacing.
 struct ReviewReceiptContent: View {
+    @Environment(\.locale) private var locale
     let document: ReviewReceiptDocument
     var tearProgress: CGFloat = 1
     private let ink = Color(red: 0.23, green: 0.22, blue: 0.20)
@@ -110,28 +111,28 @@ struct ReviewReceiptContent: View {
                     Text("HABIT · REVIEW").tracking(2)
                 }
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
-                Text(document.title)
+                Text(AppLanguage.text(document.title))
                     .font(.system(size: 23, weight: .bold))
-                Text("每一次照料，都留下痕迹")
+                Text(AppLanguage.text("每一次照料，都留下痕迹"))
                     .font(.system(size: 11))
                     .foregroundStyle(ink.opacity(0.65))
             }
             .frame(maxWidth: .infinity)
             receiptRule
             VStack(spacing: 9) {
-                metadataRow("记录编号", value: "RV–" + document.start.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).locale(Locale(identifier: "zh_CN"))).filter(\.isNumber))
-                metadataRow("记录周期", value: "\(document.start.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN")))) — \(document.end.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN"))))")
+                metadataRow(AppLanguage.text("记录编号"), value: "RV–" + document.start.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).locale(Locale(identifier: "zh_CN"))).filter(\.isNumber))
+                metadataRow(AppLanguage.text("记录周期"), value: AppLanguage.date(document.start, template: "MMMd") + " — " + AppLanguage.date(document.end, template: "MMMd"))
             }
             receiptRule
             HStack(alignment: .center, spacing: 0) {
-                receiptMetric("完成行动", value: document.completions, unit: "次")
+                receiptMetric(AppLanguage.text("完成行动"), value: document.completions, unit: "receipt.unit.times")
                 Rectangle().fill(ink.opacity(0.13)).frame(width: 1, height: 36)
-                receiptMetric("获得积分", value: document.points, unit: "分")
+                receiptMetric(AppLanguage.text("获得积分"), value: document.points, unit: "receipt.unit.points")
             }
             .padding(.vertical, 3)
             receiptRule
             VStack(alignment: .leading, spacing: 14) {
-                sectionTitle("分析报告", symbol: "chart.xyaxis.line", index: "01")
+                sectionTitle(AppLanguage.text("分析报告"), symbol: "chart.xyaxis.line", index: "01")
                 ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
                         Text(String(format: "%02d", index + 1))
@@ -147,7 +148,7 @@ struct ReviewReceiptContent: View {
             }
             receiptRule
             VStack(alignment: .leading, spacing: 12) {
-                sectionTitle("鼓励与建议", symbol: "heart", index: "02")
+                sectionTitle(AppLanguage.text("鼓励与建议"), symbol: "heart", index: "02")
                 Text(document.reports.encouragement)
                     .font(.system(size: 14))
                     .lineSpacing(6)
@@ -155,9 +156,9 @@ struct ReviewReceiptContent: View {
             }
             receiptRule
             VStack(spacing: 7) {
-                Text("—  慢慢来，让习惯生根。  —")
+                Text(AppLanguage.text("—  慢慢来，让习惯生根。  —"))
                     .font(.system(size: 11))
-                Text("留下一份记录 · 带走一点力量")
+                Text(AppLanguage.text("留下一份记录 · 带走一点力量"))
                     .font(.system(size: 9, design: .monospaced))
                     .tracking(1)
                     .foregroundStyle(ink.opacity(0.46))
@@ -165,25 +166,9 @@ struct ReviewReceiptContent: View {
             .foregroundStyle(ink.opacity(0.65))
             .frame(maxWidth: .infinity)
             .padding(.bottom, 3)
-            HStack(spacing: 10) {
-                ReviewReceiptQRCode(document: document)
-                    .frame(width: 62, height: 62)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("本期复盘存档")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("扫码查看行动摘要")
-                        .font(.system(size: 9))
-                        .foregroundStyle(ink.opacity(0.58))
-                    Text("RV–\(document.completions.formatted()) · \(document.points) PTS")
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundStyle(ink.opacity(0.48))
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(ink.opacity(0.4))
-            }
-            .padding(.top, 1)
+            ReviewReceiptBarcode(document: document)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 1)
         }
         .foregroundStyle(ink)
         .padding(.horizontal, 22)
@@ -200,7 +185,7 @@ struct ReviewReceiptContent: View {
 
     private func metadataRow(_ label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(ink.opacity(0.65))
+            Text(AppLanguage.text(label)).foregroundStyle(ink.opacity(0.65))
             Spacer(minLength: 8)
             Text(value).monospacedDigit()
         }
@@ -209,10 +194,10 @@ struct ReviewReceiptContent: View {
 
     private func receiptMetric(_ label: String, value: Int, unit: String) -> some View {
         VStack(spacing: 5) {
-            Text(label).font(.system(size: 10)).foregroundStyle(ink.opacity(0.65))
+            Text(AppLanguage.text(label)).font(.system(size: 10)).foregroundStyle(ink.opacity(0.65))
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(value)").font(.system(size: 31, weight: .semibold, design: .monospaced))
-                Text(unit).font(.system(size: 10))
+                Text(AppLanguage.text(unit)).font(.system(size: 10))
             }
         }
         .frame(maxWidth: .infinity)
@@ -221,7 +206,7 @@ struct ReviewReceiptContent: View {
     private func sectionTitle(_ title: String, symbol: String, index: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: symbol).font(.system(size: 11, weight: .medium))
-            Text(title).font(.system(size: 13, weight: .semibold))
+            Text(AppLanguage.text(title)).font(.system(size: 13, weight: .semibold))
             Spacer()
             Text(index).font(.system(size: 10, design: .monospaced)).foregroundStyle(ink.opacity(0.45))
         }
@@ -245,18 +230,25 @@ private struct ReceiptDashedRule: Shape {
 }
 
 struct ReviewReceiptOverlay: View {
+    @Environment(\.habitBackgroundFrame) private var fullViewport
     let presentation: ReviewReceiptPresentation
 
     var body: some View {
-        GeometryReader { geometry in
-            if let session = presentation.session {
-                ReviewReceiptAnimation(
-                    session: session,
-                    presentation: presentation,
-                    viewport: geometry
-                )
-                .id(session.id)
+        GeometryReader { container in
+            let localFrame = container.frame(in: .global)
+            let bounds = fullViewport.isEmpty ? localFrame : fullViewport
+            GeometryReader { geometry in
+                if let session = presentation.session {
+                    ReviewReceiptAnimation(
+                        session: session,
+                        presentation: presentation,
+                        viewport: geometry
+                    )
+                    .id(session.id)
+                }
             }
+            .frame(width: bounds.width, height: bounds.height)
+            .offset(x: bounds.minX - localFrame.minX, y: bounds.minY - localFrame.minY)
         }
         .ignoresSafeArea()
         .allowsHitTesting(presentation.isActive)
@@ -272,6 +264,7 @@ private struct ReviewReceiptAnimation: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var phase: Phase = .preparing
     @State private var expanded = false
+    @State private var cameraOrigin: CGPoint?
     @State private var dimming: Double = 0
     @State private var feed: CGFloat = 0
     @State private var paperHeight: CGFloat = 0
@@ -290,6 +283,17 @@ private struct ReviewReceiptAnimation: View {
     private var printingScale: CGFloat { min(1.18, min(viewport.size.width - 40, 380) / paperWidth) }
     private var islandTop: CGFloat { max(11, viewport.safeAreaInsets.top - 51) }
     private var slotY: CGFloat { islandTop + 64 }
+    private var cameraPosition: CGPoint {
+        if let cameraOrigin { return cameraOrigin }
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow)
+        let trailing = max(viewport.safeAreaInsets.trailing, window?.safeAreaInsets.right ?? 0)
+        if trailing >= 30 {
+            return CGPoint(x: viewport.size.width - trailing / 2, y: 48)
+        }
+        return CGPoint(x: viewport.size.width / 2, y: islandTop + 18.5)
+    }
     private var isDetached: Bool { phase == .tearing || phase == .landing || phase == .settled }
     private var origin: CGPoint { viewport.frame(in: .global).origin }
 
@@ -320,13 +324,13 @@ private struct ReviewReceiptAnimation: View {
             printerHousing
 
             if phase == .ready {
-                Text("正在收好这份复盘…")
+                Text(AppLanguage.text("正在收好这份复盘…"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.9))
                     .frame(maxWidth: .infinity)
                     .offset(y: viewport.size.height - max(viewport.safeAreaInsets.bottom, 24) - 48)
                     .transition(.opacity)
-                    .accessibilityLabel("复盘打印完成，正在归位")
+                    .accessibilityLabel(AppLanguage.text("复盘打印完成，正在归位"))
             }
         }
         .frame(width: viewport.size.width, height: viewport.size.height)
@@ -358,9 +362,10 @@ private struct ReviewReceiptAnimation: View {
             .padding(.bottom, expanded ? 2 : 7)
             .opacity(expanded ? 1 : 0)
         }
-        .frame(width: expanded ? min(viewport.size.width - 20, 410) : 126,
+        .frame(width: expanded ? min(viewport.size.width - 20, 410) : (cameraPosition.x > viewport.size.width * 0.75 ? 37 : 126),
                height: expanded ? 68 : 37)
-        .position(x: viewport.size.width / 2, y: islandTop + (expanded ? 34 : 18.5))
+        .position(x: expanded ? viewport.size.width / 2 : cameraPosition.x,
+                  y: expanded ? islandTop + 34 : cameraPosition.y)
         .accessibilityHidden(true)
     }
 
@@ -399,6 +404,7 @@ private struct ReviewReceiptAnimation: View {
                 return
             }
             destination = presentation.destinationFrame
+            cameraOrigin = cameraPosition
             phase = .expanding
             withAnimation(.easeInOut(duration: 0.25)) { dimming = 0.25 }
             withAnimation(.spring(response: 0.78, dampingFraction: 0.94)) { expanded = true }

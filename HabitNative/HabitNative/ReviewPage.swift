@@ -65,11 +65,11 @@ private struct ReviewBlurAppearance {
         func saved(_ key: String, fallback: Double) -> Double {
             defaults.object(forKey: "review.blur." + key + "." + theme.rawValue) as? Double ?? fallback
         }
-        topHeight = saved("top.height", fallback: 0.25)
+        topHeight = saved("top.height", fallback: 0.25) * (2.0 / 3.0)
         bottomHeight = saved("bottom.height", fallback: 0.15)
         topOpacity = saved("top.opacity", fallback: theme == .lavender ? 0.34 : 0.15)
         bottomOpacity = theme == .original ? 0.65 : saved("bottom.opacity", fallback: 0.95)
-        topFade = saved("top.fade", fallback: 0.125)
+        topFade = max(0.40, saved("top.fade", fallback: 0.125))
         bottomFade = saved("bottom.fade", fallback: 0.225)
         intensity = saved("intensity", fallback: 0.25)
     }
@@ -104,14 +104,16 @@ struct ReviewPage: View {
     @State private var reviewScrollOffset: CGFloat = 0
     @State private var reviewContentFrame: CGRect = .zero
     @State private var daySheetScrollMorphProgress: CGFloat = 0
+    @AppStorage(AppLanguage.storageKey) private var reviewLanguagePreference = "system"
     @State private var reviewReport: QwenReviewService.MonthlyReports?
     @State private var nextReviewAllowedAt: Date?
     @State private var reviewReportLoading = false
     @State private var analysisStep: MonthlyAnalysisStep = .preparing
-    @AppStorage("review.ai.privacy-consent.v1") private var hasPrivacyConsent = false
+    @AppStorage("review.ai.privacy-consent.v5") private var hasPrivacyConsent = false
     @State private var privacyConsentChecked = false
     @State private var reviewReportError: String?
     @State private var consentSheetPresented = false
+    @State private var showingPaywallSheet = false
 
     private let ink = Color(red: 0.17, green: 0.15, blue: 0.19)
     private var muted: Color { colorTheme == .lavender ? Color(red: 0.30, green: 0.27, blue: 0.34) : Color(red: 0.43, green: 0.41, blue: 0.46) }
@@ -127,14 +129,14 @@ struct ReviewPage: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 21) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("复盘")
+                        Text(AppLanguage.text("复盘"))
                             .font(.system(size: 43, weight: .bold, design: .rounded))
                             .foregroundStyle(ink)
                             .opacity(0)
                             .onGeometryChange(for: CGRect.self) { geometry in
                                 geometry.frame(in: .global)
                             } action: { reviewTitleFrame = $0 }
-                        Text("只读回看每天的习惯完成和记录。")
+                        Text(AppLanguage.text("只读回看每天的习惯完成和记录。"))
                             .font(.system(size: 14))
                             .foregroundStyle(muted)
                             .opacity(0)
@@ -158,7 +160,7 @@ struct ReviewPage: View {
                         }
                         summaryCard(snapshot)
                     } else if let error {
-                        Text("读取复盘记录失败：\(error)")
+                        Text(String(format: AppLanguage.text("读取复盘记录失败：%@"), "\(error)"))
                             .font(.subheadline)
                             .foregroundStyle(muted)
                             .padding(22)
@@ -170,6 +172,9 @@ struct ReviewPage: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
+                // Limit line length while still following the available window width.
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
                 // Measure actual content, before the trailing navigation clearance.
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) }
                 action: { reviewContentFrame = $0 }
@@ -204,7 +209,7 @@ struct ReviewPage: View {
         }
         .overlay(alignment: .bottom) {
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-review-receipt-preview"), !receiptPresentation.isActive {
+            if DevelopmentLaunch.contains("-review-receipt-preview") && !DevelopmentLaunch.contains("--skip-intro"), !receiptPresentation.isActive {
                 Button("重播小票动画（演示）") { previewReceipt() }
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(ink)
@@ -220,7 +225,12 @@ struct ReviewPage: View {
             load()
             loadReviewReport()
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-review-receipt-preview"), !didRunReceiptPreview {
+            if DevelopmentLaunch.contains("--review-receipt-landed") {
+                didRunReceiptPreview = true
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                setupDirectReceiptPreview()
+            } else if DevelopmentLaunch.contains("-review-receipt-preview"), !didRunReceiptPreview {
                 didRunReceiptPreview = true
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
@@ -250,6 +260,10 @@ struct ReviewPage: View {
             load()
             if !reviewReportLoading && !receiptPresentation.isActive { loadReviewReport() }
         }
+        .onChange(of: reviewLanguagePreference) { _, _ in
+            receiptPresentation.dismiss()
+            loadReviewReport()
+        }
         .onChange(of: period) { _, _ in
             receiptPresentation.dismiss()
             loadReviewReport()
@@ -269,13 +283,16 @@ struct ReviewPage: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .alert("复盘分析未完成", isPresented: Binding(
+        .sheet(isPresented: $showingPaywallSheet) {
+            SubscriptionPaywallView()
+        }
+        .alert(AppLanguage.text("复盘分析未完成"), isPresented: Binding(
             get: { reviewReportError != nil },
             set: { if !$0 { reviewReportError = nil } }
         )) {
-            Button("知道了", role: .cancel) { reviewReportError = nil }
+            Button(AppLanguage.text("知道了"), role: .cancel) { reviewReportError = nil }
         } message: {
-            Text(reviewReportError ?? "请稍后重试")
+            Text(reviewReportError ?? AppLanguage.text("请稍后重试"))
         }
         .sheet(item: $selectedDay) { day in
             daySheet(day)
@@ -308,7 +325,7 @@ struct ReviewPage: View {
                     }
                     if periodChanged { load() }
                 } label: {
-                    Text(choice.rawValue)
+                    Text(AppLanguage.text(choice.rawValue))
                         .font(.system(size: 15, weight: period == choice ? .semibold : .medium))
                         .foregroundStyle(period == choice ? ink : muted)
                         .frame(maxWidth: .infinity)
@@ -372,7 +389,7 @@ struct ReviewPage: View {
         .foregroundStyle(.white)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggleWeekCalendar)
-        .accessibilityAction(named: isWeekCalendarExpanded ? "收起本周日期" : "展开本周日期", toggleWeekCalendar)
+        .accessibilityAction(named: isWeekCalendarExpanded ? AppLanguage.text("收起本周日期") : AppLanguage.text("展开本周日期"), toggleWeekCalendar)
     }
 
     private var weekDateWheel: some View {
@@ -390,14 +407,14 @@ struct ReviewPage: View {
     private var weekNavigation: some View {
         HStack {
             Button { move(-1) } label: { Image(systemName: "chevron.left") }
-                .accessibilityLabel("上一周")
+                .accessibilityLabel(AppLanguage.text("上一周"))
             Spacer()
-            Text("点选日期查看当天记录")
+            Text(AppLanguage.text("点选日期查看当天记录"))
                 .font(.system(size: 12))
                 .opacity(0.84)
             Spacer()
             Button { move(1) } label: { Image(systemName: "chevron.right") }
-                .accessibilityLabel("下一周")
+                .accessibilityLabel(AppLanguage.text("下一周"))
                 .disabled(!canMoveForward)
                 .opacity(canMoveForward ? 1 : 0.35)
         }
@@ -439,10 +456,10 @@ struct ReviewPage: View {
                     .font(.system(size: 42, weight: .light, design: .rounded))
                     .minimumScaleFactor(0.7)
                     .matchedGeometryEffect(id: "month-name-title", in: monthCalendarNamespace)
-                Text(verbatim: "\(calendar.component(.year, from: anchor))年\(calendar.component(.month, from: anchor))月")
+                Text(verbatim: AppLanguage.date(anchor, template: "yMMMM"))
                     .font(.system(size: 17, weight: .semibold))
                     .matchedGeometryEffect(id: "month-year-title", in: monthCalendarNamespace)
-                Text("本月完成")
+                Text(AppLanguage.text("本月完成"))
                     .font(.system(size: 13, weight: .medium))
                     .opacity(0.82)
             }
@@ -456,14 +473,14 @@ struct ReviewPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggleMonthCalendar)
-        .accessibilityAction(named: "展开月历", toggleMonthCalendar)
+        .accessibilityAction(named: AppLanguage.text("展开月历"), toggleMonthCalendar)
     }
 
     private func monthCalendarGrid(_ data: ReviewSnapshot) -> some View {
         VStack(spacing: 13) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 7) {
                 ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { label in
-                    Text(label).font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.88)).frame(height: 25)
+                    Text(AppLanguage.text(label)).font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.88)).frame(height: 25)
                 }
                 ForEach(0..<leadingBlanks, id: \.self) { _ in Color.clear.frame(height: 42) }
                 ForEach(data.days) { day in
@@ -473,7 +490,7 @@ struct ReviewPage: View {
                         VStack(spacing: 2) {
                             Text("\(calendar.component(.day, from: day.date))")
                                 .font(.system(size: 14, weight: day.completed.isEmpty ? .medium : .semibold))
-                            Text(day.completed.isEmpty ? (day.hasRecord ? "·" : " ") : "\(day.completed.count)项")
+                            Text(day.completed.isEmpty ? (day.hasRecord ? "·" : " ") : String(format: AppLanguage.text("%lld 项"), day.completed.count))
                                 .font(.system(size: 10))
                         }
                         .foregroundStyle(.white)
@@ -492,7 +509,7 @@ struct ReviewPage: View {
                         .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white.opacity(day.completed.isEmpty ? 0.42 : 0.8), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(dateLabel(day.date))，完成 \(day.completed.count) 项")
+                    .accessibilityLabel(String(format: AppLanguage.text("%@，完成 %lld 项"), dateLabel(day.date), day.completed.count))
                 }
             }
         }
@@ -504,14 +521,14 @@ struct ReviewPage: View {
                 Image(systemName: "chevron.left")
                     .frame(width: 28, height: 32)
             }
-            .accessibilityLabel("上个月")
+            .accessibilityLabel(AppLanguage.text("上个月"))
             Spacer()
             VStack(alignment: .center, spacing: 2) {
                 Text(monthName(anchor))
                     .font(.system(size: 42, weight: .light, design: .rounded))
                     .minimumScaleFactor(0.7)
                     .matchedGeometryEffect(id: "month-name-title", in: monthCalendarNamespace)
-                Text(verbatim: "\(calendar.component(.year, from: anchor))年\(calendar.component(.month, from: anchor))月")
+                Text(verbatim: AppLanguage.date(anchor, template: "yMMMM"))
                     .font(.system(size: 17, weight: .semibold))
                     .matchedGeometryEffect(id: "month-year-title", in: monthCalendarNamespace)
             }
@@ -520,7 +537,7 @@ struct ReviewPage: View {
                 Image(systemName: "chevron.right")
                     .frame(width: 28, height: 32)
             }
-            .accessibilityLabel("下个月")
+            .accessibilityLabel(AppLanguage.text("下个月"))
             .disabled(!canMoveForward)
             .opacity(canMoveForward ? 1 : 0.35)
         }
@@ -529,7 +546,7 @@ struct ReviewPage: View {
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggleMonthCalendar)
-        .accessibilityAction(named: "收起月历", toggleMonthCalendar)
+        .accessibilityAction(named: AppLanguage.text("收起月历"), toggleMonthCalendar)
     }
 
     private var calendarMorphAnimation: Animation {
@@ -564,29 +581,29 @@ struct ReviewPage: View {
     }
 
     private func summaryCard(_ data: ReviewSnapshot) -> some View {
-        let visibleGoals = SharedHabitRepository.catalog.filter { data.selectedIDs.contains($0.id) }
+        let visibleGoals = SharedHabitRepository.historyCatalog().filter { data.selectedIDs.contains($0.id) || data.count($0.id) > 0 }
         let leadingCount = visibleGoals.map { data.count($0.id) }.max() ?? 0
         let leaders = visibleGoals.filter { data.count($0.id) == leadingCount && leadingCount > 0 }
         return VStack(alignment: .leading, spacing: 16) {
-            Text(period == .week ? (range.start > Date.now ? "这一周尚未开始" : "本周小结") : "本月小结")
+            Text(period == .week ? (range.start > Date.now ? AppLanguage.text("这一周尚未开始") : AppLanguage.text("本周小结")) : AppLanguage.text("本月小结"))
                 .font(.system(size: 25, weight: .semibold))
                 .foregroundStyle(ink)
-            Text("完成 \(data.completions) 次 · 获得 \(data.points) 积分")
+            Text(String(format: AppLanguage.text("完成 %lld 次 · 获得 %lld 积分"), data.completions, data.points))
                 .font(.system(size: 15))
                 .foregroundStyle(muted)
             Rectangle().fill(ink.opacity(0.09)).frame(height: 1)
-            Text("习惯完成次数")
+            Text(AppLanguage.text("习惯完成次数"))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(ink)
             if visibleGoals.isEmpty {
-                Text("先选择一个想照顾的习惯，复盘会从今天开始。")
+                Text(AppLanguage.text("先选择一个想照顾的习惯，复盘会从今天开始。"))
                     .font(.system(size: 14)).foregroundStyle(muted)
             } else {
                 ForEach(visibleGoals) { goal in
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(goal.id).font(.system(size: 13, weight: .semibold))
-                            Text(goal.title)
+                            Text(goal.isCustomTask ? AppLanguage.text("自定义卡片") : goal.id).font(.system(size: 13, weight: .semibold))
+                            Text(AppLanguage.text(goal.title))
                                 .font(.system(size: 12))
                                 .foregroundStyle(muted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -603,7 +620,7 @@ struct ReviewPage: View {
                 }
                 Rectangle().fill(ink.opacity(0.09)).frame(height: 1)
                 if !leaders.isEmpty {
-                    insight("最容易坚持", leaders.map(\.title).joined(separator: "、"))
+                    insight(AppLanguage.text("最容易坚持"), leaders.map { AppLanguage.text($0.title) }.joined(separator: AppLanguage.current == "en-US" ? ", " : "、"))
                 }
                 if period == .month {
                     let hard = visibleGoals.filter {
@@ -611,10 +628,10 @@ struct ReviewPage: View {
                         (!["H5", "H7", "H10", "H11"].contains($0.id) || isClosedMonth)
                     }
                     if let least = hard.map({ data.count($0.id) }).min() {
-                        insight("最容易放弃", hard.filter { data.count($0.id) == least }.map(\.title).joined(separator: "、"))
+                        insight(AppLanguage.text("最容易放弃"), hard.filter { data.count($0.id) == least }.map { AppLanguage.text($0.title) }.joined(separator: AppLanguage.current == "en-US" ? ", " : "、"))
                     }
                     let areas = leaders.compactMap { ["H1": "觉察与决策", "H2": "专注与思考", "H3": "勇气与行动", "H4": "边界与休息"][$0.id] }
-                    insight("它正在帮助你", areas.isEmpty ? "慢慢找到自己的节奏" : Array(Set(areas)).sorted().joined(separator: "、"))
+                    insight(AppLanguage.text("它正在帮助你"), areas.isEmpty ? AppLanguage.text("慢慢找到自己的节奏") : Array(Set(areas)).sorted().map { AppLanguage.text($0) }.joined(separator: AppLanguage.current == "en-US" ? ", " : "、"))
                     Text(categoryInsight(data, goals: visibleGoals))
                         .font(.system(size: 13))
                         .foregroundStyle(muted)
@@ -636,7 +653,7 @@ struct ReviewPage: View {
     @ViewBuilder
     private func aiReportSection(_ data: ReviewSnapshot) -> some View {
         Rectangle().fill(ink.opacity(0.09)).frame(height: 1).padding(.vertical, 3)
-        Text(period == .week ? "本周复盘分析" : "月复盘分析")
+        Text(period == .week ? AppLanguage.text("本周复盘分析") : AppLanguage.text("月复盘分析"))
             .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(ink)
 
@@ -649,7 +666,7 @@ struct ReviewPage: View {
                 if reviewReportLoading && analysisStep != .complete {
                     ReviewWaitingMessage(color: muted)
                 } else {
-                    Text("分析完成")
+                    Text(AppLanguage.text("分析完成"))
                         .font(.system(size: 13))
                         .foregroundStyle(muted)
                 }
@@ -660,7 +677,7 @@ struct ReviewPage: View {
                     allowsVirtualProgress: reviewReportLoading && analysisStep != .complete
                 )
                     .frame(height: 7)
-                    .accessibilityLabel("分析步骤：\(analysisStep.title(for: period))")
+                    .accessibilityLabel(String(format: AppLanguage.text("分析步骤：%@"), analysisStep.title(for: period)))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
@@ -680,7 +697,7 @@ struct ReviewPage: View {
     private func receiptDocument(_ reports: QwenReviewService.MonthlyReports, data: ReviewSnapshot) -> ReviewReceiptDocument {
         ReviewReceiptDocument(
             reports: reports,
-            title: period == .week ? "本周复盘小票" : "月度复盘小票",
+            title: period == .week ? AppLanguage.text("本周复盘小票") : AppLanguage.text("月度复盘小票"),
             start: range.start,
             end: range.end.addingTimeInterval(-1),
             completions: data.completions,
@@ -692,12 +709,59 @@ struct ReviewPage: View {
     private func previewReceipt() {
         guard let snapshot, !receiptPresentation.isActive else { return }
         reportScrollPosition.scrollTo(edge: .top)
+        let isEn = DevelopmentLaunch.contains("--lang-en") || AppLanguage.current == "en-US"
+        let isJa = DevelopmentLaunch.contains("--lang-ja") || AppLanguage.current.hasPrefix("ja")
+        let rawAnalysis: String
+        let rawEncouragement: String
+        if isEn {
+            rawAnalysis = "This week's records leave tangible traces of daily care. The plant's current stage reflects your cumulative progress, not necessarily a level-up from this single week. Seeds take time to sprout, and seedlings grow at their own pace.\n\nLooking back at specific dates reveals which habits are easiest to start and which days need a little breathing room. Every check-in is an honest milestone, and pauses offer valuable clues for adjustment.\n\nConsistent logging and reviews help you find cues that work for you. Next week, pick just one habit to nurture and notice when it feels easiest to take that first step."
+            rawEncouragement = "Treat every small action as gentle care for your plant. Keep a little patience, let it take root, and look forward to vibrant blooms. Tomorrow, simply begin with one effortless step."
+        } else if isJa {
+            rawAnalysis = "今週の記録は、日々のケアを振り返る確かな足跡になります。植物の現在の状態はこれまでの累計を反映したものであり、今週の急成長だけを示すわけではありません。種が芽吹き、苗が育つにはそれぞれのペースがあります。\n\n具体的な日付で振り返ると、始めやすい習慣や、少し余裕が必要だった日が見えてきます。1回の達成は確かな実績であり、一時的な中断も次の調整へのヒントになります。\n\n記録と振り返りを続けることで、自分に合ったリズムが見つかります。来週は続けたい習慣をひとつ選び、いつ第一歩を踏み出しやすいかを観察してみましょう。"
+            rawEncouragement = "日々の小さな一歩を、植物への水やりだと思ってみてください。焦らず根を張るのを見守り、いつか咲く美しい花を楽しみにしましょう。明日は気負わず、簡単な一歩から始めましょう。"
+        } else {
+            rawAnalysis = "这周的记录，让日常的照料有了可以回看的痕迹。养成物的当前阶段反映累计记录，不代表这一周发生了升阶。种子等待发芽、幼苗慢慢生长，都有各自的节奏。\n\n把行动放回具体日期，能更清楚地看见哪些习惯容易开始，哪些日子需要留一点余地。一次完成是一条真实记录，暂时中断也可以成为下一次调整的线索。\n\n持续记录与复盘，有助于找到适合自己的提示和反馈。下周可以只挑一个想继续照顾的习惯，观察什么时间最容易迈出第一步。"
+            rawEncouragement = "愿你把每一次小小的行动，都当作给植物的一次照料。留一点耐心，陪它慢慢生根，也期待它在你的陪伴下开出惊喜的花朵。明天从一个轻松的小步骤开始就好。"
+        }
+
         let reports = QwenReviewService.MonthlyReports(
-            analysis: "这周的记录，让日常的照料有了可以回看的痕迹。养成物的当前阶段反映累计记录，不代表这一周发生了升阶。种子等待发芽、幼苗慢慢生长，都有各自的节奏。\n\n把行动放回具体日期，能更清楚地看见哪些习惯容易开始，哪些日子需要留一点余地。一次完成是一条真实记录，暂时中断也可以成为下一次调整的线索。\n\n持续记录与复盘，有助于找到适合自己的提示和反馈。下周可以只挑一个想继续照顾的习惯，观察什么时间最容易迈出第一步。",
-            encouragement: "愿你把每一次小小的行动，都当作给植物的一次照料。留一点耐心，陪它慢慢生根，也期待它在你的陪伴下开出惊喜的花朵。明天从一个轻松的小步骤开始就好。"
+            analysis: rawAnalysis,
+            encouragement: rawEncouragement
         )
         reviewReport = reports
         if !reduceMotion { receiptPresentation.present(receiptDocument(reports, data: snapshot)) }
+    }
+
+    private func setupDirectReceiptPreview() {
+        guard let snapshot else { return }
+        let isEn = DevelopmentLaunch.contains("--lang-en") || AppLanguage.current == "en-US"
+        let isJa = DevelopmentLaunch.contains("--lang-ja") || AppLanguage.current.hasPrefix("ja")
+        let rawAnalysis: String
+        let rawEncouragement: String
+        if isEn {
+            rawAnalysis = "This week's records leave tangible traces of daily care. The plant's current stage reflects your cumulative progress, not necessarily a level-up from this single week. Seeds take time to sprout, and seedlings grow at their own pace.\n\nLooking back at specific dates reveals which habits are easiest to start and which days need a little breathing room. Every check-in is an honest milestone, and pauses offer valuable clues for adjustment.\n\nConsistent logging and reviews help you find cues that work for you. Next week, pick just one habit to nurture and notice when it feels easiest to take that first step."
+            rawEncouragement = "Treat every small action as gentle care for your plant. Keep a little patience, let it take root, and look forward to vibrant blooms. Tomorrow, simply begin with one effortless step."
+        } else if isJa {
+            rawAnalysis = "今週の記録は、日々のケアを振り返る確かな足跡になります。植物の現在の状態はこれまでの累計を反映したものであり、今週の急成長だけを示すわけではありません。種が芽吹き、苗が育つにはそれぞれのペースがあります。\n\n具体的な日付で振り返ると、始めやすい習慣や、少し余裕が必要だった日が見えてきます。1回の達成は確かな実績であり、一時的な中断も次の調整へのヒントになります。\n\n記録と振り返りを続けることで、自分に合ったリズムが見つかります。来週は続けたい習慣をひとつ選び、いつ第一歩を踏み出しやすいかを観察してみましょう。"
+            rawEncouragement = "日々の小さな一歩を、植物への水やりだと思ってみてください。焦らず根を張るのを見守り、いつか咲く美しい花を楽しみにしましょう。明日は気負わず、簡単な一歩から始めましょう。"
+        } else {
+            rawAnalysis = "这周的记录，让日常的照料有了可以回看的痕迹。养成物的当前阶段反映累计记录，不代表这一周发生了升阶。种子等待发芽、幼苗慢慢生长，都有各自的节奏。\n\n把行动放回具体日期，能更清楚地看见哪些习惯容易开始，哪些日子需要留一点余地。一次完成是一条真实记录，暂时中断也可以成为下一次调整的线索。\n\n持续记录与复盘，有助于找到适合自己的提示和反馈。下周可以只挑一个想继续照顾的习惯，观察什么时间最容易迈出第一步。"
+            rawEncouragement = "愿你把每一次小小的行动，都当作给植物的一次照料。留一点耐心，陪它慢慢生根，也期待它在你的陪伴下开出惊喜的花朵。明天从一个轻松的小步骤开始就好。"
+        }
+
+        let reports = QwenReviewService.MonthlyReports(
+            analysis: rawAnalysis,
+            encouragement: rawEncouragement
+        )
+        reviewReport = reports
+        isWeekCalendarExpanded = false
+        pendingAutoExpand = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            withAnimation(.easeInOut(duration: 0.3)) {
+                reportScrollPosition.scrollTo(id: "review-ai-receipt", anchor: .top)
+            }
+        }
     }
     #endif
 
@@ -705,8 +769,13 @@ struct ReviewPage: View {
         let cooldownActive = nextReviewAllowedAt.map { Date.now < $0 } ?? false
         let noMonthlyCompletions = period == .month && data.completions == 0
         let hasExistingReport = reviewReport != nil
+        let canUseAI = canRequestReview
         return VStack(spacing: 7) {
             Button {
+                if !canUseAI {
+                    showingPaywallSheet = true
+                    return
+                }
                 if hasPrivacyConsent {
                     startReviewRequest()
                 } else {
@@ -715,8 +784,8 @@ struct ReviewPage: View {
                 }
             } label: {
                 Label(
-                    hasExistingReport ? "重新生成 AI 小结" : "AI 生成小结",
-                    systemImage: "sparkles"
+                    hasExistingReport ? AppLanguage.text("重新生成 AI 小结") : AppLanguage.text("AI 生成小结"),
+                    systemImage: canUseAI ? "sparkles" : "crown.fill"
                 )
                     .font(.system(size: 14, weight: .semibold))
                     .frame(maxWidth: .infinity)
@@ -725,13 +794,28 @@ struct ReviewPage: View {
                     .background(LinearGradient(colors: reviewGradient, startPoint: .leading, endPoint: .trailing), in: Capsule())
             }
             .buttonStyle(.plain)
-            .disabled(reviewReportLoading || cooldownActive || noMonthlyCompletions)
-            if cooldownActive, let nextReviewAllowedAt {
-                Text("可在\(nextReviewAllowedAt.formatted(date: .numeric, time: .omitted))后再次生成")
+            .disabled(reviewReportLoading || (cooldownActive && canUseAI) || noMonthlyCompletions)
+            if !canUseAI {
+                Button {
+                    showingPaywallSheet = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(red: 0.90, green: 0.65, blue: 0.28))
+                        Text(AppLanguage.text(period == .month && SubscriptionManager.shared.currentTier == .free ? "ai.review.month.membership" : "免费体验已使用 · 升级会员解锁每周深度复盘"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(red: 0.52, green: 0.36, blue: 0.62))
+                    }
+                    .padding(.top, 4)
+                }
+                .buttonStyle(.plain)
+            } else if cooldownActive, let nextReviewAllowedAt {
+                Text(String(format: AppLanguage.text("可在 %@ 后再次生成"), nextReviewAllowedAt.formatted(.dateTime.year().month().day().locale(AppLanguage.locale))))
                     .font(.system(size: 12))
                     .foregroundStyle(muted)
             } else if noMonthlyCompletions && !hasExistingReport {
-                Text("本月还没有已完成的任务记录。")
+                Text(AppLanguage.text("本月还没有已完成的任务记录。"))
                     .font(.system(size: 12))
                     .foregroundStyle(muted)
             }
@@ -744,13 +828,13 @@ struct ReviewPage: View {
 
     private var reviewPrivacyConsentSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("发送前请阅读").font(.system(size: 23, weight: .semibold)).foregroundStyle(ink)
+            Text(AppLanguage.text("发送前请阅读")).font(.system(size: 23, weight: .semibold)).foregroundStyle(ink)
             ScrollView {
-                Text("处理者：本 App 运营者（联系方式请见 App Store 产品页或本政策发布页）。生成周度或月度复盘时，App 会将所选周期内的习惯名称、完成日期、养成物活动与阶段，以及任务卡片中填写的复盘文字发送给阿里云百炼服务，调用 qwen3.7-flash 生成分析和建议。此功能为可选功能；首次勾选同意并点击“发送并生成报告”后，后续周度和月度复盘不再重复征求同意。数据仅在你主动生成报告时发送。拒绝或取消不影响使用其他功能。\n\n阿里云作为服务提供方处理请求内容。阿里云说明，百炼按量付费 API 不会将输入输出用于模型训练；实际处理仍受所用产品方案、地域、服务条款和隐私规则约束。请求会经 App 服务端转发，服务端须按约定仅为完成分析处理，并采取访问控制、传输保护等措施。分析结果保存在本机数据库；本地开发代理地址仅用于开发，正式发布前必须改为受控的生产服务端。\n\n请勿提交身份证件、联系方式、账户信息、健康或其他敏感个人信息，也不要填写他人的个人信息。若复盘文字包含敏感个人信息，提交前请自行删除；依法需要时应另行取得单独同意并说明必要性及对权益的影响。AI 输出可能不准确，不构成医疗、心理、法律或其他专业意见。\n\n你可以在发送前取消。发送后可停止使用此功能；已保存在本机的报告可通过 App 内清除复盘数据的功能删除（若尚未提供该入口，请在正式发布前实现）。如需查询、更正、复制或删除已发送数据，或撤回同意，请通过本政策发布页所列联系方式提出。撤回不影响撤回前基于同意进行的处理。服务端及服务提供方仅在完成请求、保障安全或遵守法律所需期限内保留相关数据，并在期限届满后删除或匿名化；具体留存期限及服务端删除机制须由运营者依据实际部署落实并在上线版本中核实。\n\n本说明适用于周度与月度 AI 复盘。若服务接收方、数据类型、用途或保存方式发生变化，App 会更新说明并在需要时重新征求同意。")
+                Text(AppLanguage.text("privacy.ai.notice"))
                     .font(.system(size: 14)).foregroundStyle(muted).fixedSize(horizontal: false, vertical: true)
             }
             Toggle(isOn: $privacyConsentChecked) {
-                Text("我已阅读，并同意将所选周期的任务与养成物记录发送给阿里云千问进行分析。")
+                Text(AppLanguage.text("privacy.ai.consent.checkbox"))
                     .font(.system(size: 14, weight: .medium)).foregroundStyle(ink)
             }
             .tint(reviewGradient.first ?? .purple)
@@ -759,7 +843,7 @@ struct ReviewPage: View {
                 hasPrivacyConsent = true
                 startReviewRequest()
             } label: {
-                Text("发送并生成报告")
+                Text(AppLanguage.text("发送并生成报告"))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -768,15 +852,25 @@ struct ReviewPage: View {
             }
             .disabled(!privacyConsentChecked || reviewReportLoading)
             .opacity(privacyConsentChecked ? 1 : 0.5)
-            Button("取消", role: .cancel) { consentSheetPresented = false }
+            Button(AppLanguage.text("取消"), role: .cancel) { consentSheetPresented = false }
                 .frame(maxWidth: .infinity)
         }
         .padding(24)
         .presentationBackground(.regularMaterial)
+        .environment(\.colorScheme, .light)
+    }
+
+    private var canRequestReview: Bool {
+        let subscription = SubscriptionManager.shared
+        return subscription.canUseAIWeeklyReview && (period == .week || subscription.currentTier != .free)
     }
 
     private func startReviewRequest() {
-        guard !reviewReportLoading else { return }
+        guard canRequestReview else {
+            showingPaywallSheet = true
+            return
+        }
+        guard hasPrivacyConsent, !reviewReportLoading else { return }
         reviewRequestTask = Task { await requestReviewReport() }
     }
 
@@ -785,6 +879,7 @@ struct ReviewPage: View {
         guard !reviewReportLoading else { return }
         // Freeze all request context before the first suspension point.
         let requestedPeriod = period
+        let requestedLanguage = AppLanguage.current
         let requestedAnchor = anchor
         let requestedRange = range
         let requestedKey = requestedPeriod == .week ? Self.weekKey(requestedRange.start) : Self.monthKey(requestedAnchor)
@@ -797,27 +892,28 @@ struct ReviewPage: View {
         do {
             let content = try requestedPeriod == .week ? weekReportInput(in: requestedRange) : monthReportInput(in: requestedRange)
             guard !content.isEmpty else {
-                reviewReportError = requestedPeriod == .week ? "本周没有可分析的记录。" : "本月没有可分析的任务文字记录。"
+                reviewReportError = requestedPeriod == .week ? AppLanguage.text("本周没有可分析的记录。") : AppLanguage.text("本月没有可分析的任务文字记录。")
                 return
             }
             analysisStep = .sending
-            let reports = try await (requestedPeriod == .week ? QwenReviewService.analyzeWeek(content) : QwenReviewService.analyzeMonth(content))
+            let reports = try await (requestedPeriod == .week ? QwenReviewService.analyzeWeek(content, language: requestedLanguage) : QwenReviewService.analyzeMonth(content, language: requestedLanguage))
             try Task.checkCancellation()
             analysisStep = .organizing
             if requestedPeriod == .week {
-                try NativeDatabase().saveWeeklyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, week: requestedRange.start)
+                try NativeDatabase().saveWeeklyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, week: requestedRange.start, language: requestedLanguage)
             } else {
-                try NativeDatabase().saveMonthlyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, month: requestedAnchor)
+                try NativeDatabase().saveMonthlyAIReport(analysis: reports.analysis, encouragement: reports.encouragement, month: requestedAnchor, language: requestedLanguage)
             }
             let savedAt = Date.now
             UserDefaults.standard.set(savedAt, forKey: requestDateKey)
+            SubscriptionManager.shared.recordAIWeeklyReviewSuccess()
             // The saved result belongs to the original period even if the user moved elsewhere.
             let currentKey = period == .week ? Self.weekKey(range.start) : Self.monthKey(anchor)
-            guard period == requestedPeriod, currentKey == requestedKey, scenePhase == .active else { return }
+            guard period == requestedPeriod, currentKey == requestedKey, AppLanguage.current == requestedLanguage, scenePhase == .active else { return }
             analysisStep = .complete
             if !reduceMotion { try await Task.sleep(for: .milliseconds(350)) }
             let visibleKey = period == .week ? Self.weekKey(range.start) : Self.monthKey(anchor)
-            guard period == requestedPeriod, visibleKey == requestedKey, scenePhase == .active else { return }
+            guard period == requestedPeriod, visibleKey == requestedKey, AppLanguage.current == requestedLanguage, scenePhase == .active else { return }
             reviewReport = reports
             let cooldown = requestedPeriod == .week ? 7 : 30
             nextReviewAllowedAt = Calendar.current.date(byAdding: .day, value: cooldown, to: savedAt)
@@ -825,7 +921,7 @@ struct ReviewPage: View {
             if !reduceMotion, let data = requestedSnapshot {
                 receiptPresentation.present(ReviewReceiptDocument(
                     reports: reports,
-                    title: requestedPeriod == .week ? "本周复盘小票" : "月度复盘小票",
+                    title: requestedPeriod == .week ? AppLanguage.text("本周复盘小票") : AppLanguage.text("月度复盘小票"),
                     start: requestedRange.start,
                     end: requestedRange.end.addingTimeInterval(-1),
                     completions: data.completions,
@@ -847,14 +943,24 @@ struct ReviewPage: View {
             let saved: (analysis: String, encouragement: String, updatedAt: Date)?
             if period == .week {
                 key = Self.weekKey(range.start)
-                saved = try database.reviewReport(table: "weekly_ai_reports", keyColumn: "week_key", key: key)
+                saved = try database.reviewReport(table: "weekly_ai_reports", keyColumn: "week_key", key: key + "|" + AppLanguage.current)
             } else {
                 key = Self.monthKey(anchor)
-                saved = try database.reviewReport(table: "monthly_ai_reports", keyColumn: "month_key", key: key)
+                saved = try database.reviewReport(table: "monthly_ai_reports", keyColumn: "month_key", key: key + "|" + AppLanguage.current)
             }
             reviewReport = saved.map { QwenReviewService.MonthlyReports(analysis: $0.analysis, encouragement: $0.encouragement) }
-            let storedRequestDate = UserDefaults.standard.object(forKey: reviewRequestDateKey(for: key)) as? Date
-            let requestDate = storedRequestDate ?? saved?.updatedAt
+            let sharedKey = reviewRequestDateKey(for: key)
+            let defaults = UserDefaults.standard
+            var requestDates = ([sharedKey] + ["zh-Hans", "en-US", "ja"].map { sharedKey + "." + $0 })
+                .compactMap { defaults.object(forKey: $0) as? Date }
+            let table = period == .week ? "weekly_ai_reports" : "monthly_ai_reports"
+            let keyColumn = period == .week ? "week_key" : "month_key"
+            for reportKey in [key] + ["zh-Hans", "en-US", "ja"].map({ key + "|" + $0 }) {
+                if let report = try database.reviewReport(table: table, keyColumn: keyColumn, key: reportKey) {
+                    requestDates.append(report.updatedAt)
+                }
+            }
+            let requestDate = requestDates.max()
             let cooldown = period == .week ? 7 : 30
             nextReviewAllowedAt = requestDate.flatMap { Calendar.current.date(byAdding: .day, value: cooldown, to: $0) }
         } catch {
@@ -880,23 +986,24 @@ struct ReviewPage: View {
     }
 
     private func weekReportInput(in interval: DateInterval) throws -> String {
-        var records = [try monthReportInput(in: interval)]
-        do {
-            let referenceDate = min(interval.end.addingTimeInterval(-1), Date.now)
-            let garden = try HabitGardenLiveSnapshot.read(at: referenceDate)
-            let current = SharedHabitRepository.catalog.map { goal -> String in
-                let stage = GardenStageLevel(rawValue: max(-3, min(3, garden.growth[goal.id, default: 0])))?.titleZh ?? "未知阶段"
-                return "\(goal.id)｜\(goal.title)：养成物当前阶段 \(stage)，累计完成 \(garden.completions[goal.id, default: 0]) 次，累计积分 \(garden.points[goal.id, default: 0])"
-            }.joined(separator: "\n")
-            records.append("【养成物当前状态；仅作背景，不代表本周变化】\n" + current)
-        }
-        return records.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        try monthReportInput(in: interval)
     }
 
     private func monthReportInput(in interval: DateInterval) throws -> String {
         let start = dateKey(interval.start)
         let end = dateKey(interval.end)
         var records: [String] = []
+        let goals = SharedHabitRepository.historyCatalog()
+        let referenceDate = min(interval.end.addingTimeInterval(-1), Date.now)
+        let garden = try HabitGardenLiveSnapshot.read(at: referenceDate)
+        let plantRows = goals.map { goal -> String in
+            let progress = max(0, garden.growth[goal.id, default: 0])
+            let stage = HabitGrowthRules.stage(for: progress)
+            let flowering = progress >= HabitGrowthRules.floweringThreshold
+                ? "已达到开花阶段"
+                : "距离开花阈值还差 \(HabitGrowthRules.floweringThreshold - progress) 成长值；不是剩余天数，后续成长值可能变化"
+            return "\(goal.id)｜\(goal.title)：阶段 \(stage)，当前成长值 \(progress)；\(flowering)"
+        }.joined(separator: "\n")
         try NativeDatabase().withConnection { db in
             let completions = try NativeDatabase.prepare(
                 "SELECT habit_id, local_date, COUNT(*) FROM habit_logs WHERE local_date >= ? AND local_date < ? GROUP BY habit_id, local_date ORDER BY habit_id, local_date",
@@ -909,7 +1016,7 @@ struct ReviewPage: View {
                 let id = sqlite3_column_text(completions, 0).map { String(cString: $0) } ?? ""
                 let day = sqlite3_column_text(completions, 1).map { String(cString: $0) } ?? ""
                 let count = sqlite3_column_int(completions, 2)
-                guard let goal = SharedHabitRepository.catalog.first(where: { $0.id == id }) else { continue }
+                guard let goal = goals.first(where: { $0.id == id }) else { continue }
                 completionRows.append("\(goal.category)｜\(goal.title)（\(id)）：\(day)，完成\(count)次")
             }
             if !completionRows.isEmpty {
@@ -944,7 +1051,7 @@ struct ReviewPage: View {
                     guard sqlite3_column_type(activities, column) != SQLITE_NULL else { return nil }
                     return String(sqlite3_column_double(activities, column))
                 }.joined(separator: ", ")
-                let title = SharedHabitRepository.catalog.first(where: { $0.id == id })?.title ?? id
+                let title = goals.first(where: { $0.id == id })?.title ?? id
                 records.append("\(date)｜\(title)：\(first)；\(second)\(numbers.isEmpty ? "" : "；数值：\(numbers)")")
             }
             let timers = try NativeDatabase.prepare(
@@ -961,8 +1068,11 @@ struct ReviewPage: View {
                 let topic = sqlite3_column_text(timers, 1).map { String(cString: $0) } ?? ""
                 let status = sqlite3_column_text(timers, 4).map { String(cString: $0) } ?? ""
                 let state = status == "completed" ? "完成计时" : "计时中断/未完成"
-                records.append("\(date)｜\(SharedHabitRepository.catalog.first(where: { $0.id == id })?.title ?? id)：系统记录：\(state)；用户填写议题：\(topic.isEmpty ? "（未填写）" : topic)")
+                records.append("\(date)｜\(goals.first(where: { $0.id == id })?.title ?? id)：系统记录：\(state)；用户填写议题：\(topic.isEmpty ? "（未填写）" : topic)")
             }
+        }
+        if !records.isEmpty && !plantRows.isEmpty {
+            records.append("【周期结束时或当前的植物成长快照；不是本周期增长，不能预测开花日期】\n" + plantRows)
         }
         return records.joined(separator: "\n")
     }
@@ -972,13 +1082,13 @@ struct ReviewPage: View {
             let result = value.withCString {
                 sqlite3_bind_text(statement, Int32(index + 1), $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             }
-            guard result == SQLITE_OK else { throw NativeDatabaseError.unavailable("无法读取月度报告数据。") }
+            guard result == SQLITE_OK else { throw NativeDatabaseError.unavailable(AppLanguage.text("无法读取月度报告数据。")) }
         }
     }
 
     private func insight(_ title: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).foregroundStyle(muted)
+            Text(AppLanguage.text(title)).foregroundStyle(muted)
             Spacer(minLength: 8)
             Text(value)
                 .foregroundStyle(ink)
@@ -989,19 +1099,20 @@ struct ReviewPage: View {
     }
 
     private func daySheet(_ day: ReviewDay) -> some View {
-        ScrollView {
+        let goals = SharedHabitRepository.historyCatalog()
+        return ScrollView {
             VStack(alignment: .leading, spacing: 17) {
                 Text(dateLabel(day.date)).font(.system(size: 24, weight: .semibold)).opacity(reduceMotion ? 1 : 0)
-                Text("完成 \(day.completed.count) 项 · 获得 \(day.points) 积分")
+                Text(String(format: AppLanguage.text("完成 %lld 项 · 获得 %lld 积分"), day.completed.count, day.points))
                     .foregroundStyle(muted)
-                if day.completed.isEmpty { Text("当天没有有效完成").foregroundStyle(muted) }
+                if day.completed.isEmpty { Text(AppLanguage.text("当天没有有效完成")).foregroundStyle(muted) }
                 ForEach(day.completed, id: \.self) { id in
-                    Text("\(id)  \(SharedHabitRepository.catalog.first(where: { $0.id == id })?.title ?? id)")
+                    Text(AppLanguage.text(goals.first(where: { $0.id == id })?.title ?? id))
                 }
                 if let note = day.note {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("H1 复盘内容").font(.headline)
-                        Text("决定：\(note.decision)\n结果：\(note.result)\n下次：\(note.improvement)")
+                        Text(AppLanguage.text("H1 复盘内容")).font(.headline)
+                        Text(String(format: AppLanguage.text("决定：%@\n结果：%@\n下次：%@"), note.decision, note.result, note.improvement))
                     }
                 }
                 ForEach(day.activities, id: \.self) { text in Text(text) }
@@ -1032,14 +1143,7 @@ struct ReviewPage: View {
     private var leadingBlanks: Int { (calendar.component(.weekday, from: range.start) + 5) % 7 }
     private var compactWeekRange: String {
         let end = calendar.date(byAdding: .day, value: -1, to: range.end)!
-        let startMonth = calendar.component(.month, from: range.start)
-        let endMonth = calendar.component(.month, from: end)
-        let startDay = calendar.component(.day, from: range.start)
-        let endDay = calendar.component(.day, from: end)
-        if startMonth == endMonth {
-            return "\(startMonth)月\(startDay)—\(endDay)日"
-        }
-        return "\(startMonth)月\(startDay)日—\(endMonth)月\(endDay)日"
+        return AppLanguage.date(range.start, template: "MMMd") + " — " + AppLanguage.date(end, template: "MMMd")
     }
     private var canMoveForward: Bool { period == .week || range.end <= Date.now }
     private var isClosedMonth: Bool { calendar.dateInterval(of: .month, for: .now)!.start > range.start }
@@ -1124,38 +1228,38 @@ struct ReviewPage: View {
         return ReviewSnapshot(days: days, selectedIDs: selectedIDs, starredIDs: starredIDs)
     }
 
-    private func weekday(_ date: Date) -> String { ["日", "一", "二", "三", "四", "五", "六"][calendar.component(.weekday, from: date) - 1] }
+    private func weekday(_ date: Date) -> String { AppLanguage.date(date, template: "EEEEE") }
     private func monthName(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US")
+        formatter.locale = AppLanguage.locale
         formatter.dateFormat = "LLLL"
         return formatter.string(from: date)
     }
-    private func dateLabel(_ date: Date) -> String { "\(calendar.component(.year, from: date))年\(calendar.component(.month, from: date))月\(calendar.component(.day, from: date))日" }
+    private func dateLabel(_ date: Date) -> String { AppLanguage.date(date, template: "yMMMd") }
     private func encouragement(_ count: Int) -> String {
-        if period == .week && range.start > Date.now { return "这一周尚未开始，暂无完成记录。" }
-        if period == .week { return count == 0 ? "这周还没有完成记录。从一个小动作重新开始。" : "每一次完成，都是本周留下的真实证据。" }
+        if period == .week && range.start > Date.now { return AppLanguage.text("这一周尚未开始，暂无完成记录。") }
+        if period == .week { return count == 0 ? AppLanguage.text("这周还没有完成记录。从一个小动作重新开始。") : AppLanguage.text("每一次完成，都是本周留下的真实证据。") }
         switch count {
-        case 0: return "这个月还没有留下完成记录，不用责怪自己。挑一个最小动作，今天重新开始。"
-        case 1...3: return "你已经开始留下证据了。小小的重复，会慢慢变成更稳的自己。"
-        case 4...10: return "你正在把坚持变成日常。下个月继续守住最容易做到的那一步。"
-        default: return "这份记录很有分量。你不是靠某一天的冲劲，而是在给生活持续加一点复利。"
+        case 0: return AppLanguage.text("这个月还没有留下完成记录，不用责怪自己。挑一个最小动作，今天重新开始。")
+        case 1...3: return AppLanguage.text("你已经开始留下证据了。小小的重复，会慢慢变成更稳的自己。")
+        case 4...10: return AppLanguage.text("你正在把坚持变成日常。下个月继续守住最容易做到的那一步。")
+        default: return AppLanguage.text("这份记录很有分量。你不是靠某一天的冲劲，而是在给生活持续加一点复利。")
         }
     }
 
     private func categoryInsight(_ data: ReviewSnapshot, goals: [Goal]) -> String {
-        guard data.completions > 0 else { return "还没有完成记录，先从一个最容易开始的动作建立样本。" }
+        guard data.completions > 0 else { return AppLanguage.text("还没有完成记录，先从一个最容易开始的动作建立样本。") }
         let groups: [(String, [Goal])] = [
             ("普通", goals.filter { !data.starredIDs.contains($0.id) && !["H5", "H7", "H10", "H11"].contains($0.id) }),
             ("周期", goals.filter { !data.starredIDs.contains($0.id) && ["H5", "H7", "H10", "H11"].contains($0.id) }),
             ("星标", goals.filter { data.starredIDs.contains($0.id) })
         ]
         let ranked = groups.filter { !$0.1.isEmpty }.map { ($0.0, Double($0.1.reduce(0) { $0 + data.count($1.id) }) / Double($0.1.count)) }
-        guard let strongest = ranked.max(by: { $0.1 < $1.1 })?.0 else { return "继续积累记录，才能形成可靠的类型比较。" }
+        guard let strongest = ranked.max(by: { $0.1 < $1.1 })?.0 else { return AppLanguage.text("继续积累记录，才能形成可靠的类型比较。") }
         switch strongest {
-        case "普通": return "普通习惯的平均完成次数最高。继续保持稳定的日常节律。"
-        case "周期": return "周期习惯的平均完成次数最高。继续提前安排执行时间。"
-        default: return "星标习惯的平均完成次数最高。它们不加积分，仍值得长期坚持。"
+        case "普通": return AppLanguage.text("普通习惯的平均完成次数最高。继续保持稳定的日常节律。")
+        case "周期": return AppLanguage.text("周期习惯的平均完成次数最高。继续提前安排执行时间。")
+        default: return AppLanguage.text("星标习惯的平均完成次数最高。它们不加积分，仍值得长期坚持。")
         }
     }
 }
@@ -1168,10 +1272,10 @@ private enum MonthlyAnalysisStep {
 
     func title(for period: ReviewPeriod) -> String {
         switch self {
-        case .preparing: period == .week ? "正在整理本周记录…" : "正在整理本月记录…"
-        case .sending: "正在等待 AI 分析…"
-        case .organizing: "正在整理分析结果…"
-        case .complete: "分析完成"
+        case .preparing: period == .week ? AppLanguage.text("正在整理本周记录…") : AppLanguage.text("正在整理本月记录…")
+        case .sending: AppLanguage.text("正在等待 AI 分析…")
+        case .organizing: AppLanguage.text("正在整理分析结果…")
+        case .complete: AppLanguage.text("分析完成")
         }
     }
 
@@ -1211,7 +1315,7 @@ private struct ReviewWaitingMessage: View {
         TimelineView(.periodic(from: cycleStart, by: 7)) { timeline in
             let elapsed = max(0, timeline.date.timeIntervalSince(cycleStart))
             let index = Int(elapsed / 7) % messages.count
-            Text(messages[index])
+            Text(AppLanguage.text(messages[index]))
                 .font(.system(size: 13))
                 .foregroundStyle(color)
                 .contentTransition(.opacity)
@@ -1293,6 +1397,7 @@ private struct ReviewAIScanningProgress: View {
 }
 
 private struct WeekDateWheel: View {
+    @Environment(\.locale) private var locale
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let days: [ReviewDay]
@@ -1360,7 +1465,7 @@ private struct WeekDateWheel: View {
                     let prominence = max(0, 1 - abs(x - width / 2) / step)
                     let visible = x > -step && x < width + step
                     if visible {
-                        Text("周\(weekday(day.date))")
+                        Text(verbatim: AppLanguage.date(day.date, template: "EEE"))
                             .font(.system(size: 11, weight: .medium))
                             .position(x: x, y: 14 + curve)
                             .opacity(max(0.25, 1 - abs(normalized) * 0.27))
@@ -1386,7 +1491,7 @@ private struct WeekDateWheel: View {
                         .buttonStyle(.plain)
                         .position(x: x, y: 58 + curve)
                         .opacity(max(0.40, 1 - abs(normalized) * 0.24))
-                        .accessibilityLabel("\(dateKey(day.date))，完成 \(day.completed.count) 项")
+                        .accessibilityLabel(String(format: AppLanguage.text("%@，完成 %lld 项"), dateKey(day.date), day.completed.count))
                         .zIndex(prominence)
 
                         Circle()
@@ -1424,7 +1529,7 @@ private struct WeekDateWheel: View {
             )
         }
         .frame(height: 108)
-        .accessibilityHint("左右滑动切换日期；点选中间日期查看当天记录")
+        .accessibilityHint(AppLanguage.text("左右滑动切换日期；点选中间日期查看当天记录"))
     }
 
     private func settle(to date: Date, distance: Int, step: CGFloat, startingAt translation: CGFloat? = nil) {
@@ -1445,7 +1550,7 @@ private struct WeekDateWheel: View {
     }
 
     private func weekday(_ date: Date) -> String {
-        ["日", "一", "二", "三", "四", "五", "六"][calendar.component(.weekday, from: date) - 1]
+        AppLanguage.date(date, template: "EEEEE")
     }
 }
 
@@ -1454,9 +1559,10 @@ private func dateKey(_ date: Date) -> String {
     return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
 }
 
-// Marked trigger lines stay at 19% / 89%; visual regions are independently 25% / 15%.
+// Trigger lines stay at 19% / 89%; the top visual region is reduced by one third.
 // Keep measurements and thresholds in window coordinates, including safe areas.
 private struct ReviewScrollChrome: View {
+    @Environment(\.habitBackgroundFrame) private var fullViewport
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let titleFrame: CGRect
@@ -1481,12 +1587,19 @@ private struct ReviewScrollChrome: View {
         GeometryReader { geometry in
             let frame = geometry.frame(in: .global)
             let screenHeight = geometry.size.height + frame.minY
+            let windowWidth = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows).first(where: \.isKeyWindow)?.bounds.width ?? geometry.size.width
+            let coverageMinX = min(frame.minX, fullViewport.isEmpty ? frame.minX : fullViewport.minX)
+            let coverageMaxX = max(frame.maxX, max(windowWidth, fullViewport.maxX))
+            let coverageWidth = coverageMaxX - coverageMinX
+            let coverageCenterX = (coverageMinX + coverageMaxX) / 2 - frame.minX
             let topHeight = (screenHeight * blurAppearance.topHeight).rounded()
             let bottomHeight = (screenHeight * blurAppearance.bottomHeight).rounded()
             let topLine = (screenHeight * 0.19).rounded()
             let bottomLine = (screenHeight * 0.89).rounded()
             let hasContent = bodyFrame != .zero && contentFrame != .zero
-            let topCovered = hasContent && bodyFrame.minY < topLine && contentFrame.maxY > 0
+            let topCovered = hasContent && scrollOffset > 1 && bodyFrame.minY < topLine && contentFrame.maxY > 0
             let bottomCovered = hasContent && contentFrame.maxY > bottomLine && bodyFrame.minY < screenHeight
             let titleSource = restingTitleFrame == .zero ? titleFrame : restingTitleFrame
             let subtitleSource = restingSubtitleFrame == .zero ? subtitleFrame : restingSubtitleFrame
@@ -1498,11 +1611,13 @@ private struct ReviewScrollChrome: View {
 
             ZStack(alignment: .topLeading) {
                 edge(isTop: true, height: topHeight, reveal: topReveal)
-                    .position(x: geometry.size.width / 2, y: (topHeight - 32) / 2 - frame.minY)
+                    .frame(width: coverageWidth)
+                    .position(x: coverageCenterX, y: (topHeight - 32) / 2 - frame.minY)
                 edge(isTop: false, height: bottomHeight, reveal: bottomReveal)
-                    .position(x: geometry.size.width / 2, y: screenHeight - (bottomHeight - 32) / 2 - frame.minY)
+                    .frame(width: coverageWidth)
+                    .position(x: coverageCenterX, y: screenHeight - (bottomHeight - 32) / 2 - frame.minY)
 
-                Text("复盘")
+                Text(AppLanguage.text("复盘"))
                     .font(.system(size: 43, weight: .bold, design: .rounded))
                     .foregroundStyle(ink)
                     .shadow(color: colorTheme == .lavender ? .black.opacity(0.5) : .clear, radius: 1.5, y: 1)
@@ -1510,7 +1625,7 @@ private struct ReviewScrollChrome: View {
                     .scaleEffect(1 - titleProgress * (1 - 26.0 / 43.0))
                     .position(x: titleX, y: titleY)
                     .opacity(titleSource == .zero ? 0 : 1)
-                Text("只读回看每天的习惯完成和记录。")
+                Text(AppLanguage.text("只读回看每天的习惯完成和记录。"))
                     .font(.system(size: 14))
                     .foregroundStyle(mutedInk)
                     .shadow(color: colorTheme == .lavender ? .black.opacity(0.5) : .clear, radius: 1, y: 1)
@@ -1754,10 +1869,10 @@ struct ScrollMorphChrome: View {
                     bottomWhiteOpacity: bottomEdgeWhiteOpacity,
                     bottomVisibleFraction: bottomVisibleFraction
                 )
-                    .ignoresSafeArea(.container, edges: [.top, .bottom])
+                    .ignoresSafeArea(.container, edges: [.top, .bottom, .trailing])
                     .zIndex(0)
 
-                Text(title)
+                Text(AppLanguage.text(title))
                     .font(.system(size: titleSize, weight: titleWeight, design: .rounded))
                     .tracking(-1.2 * (1 - amount))
                     .foregroundStyle(titleColor)
@@ -1768,7 +1883,7 @@ struct ScrollMorphChrome: View {
                     .zIndex(1)
 
                 if let subtitle {
-                    Text(subtitle)
+                    Text(AppLanguage.text(subtitle))
                         .font(.system(size: 14 - 4 * amount, weight: .regular))
                         .foregroundStyle(titleColor.opacity(0.66))
                         .lineLimit(1)
@@ -1787,6 +1902,7 @@ struct ScrollMorphChrome: View {
 }
 
 struct ScrollEdgeBlurOverlay: View {
+    @Environment(\.habitBackgroundFrame) private var fullViewport
     @Environment(\.habitColorTheme) private var colorTheme
     let progress: CGFloat
     var visibility: ScrollEdgeVisibility = .both
@@ -1795,10 +1911,16 @@ struct ScrollEdgeBlurOverlay: View {
     var whiteOpacity: Double = 0.45
     var bottomWhiteOpacity: Double = 0.45
     var bottomVisibleFraction: CGFloat = 0.25
+    var softBottomFade = false
 
     var body: some View {
         GeometryReader { geometry in
             let overscan: CGFloat = 80
+            // Background effects cover the window, including the Duo system rail.
+            let windowWidth = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows).first(where: \.isKeyWindow)?.bounds.width ?? geometry.size.width
+            let coverageWidth = max(geometry.size.width, max(windowWidth, fullViewport.maxX) - geometry.frame(in: .global).minX)
             let topHeight = geometry.size.height / 4 + overscan
             let bottomHeight = geometry.size.height * bottomVisibleFraction + overscan
             let topProgress = visibility == .top || visibility == .both ? (topReveal ?? progress) : 0
@@ -1809,7 +1931,7 @@ struct ScrollEdgeBlurOverlay: View {
                 Spacer(minLength: 0)
                 edgeBlur(isTop: false, height: bottomHeight, travel: bottomHeight - overscan, reveal: bottomProgress, whiteOpacity: bottomWhiteOpacity)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height + overscan * 2)
+            .frame(width: coverageWidth, height: geometry.size.height + overscan * 2)
             .offset(y: -overscan)
         }
         .allowsHitTesting(false)
@@ -1819,11 +1941,11 @@ struct ScrollEdgeBlurOverlay: View {
     private func edgeBlur(isTop: Bool, height: CGFloat, travel: CGFloat, reveal: CGFloat, whiteOpacity: Double) -> some View {
         let amount = min(1, max(0, reveal))
         return Rectangle()
-            .fill(isTop ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.regularMaterial))
+            .fill(AnyShapeStyle(.ultraThinMaterial))
             .environment(\.colorScheme, colorTheme == .lavender ? .dark : .light)
             .overlay(
                 (colorTheme == .lavender ? Color(white: isTop ? 0.025 : 0) : Color(white: isTop ? 0.90 : 1))
-                    .opacity(colorTheme == .lavender ? (isTop ? 0.34 : 0.95) : (isTop ? whiteOpacity : 0.65))
+                    .opacity(colorTheme == .lavender ? (isTop ? 0.34 : 0.95) : (isTop ? whiteOpacity : min(whiteOpacity, 0.32)))
             )
             .frame(height: height)
             .mask {
@@ -1834,7 +1956,13 @@ struct ScrollEdgeBlurOverlay: View {
                             .init(color: .white, location: 0.94),
                             .init(color: .clear, location: 1)
                         ]
-                        : (colorTheme == .lavender ? [
+                        : (softBottomFade ? [
+                            .init(color: .clear, location: 0),
+                            .init(color: .white.opacity(0.12), location: 0.20),
+                            .init(color: .white.opacity(0.5), location: 0.48),
+                            .init(color: .white, location: 0.82),
+                            .init(color: .white, location: 1)
+                        ] : colorTheme == .lavender ? [
                             .init(color: .clear, location: 0),
                             .init(color: .clear, location: 0.14),
                             .init(color: .white.opacity(0.15625), location: 0.175),

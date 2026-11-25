@@ -46,6 +46,10 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
     case cherryBlossom  = "cherryBlossom"   // 10. 樱花霰 Cherry Aura (粉白柔樱 + 胭脂玫红内核 + 金绿微蕊)
     case cosmos         = "cosmos"          // 11. 格桑花 Cosmos (暖阳向日红紫 + 太阳金盘圆心)
     case nightJasmine   = "nightJasmine"    // 12. 夜茉莉 Night Jasmine (夜幕靛青蓝 + 珍珠白荧光星芒)
+    case ginkgo         = "ginkgo"          // 13. 银杏金扇 Ginkgo Fan (流金明黄 + 蜜杏秋橙 + 冷黛青对撞)
+    case iris           = "iris"            // 14. 晶棱鸢尾 Iris Prism (暮霭幽紫 + 月曜青紫 + 柠檬金蕊)
+    case magnolia       = "magnolia"        // 15. 雪霁玉兰 Magnolia Chalice (羊脂白玉 + 薄暮烟绯 + 苍松石绿)
+    case thistle        = "thistle"         // 16. 银霜蓟星 Silver Thistle (冰河灰蓝 + 极光灰紫 + 极光粉金)
 
     public var id: String { rawValue }
 
@@ -63,6 +67,10 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         case .cherryBlossom: return "10. 双色几何伞"
         case .cosmos: return "11. 经纬金晕葱"
         case .nightJasmine: return "12. 极夜十二星"
+        case .ginkgo: return "13. 银杏金扇"
+        case .iris: return "14. 晶棱鸢尾"
+        case .magnolia: return "15. 雪霁玉兰"
+        case .thistle: return "16. 银霜蓟星"
         }
     }
 
@@ -80,7 +88,29 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         case .cherryBlossom: return "静禅 · 澄澈双色悬挂几何伞 (Row 4-R)"
         case .cosmos: return "经纬 · 球面经纬网格金辉葱 (Row 5-R)"
         case .nightJasmine: return "极夜 · 钴蓝十二面体棱镜星 (Row 6-R)"
+        case .ginkgo: return "流金 · 浮金双歧叶脉折扇 (Row 7-L)"
+        case .iris: return "凌空 · 幽紫晶棱与月白羽瓣 (Row 7-R)"
+        case .magnolia: return "初霁 · 羊脂凝玉与薄暮淡绯 (Row 8-L)"
+        case .thistle: return "坚韧 · 银灰棘芒与冰河极光 (Row 8-R)"
         }
+    }
+
+    public var localizedTitle: String {
+        let key = "flora.title." + rawValue
+        let val = AppLanguage.text(key)
+        return val != key ? val : titleZh
+    }
+
+    public var localizedSimpleName: String {
+        let key = "flora.name." + rawValue
+        let val = AppLanguage.text(key)
+        return val != key ? val : simpleName
+    }
+
+    public var localizedMeaning: String {
+        let key = "flora.meaning." + rawValue
+        let val = AppLanguage.text(key)
+        return val != key ? val : meaningZh
     }
 
     // MARK: - 各植物物理风动特性 (质量、受风面、摇摆频率与最大倾角系数)
@@ -98,15 +128,23 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         case .cherryBlossom: return 0.90
         case .cosmos: return 1.25
         case .nightJasmine: return 1.10
+        case .ginkgo: return 0.90
+        case .iris: return 1.05
+        case .magnolia: return 1.20
+        case .thistle: return 0.85
         }
     }
 
     public var swayFrequency: Double {
         switch self {
         case .hydrangea: return 1.40
+        case .thistle: return 1.30
         case .dandelion, .cherryBlossom: return 1.20
+        case .ginkgo: return 1.15
         case .hawthorn, .bayWreath, .cornflower, .allium: return 1.00
+        case .iris: return 0.95
         case .mimosa, .lotusPod, .nightJasmine: return 0.85
+        case .magnolia: return 0.80
         case .redBerries, .cosmos: return 0.70
         }
     }
@@ -119,14 +157,18 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         case .cosmos:        return 1.55 // 11. 经纬金晕葱: 250pt 极长纤细高杆，风推深弯倾斜大弧 (极高柔韧)
         case .hawthorn:      return 1.45 // 1.  蓝金星芒: 270pt 挺拔最高主干，随风巨幅摇曳
         case .allium:        return 1.35 // 8.  珊瑚晶球: 245pt 细韧悬臂，如钓竿般大幅迎风弯曲
+        case .ginkgo:        return 1.25 // 13. 银杏金扇: 210pt 柔韧细柄，风过如金扇微拂
         case .cornflower:    return 1.15 // 4.  几何风车: 220pt 右侧迎风舒展，弯曲柔顺
+        case .magnolia:      return 1.10 // 15. 雪霁玉兰: 255pt 润木主干，柔韧承托硕大花冠
         case .bayWreath:     return 1.05 // 3.  孔雀彩扇: 215pt 弹力枝条，中大幅度弯摆
         case .dandelion:     return 0.95 // 2.  珊瑚伞花: 195pt 轻巧伞骨，优雅微弯
+        case .iris:          return 0.95 // 14. 晶棱鸢尾: 225pt 挺拔剑茎，抗风性好
         case .nightJasmine:  return 0.90 // 12. 极夜十二星: 235pt 挺拔韧枝
         case .cherryBlossom: return 0.85 // 10. 双色几何伞: 175pt 悬垂轻盈
+        case .mimosa:        return 0.85 // 6.  金琥珀阳: 140pt 矮壮短枝，抗风性强
+        case .thistle:       return 0.75 // 16. 银霜蓟星: 180pt 坚韧棘茎，挺劲微弯
         case .lotusPod:      return 0.65 // 9.  珊瑚霞光球: 185pt 结实稳重中柱，轻度偏摆
         case .redBerries:    return 0.50 // 5.  垂帘浆果: 160pt 木质重果枝，茎秆刚劲微弯
-        case .mimosa:        return 0.85 // 6.  金琥珀阳: 140pt 矮壮短枝，抗风性强
         case .hydrangea:     return 0.35 // 7.  青绒蒲公英: 135pt 最矮最刚挺短茎，受风位移极小
         }
     }
@@ -138,11 +180,15 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         case .mimosa:        return 4.0  // 6.  金琥珀阳: 0.6s 快速弹回复位
         case .redBerries:    return 3.5  // 5.  垂帘浆果: 0.7s 木质沉着复位
         case .lotusPod:      return 3.2  // 9.  珊瑚霞光球: 0.8s 稳健无回弹复位
+        case .thistle:       return 3.2  // 16. 银霜蓟星: 0.8s 紧致弹回复位
         case .dandelion:     return 2.6  // 2.  珊瑚伞花: 1.0s 适中回弹
         case .cherryBlossom: return 2.4  // 10. 双色几何伞: 1.1s
+        case .iris:          return 2.2  // 14. 晶棱鸢尾: 1.1s 敏捷挺立
         case .cornflower:    return 2.1  // 4.  几何风车: 1.2s 敏捷回弹
         case .bayWreath:     return 1.9  // 3.  孔雀彩扇: 1.4s 弹力双重振荡
+        case .ginkgo:        return 1.8  // 13. 银杏金扇: 1.4s 舒缓双重摆动
         case .nightJasmine:  return 1.7  // 12. 极夜十二星: 1.5s 柔性回弹
+        case .magnolia:      return 1.6  // 15. 雪霁玉兰: 1.6s 优雅从容复位
         case .allium:        return 1.5  // 8.  珊瑚晶球: 1.7s 细杆弹性鞭梢振荡
         case .hawthorn:      return 1.3  // 1.  蓝金星芒: 1.9s 高杆缓慢回弹
         case .cosmos:        return 1.1  // 11. 经纬金晕葱: 2.2s 最长茎秆回弹时间
@@ -155,13 +201,17 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         case .hydrangea:     return 1.1  // 7.  青绒蒲公英: 1.1 秒最短，几乎随茎秆立即静止
         case .mimosa:        return 1.6  // 6.  金琥珀阳: 1.6 秒微颤后静止
         case .lotusPod:      return 2.0  // 9.  珊瑚霞光球: 2.0 秒沉稳收尾
+        case .thistle:       return 2.2  // 16. 银霜蓟星: 2.2 秒敏捷短颤
         case .cornflower:    return 2.6  // 4.  几何风车: 2.6 秒轻快风车自转式晃动
         case .dandelion:     return 3.0  // 2.  珊瑚伞花: 3.0 秒中度伞面摇曳
+        case .iris:          return 3.2  // 14. 晶棱鸢尾: 3.2 秒三棱微波轻颤
         case .redBerries:    return 3.4  // 5.  垂帘浆果: 3.4 秒钟摆式浆果垂摆
         case .nightJasmine:  return 3.7  // 12. 极夜十二星: 3.7 秒棱镜折光摆动
+        case .ginkgo:        return 3.8  // 13. 银杏金扇: 3.8 秒扇面起伏余波
         case .cherryBlossom: return 4.0  // 10. 双色几何伞: 4.0 秒持久微波轻颤
         case .bayWreath:     return 4.3  // 3.  孔雀彩扇: 4.3 秒孔雀扇面余波
         case .allium:        return 4.6  // 8.  珊瑚晶球: 4.6 秒晶球弹性点头
+        case .magnolia:      return 4.8  // 15. 雪霁玉兰: 4.8 秒宏伟玉杯低频持续深长点头
         case .hawthorn:      return 5.0  // 1.  蓝金星芒: 5.0 秒巨星核低频持续深沉点头
         case .cosmos:        return 5.5  // 11. 经纬金晕葱: 5.5 秒最持久经纬浑天仪梦幻空灵长摇
         }
@@ -171,14 +221,18 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
     public var headWobbleFrequency: Double {
         switch self {
         case .cornflower:    return 6.2  // 4.  几何风车: 高频轻盈飞速扇动
+        case .thistle:       return 5.8  // 16. 银霜蓟星: 紧凑高频微颤
         case .cherryBlossom: return 5.5  // 10. 双色几何伞: 细腻快速微颤
         case .mimosa:        return 5.0  // 6.  金琥珀阳: 欢快碎步微颤
+        case .ginkgo:        return 4.8  // 13. 银杏金扇: 轻快扇羽起伏
         case .hydrangea:     return 4.5  // 7.  青绒蒲公英: 短促紧凑晃动
         case .allium:        return 4.0  // 8.  珊瑚晶球: 弹跳轻灵
+        case .iris:          return 3.8  // 14. 晶棱鸢尾: 优雅中速节奏
         case .nightJasmine:  return 3.5  // 12. 极夜十二星: 中频节奏
         case .bayWreath:     return 3.0  // 3.  孔雀彩扇: 优雅舒缓
         case .dandelion:     return 2.7  // 2.  珊瑚伞花: 柔美伞骨起伏
         case .cosmos:        return 2.4  // 11. 经纬金晕葱: 慢速空灵大弧度长波
+        case .magnolia:      return 2.2  // 15. 雪霁玉兰: 沉静空灵低频长波
         case .redBerries:    return 2.1  // 5.  垂帘浆果: 沉重浆果重力钟摆低频
         case .lotusPod:      return 2.0  // 9.  珊瑚霞光球: 凝重厚实
         case .hawthorn:      return 1.8  // 1.  蓝金星芒: 最沉稳磅礴的低频重力长摆
@@ -191,12 +245,16 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         case .cosmos:        return 0.48 // 11. 经纬金晕葱: ±27.5° 极其显著的大幅度深鞠点头
         case .allium:        return 0.42 // 8.  珊瑚晶球: ±24.0° 弹性鞭梢大幅甩动
         case .hawthorn:      return 0.38 // 1.  蓝金星芒: ±21.8° 恢弘深长点头
+        case .magnolia:      return 0.36 // 15. 雪霁玉兰: ±20.6° 宏伟宽冠舒缓摇曳
         case .cornflower:    return 0.35 // 4.  几何风车: ±20.0° 风车翼片灵动回旋摆动
+        case .ginkgo:        return 0.32 // 13. 银杏金扇: ±18.3° 扇面大幅轻拂
         case .bayWreath:     return 0.30 // 3.  孔雀彩扇: ±17.2° 扇骨张合晃动
         case .cherryBlossom: return 0.28 // 10. 双色几何伞: ±16.0°
         case .dandelion:     return 0.25 // 2.  珊瑚伞花: ±14.3°
+        case .iris:          return 0.24 // 14. 晶棱鸢尾: ±13.8° 挺拔偏摆
         case .nightJasmine:  return 0.22 // 12. 极夜十二星: ±12.6°
         case .redBerries:    return 0.20 // 5.  垂帘浆果: ±11.5°
+        case .thistle:       return 0.16 // 16. 银霜蓟星: ±9.2° 小幅紧致微摆
         case .lotusPod:      return 0.15 // 9.  珊瑚霞光球: ±8.6°
         case .mimosa:        return 0.12 // 6.  金琥珀阳: ±6.9°
         case .hydrangea:     return 0.08 // 7.  青绒蒲公英: ±4.6° 极微小精巧克制微摆
@@ -208,12 +266,16 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .cosmos:         return 12500.0 // 11. 经纬金晕葱: 360° 巨型经纬浑天仪 + 放射流线星冠 (迎风面积最大)
         case .lotusPod:       return 11000.0 // 9.  金晕绯瑰: 四重色阶水彩光晕 + 蜂巢九核拓扑 (巨型)
+        case .magnolia:       return 10500.0 // 15. 雪霁玉兰: 宏伟十二重羊脂玉杯 (巨型大幅面)
         case .cornflower:     return 9800.0  // 4.  几何风车: 8 刃星芒多边形棱镜风车 (大幅面)
         case .hawthorn:       return 9200.0  // 1.  蓝金星芒: 放射星核与金斑微光 (大幅面)
         case .allium:         return 7800.0  // 8.  珊瑚青瓣: 8 瓣展开青珊瑚 (中大型)
+        case .iris:           return 7500.0  // 14. 晶棱鸢尾: 三棱六瓣晶体 (中大型)
         case .bayWreath:      return 7200.0  // 3.  孔雀彩扇: 180° 彩扇梯阶面 (中大型)
         case .nightJasmine:   return 6800.0  // 12. 极夜十二星: 12 面体棱镜星芒 (中型)
+        case .ginkgo:         return 6400.0  // 13. 银杏金扇: 展开双歧折扇 (中型)
         case .mimosa:         return 6200.0  // 6.  金琥珀阳: 密集放射阳花金针 (中型)
+        case .thistle:        return 5200.0  // 16. 银霜蓟星: 棘刺球冠与辐射冠 (中小型)
         case .cherryBlossom:  return 4800.0  // 10. 双色几何伞: 悬挂几何伞 (中小型)
         case .hydrangea:      return 4200.0  // 7.  青绒蒲公英: 蓬松轻巧绒球 (轻巧中小型)
         case .dandelion:      return 3600.0  // 2.  珊瑚伞花: 纤细轻盈小伞簇 (小而轻)
@@ -241,6 +303,7 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
     public var headScaleFactor: CGFloat {
         switch self {
         case .hawthorn:   return 1.20 // 植物 1 号大 20%
+        case .magnolia:   return 1.10 // 植物 15 号雪霁玉兰大 10%
         case .cornflower: return 0.85 // 植物 4 号小 15%
         default:          return 1.00
         }
@@ -249,25 +312,29 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
     /// 植物固有生长茎秆弧度基准值 (横向偏摆量，负数向左拱弯，正数向右拱弯，杜绝任何直板死线)
     public var naturalCurvature: CGFloat {
         switch self {
-        case .dandelion:      return -22.0 // 2.  珊瑚伞花: 左侧外围下部竖直，上部向左舒展大弧
         case .cosmos:         return -32.0 // 11. 经纬金晕葱: 250pt 高杆，下部竖直，上部优雅向左挺拔大弧
+        case .dandelion:      return -22.0 // 2.  珊瑚伞花: 左侧外围下部竖直，上部向左舒展大弧
         case .bayWreath:      return -20.0 // 3.  孔雀彩扇: 左侧自然外展大弧
+        case .ginkgo:         return -16.0 // 13. 银杏金扇: 向左自然舒展拂动
         case .hydrangea:      return -14.0 // 7.  青绒蒲公英: 左中侧柔韧弧度
         case .cherryBlossom:  return -10.0 // 10. 双色几何伞: 靠近中央左侧微弧
+        case .magnolia:       return  -8.0 // 15. 雪霁玉兰: 靠近中央向左微倾承托
         case .hawthorn:       return   6.0 // 1.  蓝金星芒: 中央高位挺拔主干，下挺拔上微秀
+        case .iris:           return   8.0 // 14. 晶棱鸢尾: 中央偏右挺拔微弧
         case .nightJasmine:   return  12.0 // 12. 极夜十二星: 中央偏右优雅挺拔枝条
         case .lotusPod:       return  18.0 // 9.  珊瑚霞光球: 右内侧温润舒展
+        case .thistle:        return  20.0 // 16. 银霜蓟星: 右侧苍劲拱挺大弧
         case .redBerries:     return  24.0 // 5.  垂帘浆果: 右侧木质重果枝自然悬臂大弯
+        case .mimosa:         return  26.0 // 6.  金琥珀阳: 最右侧自然顺势舒展大弧
         case .allium:         return  28.0 // 8.  珊瑚青瓣: 右侧高位轻扬枝干
         case .cornflower:     return  32.0 // 4.  几何风车: 右侧外围扬起优美大弧线
-        case .mimosa:         return  26.0 // 6.  金琥珀阳: 最右侧自然顺势舒展大弧
         }
     }
 
     /// 茎秆样式：部分植物采用圆点虚线（Dotted Beads），部分采用发丝实线矢量
     public var stemIsDotted: Bool {
         switch self {
-        case .allium, .redBerries, .cosmos, .cherryBlossom:
+        case .allium, .redBerries, .cosmos, .cherryBlossom, .thistle:
             return true
         default:
             return false
@@ -277,7 +344,7 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
     /// 是否为 2 倍大特异宏伟形态（伴随外围小光团与星尘粒子群）
     public var isGiantFlora: Bool {
         switch self {
-        case .hawthorn, .cosmos, .lotusPod, .cornflower:
+        case .hawthorn, .cosmos, .lotusPod, .cornflower, .magnolia:
             return true
         default:
             return false
@@ -429,6 +496,54 @@ public enum PosyFloraType: String, CaseIterable, Identifiable, Sendable {
                 stamen: Color(red: 0.16, green: 0.20, blue: 0.38),
                 stem: Color(red: 0.28, green: 0.34, blue: 0.50),
                 pollens: [Color(red: 0.90, green: 0.70, blue: 0.20), .white.opacity(0.9), Color(red: 0.22, green: 0.32, blue: 0.75)]
+            )
+        case .ginkgo:
+            // 13. 银杏金扇 (Row 7-L): 莫兰迪流金色 + 蜜杏秋橙 + 冷黛青
+            return PosyPalette(
+                primary: Color(red: 0.92, green: 0.74, blue: 0.22),
+                secondary: Color(red: 0.88, green: 0.50, blue: 0.24),
+                accent: Color(red: 0.20, green: 0.45, blue: 0.48),
+                glow: Color(red: 0.95, green: 0.82, blue: 0.35).opacity(0.42),
+                halo: Color(red: 0.88, green: 0.65, blue: 0.25).opacity(0.30),
+                stamen: Color(red: 0.38, green: 0.24, blue: 0.12),
+                stem: Color(red: 0.35, green: 0.46, blue: 0.30),
+                pollens: [Color(red: 0.92, green: 0.74, blue: 0.22), Color(red: 0.20, green: 0.45, blue: 0.48), Color(red: 0.98, green: 0.90, blue: 0.60)]
+            )
+        case .iris:
+            // 14. 晶棱鸢尾 (Row 7-R): 莫兰迪暮霭幽紫 + 月曜青紫 + 柠檬金蕊
+            return PosyPalette(
+                primary: Color(red: 0.42, green: 0.28, blue: 0.68),
+                secondary: Color(red: 0.62, green: 0.58, blue: 0.85),
+                accent: Color(red: 0.95, green: 0.88, blue: 0.28),
+                glow: Color(red: 0.55, green: 0.38, blue: 0.78).opacity(0.42),
+                halo: Color(red: 0.70, green: 0.65, blue: 0.90).opacity(0.32),
+                stamen: Color(red: 0.25, green: 0.16, blue: 0.38),
+                stem: Color(red: 0.28, green: 0.44, blue: 0.36),
+                pollens: [Color(red: 0.95, green: 0.88, blue: 0.28), Color(red: 0.42, green: 0.28, blue: 0.68), Color(red: 0.80, green: 0.75, blue: 0.95)]
+            )
+        case .magnolia:
+            // 15. 雪霁玉兰 (Row 8-L): 莫兰迪薄暮烟绯 + 羊脂白玉 + 苍松石绿
+            return PosyPalette(
+                primary: Color(red: 0.85, green: 0.42, blue: 0.52),
+                secondary: Color(red: 0.94, green: 0.90, blue: 0.86),
+                accent: Color(red: 0.30, green: 0.68, blue: 0.62),
+                glow: Color(red: 0.92, green: 0.60, blue: 0.68).opacity(0.45),
+                halo: Color(red: 0.95, green: 0.85, blue: 0.82).opacity(0.35),
+                stamen: Color(red: 0.36, green: 0.18, blue: 0.24),
+                stem: Color(red: 0.32, green: 0.45, blue: 0.38),
+                pollens: [Color(red: 0.92, green: 0.60, blue: 0.68), Color(red: 0.30, green: 0.68, blue: 0.62), Color(red: 0.98, green: 0.95, blue: 0.92)]
+            )
+        case .thistle:
+            // 16. 银霜蓟星 (Row 8-R): 莫兰迪冰河灰蓝 + 极光灰紫 + 极光粉金
+            return PosyPalette(
+                primary: Color(red: 0.32, green: 0.60, blue: 0.72),
+                secondary: Color(red: 0.72, green: 0.62, blue: 0.78),
+                accent: Color(red: 0.94, green: 0.76, blue: 0.40),
+                glow: Color(red: 0.40, green: 0.72, blue: 0.82).opacity(0.42),
+                halo: Color(red: 0.68, green: 0.75, blue: 0.85).opacity(0.32),
+                stamen: Color(red: 0.18, green: 0.28, blue: 0.36),
+                stem: Color(red: 0.30, green: 0.45, blue: 0.42),
+                pollens: [Color(red: 0.94, green: 0.76, blue: 0.40), Color(red: 0.32, green: 0.60, blue: 0.72), Color(red: 0.90, green: 0.95, blue: 0.98)]
             )
         }
     }

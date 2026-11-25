@@ -24,6 +24,7 @@ public struct PosyCinematicDoorIntroView: View {
     public let interiorSnapshot: UIImage?
     public let elapsed: Double
     public let safeAreaTop: CGFloat
+    public let safeAreaTrailing: CGFloat
     public let onSkip: () -> Void
 
     // 门扉基准尺寸 (门洞调小 25%，暗室宏大感与空间纵深倍增)
@@ -39,6 +40,7 @@ public struct PosyCinematicDoorIntroView: View {
         interiorSnapshot: UIImage? = nil,
         elapsed: Double,
         safeAreaTop: CGFloat = 54,
+        safeAreaTrailing: CGFloat = 0,
         onSkip: @escaping () -> Void
     ) {
         self.usesLavenderPalette = usesLavenderPalette
@@ -49,6 +51,7 @@ public struct PosyCinematicDoorIntroView: View {
         self.interiorSnapshot = interiorSnapshot
         self.elapsed = elapsed
         self.safeAreaTop = safeAreaTop
+        self.safeAreaTrailing = safeAreaTrailing
         self.onSkip = onSkip
     }
 
@@ -60,6 +63,7 @@ public struct PosyCinematicDoorIntroView: View {
         interiorSnapshot: UIImage? = nil,
         elapsed: Double,
         safeAreaTop: CGFloat = 54,
+        safeAreaTrailing: CGFloat = 0,
         onSkip: @escaping () -> Void
     ) {
         self.usesLavenderPalette = (theme == .lavender)
@@ -70,6 +74,7 @@ public struct PosyCinematicDoorIntroView: View {
         self.interiorSnapshot = interiorSnapshot
         self.elapsed = elapsed
         self.safeAreaTop = safeAreaTop
+        self.safeAreaTrailing = safeAreaTrailing
         self.onSkip = onSkip
     }
 
@@ -87,7 +92,8 @@ public struct PosyCinematicDoorIntroView: View {
                 return 0.54
             }
         }()
-        let doorCenter = CGPoint(x: canvasSize.width * 0.5, y: (doorLayoutHeight ?? canvasSize.height) * doorCenterYRatio)
+        let isExpanded = canvasSize.width > canvasSize.height
+        let doorCenter = CGPoint(x: canvasSize.width * 0.5, y: (doorLayoutHeight ?? canvasSize.height) * (isExpanded ? 0.5 : doorCenterYRatio))
 
         // 1. 动态门扉缩放动力学：
         // 0.00 -> 0.12: 远景静止驻留 (1.00x，宽度 102pt)
@@ -200,9 +206,9 @@ public struct PosyCinematicDoorIntroView: View {
                     )
 
                     // A faint carved wordmark follows the wall just outside the arch.
-                    ForEach(Array("POSY GARDEN".enumerated()), id: \.offset) { index, character in
+                    ForEach(Array("MAYBII GARDEN".enumerated()), id: \.offset) { index, character in
                         // Wider angular spacing lets the wordmark wrap farther around the arch crown.
-                        let angle = (Double(index) - 5.0) * 0.20
+                        let angle = (Double(index) - 6.0) * 0.20
                         let radius = currentArchRadius + 13 * doorScale
                         Text(String(character))
                             .font(.system(size: 10.5 * doorScale, weight: .black, design: .serif))
@@ -224,7 +230,7 @@ public struct PosyCinematicDoorIntroView: View {
                         Spacer()
                         Button(action: onSkip) {
                             HStack(spacing: 4) {
-                                Text("跳过")
+                                Text(AppLanguage.text("跳过"))
                                     .font(.system(size: 11, weight: .semibold))
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 9, weight: .bold))
@@ -241,8 +247,8 @@ public struct PosyCinematicDoorIntroView: View {
                                     )
                             )
                         }
-                        .padding(.trailing, 20)
-                        .padding(.top, max(56.0, safeAreaTop + 8.0))
+                        .padding(.trailing, 20 + safeAreaTrailing)
+                        .padding(.top, max(56.0, safeAreaTop + 8.0) + (safeAreaTrailing >= 30 ? 40 : 0))
                     }
                     Spacer()
                 }

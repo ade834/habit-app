@@ -13,7 +13,7 @@ struct HabitSelectionSnapshot {
     var isFirstSelection = false
 }
 
-struct HabitDashboardSnapshot {
+struct HabitDashboardSnapshot: Equatable {
     let points: Int
     let missedYesterday: Int
 }
@@ -62,7 +62,9 @@ struct SharedHabitSelectionStore {
             snapshot.starLimit = try scalar("SELECT COUNT(*) FROM habit_logs", in: db) >= 6 ? 2 : 1
             snapshot.completedRegularIDs = try completedRegularIDs(at: date, in: db)
             snapshot.completedSelectedIDs = try completedSelectedIDs(at: date, in: db)
+            let customTaskIDs = try CustomCardStore.activeTaskIDs(in: db, limit: SubscriptionManager.currentCustomCardLimit)
             for row in rows {
+                if row.id.hasPrefix(CustomTaskItem.idPrefix), !customTaskIDs.contains(row.id) { continue }
                 let periodic = Self.isPeriodic(row.id)
                 let periodKey = Self.periodKey(row.id, date)
                 let completedAt = periodic ? try completionDate(for: row.id, periodKey: periodKey, in: db) : nil
@@ -91,8 +93,13 @@ struct SharedHabitSelectionStore {
         }
     }
 
-    func save(_ ids: Set<String>, starredIDs: Set<String>, at date: Date) throws {
+    func save(_ requestedIDs: Set<String>, starredIDs: Set<String>, at date: Date) throws {
         try database.withConnection { db in
+            let activeTasks = try CustomCardStore.activeTaskIDs(in: db, limit: SubscriptionManager.currentCustomCardLimit)
+            let unavailable = requestedIDs.filter { $0.hasPrefix(CustomTaskItem.idPrefix) && !activeTasks.contains($0) }
+            let completed = try completedSelectedIDs(at: date, in: db)
+            guard unavailable.isSubset(of: completed) else { throw CustomCardStore.StoreError.unavailable }
+            let ids = requestedIDs.subtracting(unavailable)
             let rows = try selections(in: db)
             let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
             let day = Self.localDate(date)
@@ -108,7 +115,8 @@ struct SharedHabitSelectionStore {
                 return Self.periodKey(id, activeOn) != Self.periodKey(id, date)
             })
             let regularCount = currentRegular.union(completedRegular).count
-            guard regularCount <= 3 else { throw HabitSelectionError.quotaExceeded }
+            let regularLimit = 3 + SubscriptionManager.currentExtraDailyHabitsQuota
+            guard regularCount <= regularLimit else { throw HabitSelectionError.quotaExceeded }
             try execute("BEGIN IMMEDIATE", in: db)
             do {
                 for row in rows where !ids.contains(row.id) {

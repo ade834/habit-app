@@ -11,15 +11,37 @@ private enum ExecutionPageStyle {
 }
 struct ExecutionView: View {
     @Environment(\.habitColorTheme) private var colorTheme
+    @Environment(\.habitBackgroundFrame) private var fullViewport
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppSoundSettings.storageKey) private var completionSoundEnabled = true
     let goal: Goal?
     let allGoals: [Goal]
     @Binding var selectedGoals: [Goal]
     @Binding var state: TodayGoalState
+    var sideSystemInset: CGFloat = 0
     let onPrompt: (String) -> Void
     let onExit: (Goal) -> Void
-    @State private var responses: [String: String] = [:]
+    @State private var responses: [String: String] = {
+        #if DEBUG
+        if DevelopmentLaunch.contains("--executing") {
+            let isEn = DevelopmentLaunch.contains("--lang-en") || AppLanguage.current == "en-US"
+            let isJa = DevelopmentLaunch.contains("--lang-ja") || AppLanguage.current == "ja-JP"
+            return [
+                "primary": isEn
+                    ? "Unsubscribed from 3 cluttered promotion mailing lists"
+                    : (isJa
+                        ? "不要なメルマガを3件配信停止し、通知を整理した"
+                        : "退订了 3 个促销邮件列表，清理了首页杂乱信息"),
+                "secondary": isEn
+                    ? "Reclaiming focus for deep creative work and reducing ambient anxiety"
+                    : (isJa
+                        ? "本当に大切な創作に集中し、日常の不安を減らすため"
+                        : "把注意力留给真正重要的创造与生活，减少焦虑")
+            ]
+        }
+        #endif
+        return [:]
+    }()
     @State private var completionSound = AppSoundFeedback()
     @State private var timerSound = AppSoundFeedback()
     @State private var reviewDate = Calendar.current.startOfDay(for: .now)
@@ -36,6 +58,7 @@ struct ExecutionView: View {
     @State private var completionButtonPressed = false
     @State private var completionButtonCollapsed = false
     @State private var completionButtonShowsCheck = false
+    @State private var showingDraftConfirmation = false
     @State private var completionButtonTitleFaded = false
     @State private var completionButtonHighlighted = false
     @State private var completionButtonTitleCount: Int?
@@ -52,7 +75,7 @@ struct ExecutionView: View {
         ZStack {
             if goal != nil {
                 executionBackdrop
-                    .ignoresSafeArea()
+                    .fullViewportSurface()
                     .opacity(1 - completionExitProgress)
             }
             GeometryReader { viewport in
@@ -63,7 +86,7 @@ struct ExecutionView: View {
                                 Color.clear.frame(height: ExecutionPageStyle.headerTopInset)
 
                                 if let goal {
-                                    Text(goal.previewTitle)
+                                    Text(AppLanguage.text(goal.previewTitle))
                                         .font(.system(size: ExecutionPageStyle.titleSize, weight: .semibold, design: .rounded))
                                         .tracking(-1.8)
                                         .foregroundStyle(colorTheme == .lavender ? .white : ExecutionPageStyle.titleInk)
@@ -71,13 +94,13 @@ struct ExecutionView: View {
                                         .minimumScaleFactor(0.72)
                                         .fixedSize(horizontal: false, vertical: true)
                                         .padding(.top, -2)
-                                    Text(goal.previewSummary)
+                                    Text(AppLanguage.text(goal.previewSummary))
                                         .font(.system(size: 17, weight: .medium))
                                         .foregroundStyle(.white.opacity(colorTheme == .lavender ? 1 : 0.75))
                                         .fixedSize(horizontal: false, vertical: true)
                                         .padding(.top, 10)
                                 } else {
-                                    Text("没有可显示的目标")
+                                    Text(AppLanguage.text("没有可显示的目标"))
                                         .font(.title2)
                                         .foregroundStyle(.white)
                                         .padding(.top, 52)
@@ -88,7 +111,7 @@ struct ExecutionView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(isClosing || goal == nil)
-                        .accessibilityLabel("收起当前目标，返回已选择的目标")
+                        .accessibilityLabel(AppLanguage.text("收起当前目标，返回已选择的目标"))
 
                         if let goal {
                             Spacer(minLength: ExecutionPageStyle.panelMinimumGap)
@@ -120,6 +143,36 @@ struct ExecutionView: View {
                 .offset(y: viewport.size.height * 0.88 * completionExitProgress)
             }
         }
+        .overlay {
+            GeometryReader { geometry in
+                let localFrame = geometry.frame(in: .global)
+                let bounds = fullViewport.isEmpty ? localFrame : fullViewport
+                let hasSideSystemArea = sideSystemInset >= 30
+                let x = hasSideSystemArea
+                    ? bounds.maxX - sideSystemInset / 2 - 6 - localFrame.minX
+                    : bounds.maxX - 40 - localFrame.minX
+                let y = hasSideSystemArea
+                    ? bounds.maxY - 52 - localFrame.minY
+                    : bounds.minY + max(geometry.safeAreaInsets.top, 44) + 36 - localFrame.minY
+                if goal != nil {
+                    Button(action: closeExecution) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(colorTheme.selectedNavigationForeground)
+                            .frame(width: 44, height: 44)
+                            .background(colorTheme.selectedNavigationBackground, in: Circle())
+                            .overlay(Circle().stroke(colorTheme.selectedNavigationBorder, lineWidth: 1))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isClosing || saving || isCelebrating)
+                    .accessibilityLabel(AppLanguage.text("返回已选择的目标"))
+                    .position(x: x, y: y)
+                }
+            }
+            .ignoresSafeArea(.container, edges: .trailing)
+        }
+        .ignoresSafeArea(.keyboard)
         .blur(radius: writingField == nil ? 0 : 12)
         .allowsHitTesting(writingField == nil)
         .accessibilityHidden(writingField != nil)
@@ -128,7 +181,23 @@ struct ExecutionView: View {
                 if let field = writingField {
                     ReviewTypewriter(
                         field: field,
-                        initialText: responses[field.key, default: ""],
+                        initialText: {
+                            let current = responses[field.key, default: ""]
+                            if !current.isEmpty { return current }
+                            #if DEBUG
+                            if DevelopmentLaunch.contains("--open-typewriter") {
+                                let isEn = DevelopmentLaunch.contains("--lang-en") || AppLanguage.current == "en-US"
+                                let isJa = DevelopmentLaunch.contains("--lang-ja") || AppLanguage.current == "ja-JP"
+                                return isEn
+                                    ? "Unsubscribed from cluttered mailings. Reclaiming focus for deep creative work."
+                                    : (isJa
+                                        ? "不要なメルマガを配信停止し、本当に大切な創作に集中する。"
+                                        : "退订了 3 个促销邮件列表，把注意力留给真正重要的创造与生活。")
+                            }
+                            #endif
+                            return ""
+                        }(),
+                        sideSystemInset: sideSystemInset,
                         source: anchors[field.key].map { geometry[$0] } ?? CGRect(x: 36, y: 220, width: geometry.size.width - 72, height: 110),
                         onSave: { value in
                             withAnimation(reduceMotion ? .none : .spring(response: 0.52, dampingFraction: 0.82)) {
@@ -155,6 +224,7 @@ struct ExecutionView: View {
                             }
                         }
                     )
+                    .ignoresSafeArea(.container, edges: sideSystemInset > 0 ? .trailing : [])
                     .id(field.id)
                 }
             }
@@ -166,6 +236,17 @@ struct ExecutionView: View {
             withAnimation(reduceMotion ? .none : .spring(response: 0.52, dampingFraction: 0.84)) {
                 contentRevealed = true
             }
+            #if DEBUG
+            if DevelopmentLaunch.contains("--open-typewriter") {
+                try? await Task.sleep(for: .milliseconds(320))
+                let title = AppLanguage.current == "en-US"
+                    ? "Manage Information Intake"
+                    : (AppLanguage.current == "ja-JP" ? "情報のインプットを整理する" : "清理了哪个信息源？")
+                withAnimation(.easeOut(duration: 0.2)) {
+                    writingField = ReviewWritingField(key: "primary", title: title)
+                }
+            }
+            #endif
         }
         .task(id: goal?.id) {
             await loadPersistedTaskState()
@@ -180,6 +261,7 @@ struct ExecutionView: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 16, coordinateSpace: .local)
                 .onEnded { value in
+                    guard writingField == nil else { return }
                     let translation = value.translation
                     guard value.startLocation.x <= 32,
                           translation.width >= 88,
@@ -229,7 +311,7 @@ struct ExecutionView: View {
                     .blur(radius: 14)
 
                     if goal.cardArtworkAsset != nil {
-                        GoalCardArtwork(goal: goal, widthScale: 2.10)
+                        GoalCardArtwork(goal: goal, widthScale: 2.10, floats: true)
                             .frame(width: geometry.size.width, height: geometry.size.height / 3)
                             .mask {
                                 LinearGradient(stops: [
@@ -249,6 +331,7 @@ struct ExecutionView: View {
     private func executionGlassPanel(for goal: Goal, panelHeight: CGFloat) -> some View {
         let form = HabitExecutionForm(
             goalID: goal.id,
+            customPrompt: goal.isCustomTask ? goal.inputPrimary : nil,
             responses: $responses,
             foldedRevealFieldKey: $foldedRevealFieldKey,
             foldedRevealProgress: $foldedRevealProgress,
@@ -292,9 +375,10 @@ struct ExecutionView: View {
                 let disconnectFailed = isDisconnect && disconnectLocked
                 let canSubmit = !saving && timerReady(for: goal, at: context.date) && formReady(for: goal)
                 let canTap = isDisconnect ? !disconnectStarted && !disconnectLocked && !saving : canSubmit
-                let buttonTitle = isDisconnect
+                let rawButtonTitle = isDisconnect
                     ? (disconnectStarted ? "完成断网" : (disconnectFailed ? "明日更美好，晚安 zzZZ" : "开始睡前断网计时"))
                     : (saving && !isCelebrating ? "正在保存…" : actionTitle(for: goal))
+                let buttonTitle = AppLanguage.text(rawButtonTitle)
                 let displayedButtonTitle = completionButtonTitleCount.map { String(buttonTitle.prefix($0)) } ?? buttonTitle
                 ZStack {
                     CompletionConfetti(progress: completionBurstProgress)
@@ -316,8 +400,16 @@ struct ExecutionView: View {
                                 .opacity(completionButtonTitleFaded ? 0 : 1)
                                 .scaleEffect(completionButtonTitleFaded ? 0.94 : 1)
                                 .animation(.easeOut(duration: 0.18), value: completionButtonTitleFaded)
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                            Group {
+                                if showingDraftConfirmation {
+                                    DraftCheckmark()
+                                        .stroke(style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round, dash: [3, 3]))
+                                        .frame(width: 23, height: 18)
+                                } else {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                                }
+                            }
                                 .opacity(completionButtonShowsCheck ? 1 : 0)
                                 .scaleEffect(completionButtonShowsCheck ? 1 : 0.55)
                                 .animation(.easeOut(duration: 0.20), value: completionButtonShowsCheck)
@@ -354,9 +446,10 @@ struct ExecutionView: View {
                                 .opacity(!canTap && !isCelebrating && !disconnectStarted && !disconnectFailed && !completionButtonTitleFaded ? 1 : 0)
                                 .allowsHitTesting(false)
                         }
-                        .accessibilityLabel(completionButtonShowsCheck ? "已完成" : buttonTitle)
+                        .accessibilityLabel(completionButtonShowsCheck ? (showingDraftConfirmation ? AppLanguage.text("草稿已保存") : AppLanguage.text("已完成")) : buttonTitle)
                 }
                 .frame(maxWidth: .infinity, minHeight: 54)
+
             }
         }
         .padding(24)
@@ -383,8 +476,8 @@ struct ExecutionView: View {
 
     private func actionTitle(for goal: Goal) -> String {
         if goal.id == "H1" {
-            return reviewCharacterCount >= 100 && Calendar.current.isDateInToday(reviewDate)
-                ? goal.completionLabel : "保存草稿"
+            // 2026-11-09 用户定案：补打计次——过去日期的复盘写满 100 字同样算完成，勿改回「仅限今天」。
+            return reviewCharacterCount >= 100 ? goal.completionLabel : "保存草稿"
         }
         if goal.id == "H4" { return "完成断网" }
         if goal.id == "H11" { return travelPlan == nil ? "保存旅行计划" : "完成旅行" }
@@ -396,6 +489,24 @@ struct ExecutionView: View {
         if goal.id != "H1" {
             responses.merge(ReviewWritingDrafts.load(goal: goal.id, date: .now), uniquingKeysWith: { _, saved in saved })
         }
+        #if DEBUG
+        print("EXEC_TEST: start loadPersistedTaskState goal=\(goal.id), contains=\(DevelopmentLaunch.contains("--executing"))")
+        if DevelopmentLaunch.contains("--executing") {
+            let isEn = DevelopmentLaunch.contains("--lang-en") || AppLanguage.current == "en-US"
+            let isJa = DevelopmentLaunch.contains("--lang-ja") || AppLanguage.current.hasPrefix("ja")
+            responses["primary"] = isEn
+                ? "Unsubscribed from cluttered mailings. Reclaiming focus for deep creative work."
+                : (isJa
+                    ? "不要なメルマガを配信停止し、本当に大切な創作に集中する。"
+                    : "退订了 3 个促销邮件列表，清理了首页杂乱信息")
+            responses["secondary"] = isEn
+                ? "Reclaiming focus for deep creative work and reducing ambient anxiety"
+                : (isJa
+                    ? "本当に大切な創作に集中し、日常の不安を减らすため"
+                    : "把注意力留给真正重要的创造与生活，减少焦虑")
+            print("EXEC_TEST: assigned responses=\(responses)")
+        }
+        #endif
         if goal.id == "H11" { travelPlan = try? await SharedHabitRepository().travelPlanForCurrentYear() }
         else { travelPlan = nil }
         if goal.id == "H4" { disconnectStatus = (try? NativeDatabase().disconnectStatus()) ?? disconnectStatus }
@@ -487,7 +598,7 @@ struct ExecutionView: View {
             timerStartedAt = nil
             timerPausedAt = nil
             accumulatedPauseSeconds = 0
-            notify("暂停累计超过 5 分钟，本次专注没有完成。")
+            notify(AppLanguage.text("暂停累计超过 5 分钟，本次专注没有完成。"))
         } catch {
             show(error)
         }
@@ -536,7 +647,7 @@ struct ExecutionView: View {
             do {
                 let updated = try await SharedHabitRepository().swapChallenge()
                 challenge = updated
-                notify(updated.swapCount <= 3 ? "已抽取第 \(updated.swapCount) 条今日新问题" : "已在今日抽取的 3 个问题中随机切换")
+                notify(updated.swapCount <= 3 ? String(format: AppLanguage.text("已抽取第 %lld 条今日新问题"), updated.swapCount) : AppLanguage.text("已在今日抽取的 3 个问题中随机切换"))
             } catch { show(error) }
         }
     }
@@ -557,6 +668,7 @@ struct ExecutionView: View {
     }
 
     private func formReady(for goal: Goal) -> Bool {
+        if goal.isCustomTask { return !value("primary").isEmpty }
         switch goal.id {
         case "H1": return reviewCharacterCount > 0
         case "H2": return timerID != nil || !value("topic").isEmpty
@@ -573,18 +685,19 @@ struct ExecutionView: View {
     }
 
     private func submit(_ goal: Goal) {
+        let isDraft = goal.id == "H1" && actionTitle(for: goal) == "保存草稿"
         let payload: HabitSubmissionPayload
         switch goal.id {
         case "H1":
             payload = .review(decision: value("decision"), result: value("result"), improvement: value("improvement"))
         case "H2":
-            guard let timerID else { notify("请先开始 30 分钟专注计时。"); return }
+            guard let timerID else { notify(AppLanguage.text("请先开始 30 分钟专注计时。")); return }
             payload = .focus(sessionID: timerID)
         case "H3":
-            guard let challenge else { notify("今日挑战还在载入，请稍等。"); return }
+            guard let challenge else { notify(AppLanguage.text("今日挑战还在载入，请稍等。")); return }
             payload = .challenge(cardIndex: challenge.cardIndex, primaryText: "", secondaryText: "")
         case "H4":
-            guard let timerID else { notify("请先开始断网计时。"); return }
+            guard let timerID else { notify(AppLanguage.text("请先开始断网计时。")); return }
             guard timerReady(for: goal) else { return }
             payload = .disconnect(sessionID: timerID)
         case "H11":
@@ -598,7 +711,7 @@ struct ExecutionView: View {
         default:
             if goal.id == "H7" {
                 for key in ["firstValue", "secondValue"] where !value(key).isEmpty && Double(value(key)) == nil {
-                    notify("资产投入和消费消耗只能填写数字。"); return
+                    notify(AppLanguage.text("资产投入和消费消耗只能填写数字。")); return
                 }
             }
             payload = .activity(primaryText: value("primary"), secondaryText: value("secondary"), firstValue: Double(value("firstValue")), secondValue: Double(value("secondValue")))
@@ -612,18 +725,19 @@ struct ExecutionView: View {
                 if goal.id == "H11" && travelPlan == nil {
                     // Saving the annual plan is the first step, not task completion.
                     travelPlan = try? await SharedHabitRepository().travelPlanForCurrentYear()
-                    notify("旅行计划已保存。完成旅行后再回来提交回顾。")
+                    notify(AppLanguage.text("旅行计划已保存。完成旅行后再回来提交回顾。"))
                 } else {
                     // A successful habit submission returns to the selected-habits
                     // deck so the user can immediately start another task.
-                    if Calendar.current.isDate(date, inSameDayAs: .now) {
+                    if !isDraft && Calendar.current.isDate(date, inSameDayAs: .now) {
                         state.completedSelectedGoalIDs.insert(goal.id)
                         state.selectedGoalIDs.insert(goal.id)
                     }
                     selectedGoals = (try? await SharedHabitRepository().selectedGoals(for: .now)) ?? selectedGoals
                     if !isClosing {
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                        await celebrateCompletion()
+                        if isDraft { await showDraftSaved() }
+                        else { await celebrateCompletion() }
                         if !isClosing {
                             await collapseCompletedPage()
                             withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
@@ -640,9 +754,19 @@ struct ExecutionView: View {
     private func value(_ key: String) -> String { responses[key, default: ""].trimmingCharacters(in: .whitespacesAndNewlines) }
     private func show(_ error: Error) { notify(error.localizedDescription) }
 
+    private func showDraftSaved() async {
+        showingDraftConfirmation = true
+        isCelebrating = true
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+            completionButtonTitleFaded = true
+            completionButtonShowsCheck = true
+        }
+        try? await Task.sleep(for: .milliseconds(700))
+    }
+
     private func celebrateCompletion() async {
         if reduceMotion {
-            completionSound.play(.completion, enabled: completionSoundEnabled)
+            completionSound.play(.completion, enabled: completionSoundEnabled && goal?.id != "H4")
             return
         }
         withAnimation(.easeOut(duration: 0.12)) {
@@ -674,7 +798,7 @@ struct ExecutionView: View {
             completionButtonHighlighted = true
             completionBurstProgress = 1
         }
-        completionSound.play(.completion, enabled: completionSoundEnabled)
+        completionSound.play(.completion, enabled: completionSoundEnabled && goal?.id != "H4")
         try? await Task.sleep(for: .milliseconds(420))
         withAnimation(.easeIn(duration: 0.62)) {
             completionBurstProgress = 2
@@ -692,6 +816,16 @@ struct ExecutionView: View {
 
     private func notify(_ message: String) {
         onPrompt(message)
+    }
+}
+
+private struct DraftCheckmark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + rect.width * 0.08, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.width * 0.39, y: rect.maxY * 0.84))
+        path.addLine(to: CGPoint(x: rect.width * 0.94, y: rect.minY + rect.height * 0.10))
+        return path
     }
 }
 
@@ -752,9 +886,12 @@ private struct VerticalRevealRoundedRect: Shape {
 }
 
 private struct HabitExecutionForm: View {
+    @Environment(\.locale) private var locale
     @Environment(\.habitColorTheme) private var colorTheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selectedSuggestedTopic: String?
     let goalID: String
+    let customPrompt: String?
     @Binding var responses: [String: String]
     @Binding var foldedRevealFieldKey: String?
     @Binding var foldedRevealProgress: CGFloat
@@ -779,7 +916,7 @@ private struct HabitExecutionForm: View {
         VStack(alignment: .leading, spacing: 12) {
             switch goalID {
             case "H1":
-                DatePicker("复盘日期", selection: $reviewDate, in: reviewDateRange, displayedComponents: .date)
+                DatePicker(AppLanguage.text("复盘日期"), selection: $reviewDate, in: reviewDateRange, displayedComponents: .date)
                     .tint(ExecutionPageStyle.bodyInk)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
@@ -788,16 +925,16 @@ private struct HabitExecutionForm: View {
                 field("今天做了什么决定？", key: "decision")
                 field("结果怎么样？", key: "result")
                 field("下次想怎么改？", key: "improvement")
-                Text("有效字数：\(reviewCharacterCount) / 100（不计标点和空格）")
+                Text(String(format: AppLanguage.text("有效字数：%lld / 100（不计标点和空格）"), reviewCharacterCount))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
             case "H2":
                 if timerStartedAt == nil {
-                    Text("选择当天推荐议题，也可以自行填写；完成 30 分钟，暂停累计不超过 5 分钟。")
+                    Text(AppLanguage.text("选择当天推荐议题，也可以自行填写；完成 30 分钟，暂停累计不超过 5 分钟。"))
                     ForEach(HabitTaskCatalog.thinkingTopics(for: .now), id: \.self) { topic in
-                        Button { responses["topic"] = topic } label: {
+                        Button { selectedSuggestedTopic = topic; responses["topic"] = topic } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: responses["topic"] == topic ? "largecircle.fill.circle" : "circle")
-                                Text(topic).multilineTextAlignment(.leading)
+                                Text(localizedSuggestedTopic(topic)).multilineTextAlignment(.leading)
                                 Spacer(minLength: 0)
                             }
                             .foregroundStyle(ExecutionPageStyle.bodyInk)
@@ -810,19 +947,19 @@ private struct HabitExecutionForm: View {
                     }
                     field("我有自己重要、值得想想的事", key: "topic")
                     if !responses["topic", default: ""].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("今天我为你推荐的思考是“\(responses["topic", default: ""].trimmingCharacters(in: .whitespacesAndNewlines))”。当然，你也可以有自己重要、值得想想的事。现在让我们开始吧。")
+                        Text(String(format: AppLanguage.text("今天我为你推荐的思考是“%@”。当然，你也可以有自己重要、值得想想的事。现在让我们开始吧。"), displayedTopic(responses["topic", default: ""].trimmingCharacters(in: .whitespacesAndNewlines))))
                             .font(.system(size: 15, weight: .medium))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 timerPanel(title: "专注 30 分钟", duration: 1800, topic: responses["topic"])
             case "H3":
-                Text("随机问题")
+                Text(AppLanguage.text("随机问题"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.58))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 0)
-                Text(challenge?.title ?? "正在载入今日挑战…")
+                Text(challenge.map { HabitTaskCatalog.localizedChallenge(at: $0.cardIndex, language: AppLanguage.current, translate: AppLanguage.text) } ?? AppLanguage.text("正在载入今日挑战…"))
                     .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
@@ -830,7 +967,7 @@ private struct HabitExecutionForm: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)
                     .shadow(color: .white.opacity(0.22), radius: 12, y: 2)
-                Button(challenge.map { $0.swapCount < 3 ? "随机换题（还可获取 \(3 - $0.swapCount) 条新问题）" : "在今日抽取的 3 个问题中随机切换" } ?? "正在载入问题…") { swapChallenge() }
+                Button(challenge.map { $0.swapCount < 3 ? String(format: AppLanguage.text("随机换题（还可获取 %lld 条新问题）"), 3 - $0.swapCount) : AppLanguage.text("在今日抽取的 3 个问题中随机切换") } ?? AppLanguage.text("正在载入问题…")) { swapChallenge() }
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(white: 0.58))
                     .frame(maxWidth: .infinity)
@@ -839,10 +976,10 @@ private struct HabitExecutionForm: View {
                 Spacer(minLength: 0)
             case "H4":
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("离开页面或重启 App 计时失败")
+                    Text(AppLanguage.text("离开页面或重启 App 计时失败"))
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundStyle(Color(white: 0.17))
-                    Text("累计失败 3 次后冷却 10 小时")
+                    Text(AppLanguage.text("累计失败 3 次后冷却 10 小时"))
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Color(white: 0.34))
                 }
@@ -883,7 +1020,7 @@ private struct HabitExecutionForm: View {
                 field("读完了哪本跨界书？", key: "primary"); field("最重要的一条收获（选填）", key: "secondary")
             case "H11":
                 if let travelPlan {
-                    Text("本年度计划：\(travelPlan.destination) · \(travelPlan.days) 天\n\(travelPlan.focus)\n\(travelPlan.preparation)")
+                    Text(String(format: AppLanguage.text("本年度计划：%@ · %lld 天\n%@\n%@"), travelPlan.destination, travelPlan.days, travelPlan.focus, travelPlan.preparation))
                     field("旅行结束后的总结", key: "summary")
                 } else {
                     field("想去哪里？", key: "destination"); field("计划几天（1–30）", key: "days")
@@ -892,7 +1029,7 @@ private struct HabitExecutionForm: View {
             case "H12":
                 field("今天必须承认的真话", key: "primary"); field("明天采取什么行动？（选填）", key: "secondary")
             default:
-                field("记录内容", key: "primary")
+                field(customPrompt.flatMap { $0.isEmpty ? nil : $0 } ?? "记录内容", key: "primary")
             }
         }
         .font(.system(size: 14, weight: .medium))
@@ -906,16 +1043,24 @@ private struct HabitExecutionForm: View {
 
     private var disconnectFailureMessage: String {
         let count = disconnectStatus.consecutiveFailures
-        let time = disconnectStatus.lockedUntil?.formatted(date: .omitted, time: .shortened) ?? "冷却结束"
+        let time = disconnectStatus.lockedUntil?.formatted(.dateTime.hour().minute().locale(AppLanguage.locale)) ?? AppLanguage.text("冷却结束")
         return switch count {
-        case 1: "手机只是想再陪你一下，可睡前该让它先休息啦。倒计时已重置，你还有2次机会。"
-        case 2: "又被手机抓回来一次啦。睡前就别再碰它了，这是最后1次机会；再离开，今晚的任务就失败。"
-        default: "手机赢了三回合，今晚的断网任务失败啦。先把它放远一点，\(time)后再来认真挑战。"
+        case 1: AppLanguage.text("手机只是想再陪你一下，可睡前该让它先休息啦。倒计时已重置，你还有2次机会。")
+        case 2: AppLanguage.text("又被手机抓回来一次啦。睡前就别再碰它了，这是最后1次机会；再离开，今晚的任务就失败。")
+        default: String(format: AppLanguage.text("手机赢了三回合，今晚的断网任务失败啦。先把它放远一点，%@后再来认真挑战。"), time)
         }
     }
 
     private var isDisconnectLocked: Bool {
         disconnectStatus.lockedUntil.map { Date.now < $0 } ?? false
+    }
+
+    private func localizedSuggestedTopic(_ topic: String) -> String {
+        HabitTaskCatalog.localizedThinkingTopic(topic, language: AppLanguage.current, translate: AppLanguage.text)
+    }
+
+    private func displayedTopic(_ topic: String) -> String {
+        selectedSuggestedTopic == topic ? localizedSuggestedTopic(topic) : topic
     }
 
     private func field(_ label: String, key: String) -> some View {
@@ -925,11 +1070,30 @@ private struct HabitExecutionForm: View {
         let backgroundReveal = foldedRevealFieldKey == key ? foldedRevealProgress : 1
         let responseTextOpacity = foldedRevealFieldKey == key && revealedResponseTextKey != key ? 0.0 : 1.0
 
-        let savedText = responses[key, default: ""]
+        let demoFallback: String
+        #if DEBUG
+        if DevelopmentLaunch.contains("--executing") {
+            let isEn = DevelopmentLaunch.contains("--lang-en") || AppLanguage.current == "en-US"
+            let isJa = DevelopmentLaunch.contains("--lang-ja") || AppLanguage.current == "ja-JP"
+            if key == "primary" {
+                demoFallback = isEn ? "Unsubscribed from 3 cluttered promotion mailing lists" : (isJa ? "不要なメルマガを3件配信停止し、通知を整理した" : "退订了 3 个促销邮件列表，清理了首页杂乱信息")
+            } else if key == "secondary" {
+                demoFallback = isEn ? "Reclaiming focus for deep creative work and reducing ambient anxiety" : (isJa ? "本当に大切な創作に集中し、日常の不安を減らすため" : "把注意力留给真正重要的创造与生活，减少焦虑")
+            } else {
+                demoFallback = ""
+            }
+        } else {
+            demoFallback = ""
+        }
+        #else
+        demoFallback = ""
+        #endif
+        let rawSaved = responses[key, default: ""]
+        let savedText = rawSaved.isEmpty ? demoFallback : rawSaved
         return VStack(alignment: .leading, spacing: 10) {
             Button { openWriter(ReviewWritingField(key: key, title: label)) } label: {
                 HStack {
-                    Text(label).font(.system(size: 14, weight: .medium))
+                    Text(AppLanguage.text(label)).font(.system(size: 14, weight: .medium))
                     Spacer(minLength: 0)
                     Image(systemName: "pencil.line").font(.system(size: 13))
                 }
@@ -937,19 +1101,19 @@ private struct HabitExecutionForm: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(label)，\(savedText.isEmpty ? "开始输入" : "编辑内容")")
+            .accessibilityLabel("\(AppLanguage.text(label))，\(savedText.isEmpty ? AppLanguage.text("开始输入") : AppLanguage.text("编辑内容"))")
             .accessibilityIdentifier("review.field.\(key)")
 
             if savedText.isEmpty {
                 Button { openWriter(ReviewWritingField(key: key, title: label)) } label: {
-                    Text("轻点输入")
+                    Text(AppLanguage.text("轻点输入"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             } else {
                 ScrollView(.vertical) {
-                    Text(savedText)
+                    Text(key == "topic" ? displayedTopic(savedText) : savedText)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.trailing, 8)
@@ -958,8 +1122,8 @@ private struct HabitExecutionForm: View {
                 .defaultScrollAnchor(.top)
                 .opacity(responseTextOpacity)
                 .transition(.asymmetric(insertion: .scale(scale: 0.82, anchor: .top).combined(with: .opacity), removal: .opacity))
-                .accessibilityLabel("\(label)的已保存内容")
-                .accessibilityHint("上下滑动查看全文，轻点上方标题或铅笔编辑")
+                .accessibilityLabel(String(format: AppLanguage.text("%@的已保存内容"), AppLanguage.text(label)))
+                .accessibilityHint(AppLanguage.text("上下滑动查看全文，轻点上方标题或铅笔编辑"))
                 .accessibilityIdentifier("review.content.\(key)")
             }
         }
@@ -992,7 +1156,7 @@ private struct HabitExecutionForm: View {
         return VStack(spacing: 0) {
             if let timerStartedAt {
                 if goalID == "H2", let topic = topic?.trimmingCharacters(in: .whitespacesAndNewlines), !topic.isEmpty {
-                    Text("本次专注 · \(topic)")
+                    Text(String(format: AppLanguage.text("本次专注 · %@"), displayedTopic(topic)))
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.96))
                         .multilineTextAlignment(.center)
@@ -1021,25 +1185,25 @@ private struct HabitExecutionForm: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(height: 240)
-                    .accessibilityLabel("剩余 \(remaining / 60) 分 \(remaining % 60) 秒")
+                    .accessibilityLabel(String(format: AppLanguage.text("剩余 %lld 分 %lld 秒"), remaining / 60, remaining % 60))
                 }
 
                 if goalID == "H2", timerSessionID != nil {
-                    Button(timerPausedAt == nil ? "暂停计时" : "继续计时", action: toggleFocusTimer)
+                    Button(timerPausedAt == nil ? AppLanguage.text("暂停计时") : AppLanguage.text("继续计时"), action: toggleFocusTimer)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(ExecutionPageStyle.bodyInk)
                         .padding(.horizontal, 30)
                         .frame(height: 48)
                         .glassEffect(.clear.tint(.white.opacity(0.12)).interactive(), in: Capsule())
                         .frame(maxWidth: .infinity)
-                    Button("提前结束", action: endFocusTimerEarly)
+                    Button(AppLanguage.text("提前结束"), action: endFocusTimerEarly)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(ExecutionPageStyle.bodyInk.opacity(0.8))
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
             } else {
                 let hasRequiredTopic = goalID != "H2" || !(topic?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-                Button("开始\(title)计时") { startTimer(duration, topic) }
+                Button(String(format: AppLanguage.text("开始%@计时"), AppLanguage.text(title))) { startTimer(duration, topic) }
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(ExecutionPageStyle.bodyInk)
                     .frame(maxWidth: .infinity, minHeight: 58)
@@ -1068,7 +1232,7 @@ private struct DisconnectDurationWheel: View {
     private let dividerColor = Color(red: 0.78, green: 0.72, blue: 0.75)
 
     var body: some View {
-        let selectedIndex = options.firstIndex(of: selection) ?? 1
+        let selectedIndex = options.firstIndex(of: selection) ?? (options.firstIndex(of: 30) ?? 0)
 
         ZStack {
             divider
@@ -1081,12 +1245,13 @@ private struct DisconnectDurationWheel: View {
                 let distance = CGFloat(position) + dragY / rowSpacing
                 let depth = min(2, abs(distance))
 
-                Button("\(options[index]) 分钟") {
+                Button(String(format: AppLanguage.text("%lld 分钟"), options[index])) {
                     withAnimation(wheelAnimation) { selection = options[index] }
                 }
                 .font(.system(size: 50, weight: .semibold, design: .rounded))
                 .foregroundStyle(labelColor(for: depth))
                 .lineLimit(1)
+                .minimumScaleFactor(0.65)
                 .frame(maxWidth: .infinity, minHeight: 64)
                 .scaleEffect(
                     max(0.48, 1 - 0.26 * depth)
@@ -1114,8 +1279,8 @@ private struct DisconnectDurationWheel: View {
                 }
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("断网时长")
-        .accessibilityValue("\(selection) 分钟")
+        .accessibilityLabel(AppLanguage.text("断网时长"))
+        .accessibilityValue(String(format: AppLanguage.text("%lld 分钟"), selection))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: selection = options[wrapped(selectedIndex + 1)]

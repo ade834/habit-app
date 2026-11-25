@@ -31,7 +31,15 @@ struct ColorThemeAtmosphereBase: View {
                 .clipped()
             }
         } else {
-            colorTheme.canvas
+            // Match the warm orb palette so its translucent outer edge does
+            // not reveal a white halo around the background.
+            LinearGradient(
+                colors: [Color(red: 0.93, green: 0.46, blue: 0.70),
+                         Color(red: 0.97, green: 0.61, blue: 0.66),
+                         Color(red: 0.98, green: 0.68, blue: 0.56)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
 }
