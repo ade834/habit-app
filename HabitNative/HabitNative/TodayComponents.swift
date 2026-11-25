@@ -1,0 +1,1020 @@
+import SwiftUI
+import UIKit
+
+private struct BalancedGoalSummary: View {
+    @Environment(\.locale) private var locale
+    let summary: String
+    let fontSize: CGFloat
+    let weight: UIFont.Weight
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            Text(wrappedSummary(AppLanguage.text(summary), width: proxy.size.width, fontSize: fontSize, weight: weight))
+                .font(.system(size: fontSize, weight: weight == .bold ? .bold : .semibold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.90)
+                .allowsTightening(true)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(color)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: fontSize * 2.65)
+        .accessibilityLabel(cleanedSummary(AppLanguage.text(summary)))
+    }
+
+    private func wrappedSummary(_ value: String, width: CGFloat, fontSize: CGFloat, weight: UIFont.Weight) -> String {
+        let text = cleanedSummary(value)
+        guard width > 0, text.count > 1 else { return text }
+        let font = UIFont.systemFont(ofSize: fontSize, weight: weight)
+        let fullWidth = (text as NSString).size(withAttributes: [.font: font]).width
+        guard fullWidth > width else { return text }
+
+        let characters = Array(text)
+        var best: (index: Int, imbalance: CGFloat, naturalBreak: Bool)?
+        for index in 1..<characters.count {
+            let first = String(characters[..<index])
+            let second = String(characters[index...])
+            if text.contains(" ") && !characters[index - 1].isWhitespace && !characters[index].isWhitespace { continue }
+            guard first.count > 1,
+                  second.count > 1,
+                  !second.first!.isPunctuation else { continue }
+            let firstWidth = (first as NSString).size(withAttributes: [.font: font]).width
+            let secondWidth = (second as NSString).size(withAttributes: [.font: font]).width
+            // Leave room for differences between UIKit measurement and SwiftUI glyph layout.
+            let safeWidth = width - 12
+            guard firstWidth <= safeWidth, secondWidth <= safeWidth else { continue }
+            let imbalance = abs(firstWidth - secondWidth)
+            let naturalBreak = first.last!.isPunctuation
+            if best == nil
+                || (naturalBreak && !best!.naturalBreak)
+                || (naturalBreak == best!.naturalBreak && imbalance < best!.imbalance) {
+                best = (index, imbalance, naturalBreak)
+            }
+        }
+        guard let best else { return text }
+        return String(characters[..<best.index]) + "\n" + String(characters[best.index...])
+    }
+
+    private func cleanedSummary(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"[。\.]+$"#, with: "", options: .regularExpression)
+    }
+}
+
+private struct PerspectiveCardShape: Shape {
+    var topRadius: CGFloat
+    var bottomRadius: CGFloat
+    var bottomInset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let topR = min(topRadius, min(rect.width, rect.height) / 2)
+        let inset = min(bottomInset, rect.width * 0.12)
+        let bottomR = min(bottomRadius, min(rect.width - inset * 2, rect.height) / 2)
+        let safeHeight = max(1, rect.height)
+        let topSideInset = inset * topR / safeHeight
+        let bottomSideInset = inset * bottomR / safeHeight
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + topR, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - topR, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - topSideInset, y: rect.minY + topR),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - inset + bottomSideInset, y: rect.maxY - bottomR))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - inset - bottomR, y: rect.maxY), control: CGPoint(x: rect.maxX - inset, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + inset + bottomR, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + inset - bottomSideInset, y: rect.maxY - bottomR),
+            control: CGPoint(x: rect.minX + inset, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + topSideInset, y: rect.minY + topR))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + topR, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The owning card clips the complete surface and its content to one outline.
+struct SelectedDeckCardSurface: View {
+    let tint: Color
+
+    var body: some View {
+        LinearGradient(stops: [
+                .init(color: tint.opacity(1), location: 0),
+                .init(color: tint.opacity(1), location: 0.48),
+                .init(color: tint.opacity(1), location: 1)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+            .overlay {
+                // Extend the highlight by 25% and soften its fade toward transparency.
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.28), location: 0),
+                        .init(color: .white.opacity(0.105), location: (1.0 / 6.0) * 1.25 * 0.5),
+                        .init(color: .clear, location: (1.0 / 6.0) * 1.25),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(0.15)
+            }
+            .overlay {
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.12)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+    }
+}
+
+struct GoalCardArtwork: View {
+    let goal: Goal
+    var widthScale: CGFloat = 0.96
+    var floats = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drift = false
+
+    var body: some View {
+        Group {
+            if let asset = goal.cardArtworkAsset {
+                GeometryReader { geometry in
+                    let imageWidth = geometry.size.width * widthScale
+                    Image(asset)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: imageWidth)
+                        // Shift each habit-bound illustration toward the upper
+                        // right so its orbital details can bleed beyond the card.
+                        .position(
+                            x: geometry.size.width * 0.66,
+                            y: geometry.size.height * 0.34
+                        )
+                        .offset(x: floats && !reduceMotion ? (drift ? 9 : -9) : 0,
+                                y: floats && !reduceMotion ? (drift ? -14 : 14) : 0)
+                }
+                .opacity(0.30)
+            } else if let flora = goal.resolvedFloraType {
+                GeometryReader { geometry in
+                    // 统一与标准卡片插画尺寸一致 (与 card_goal 预置插画保持平衡协调，避免花头过大)
+                    let targetDiameter = geometry.size.width * (flora.isGiantFlora ? 0.38 : 0.42)
+                    let baseDim: CGFloat = flora.isGiantFlora ? 160 : 90
+                    let requiredScale = targetDiameter / baseDim
+
+                    PosyFlowerBloomCanvas(
+                        type: flora,
+                        progress: 1.0,
+                        breathingPhase: 0,
+                        windAngle: 0,
+                        seed: 42
+                    )
+                    .frame(width: baseDim, height: baseDim)
+                    .scaleEffect(requiredScale)
+                    .position(
+                        x: geometry.size.width * 0.66,
+                        y: geometry.size.height * 0.34
+                    )
+                    .offset(x: floats && !reduceMotion ? (drift ? 9 : -9) : 0,
+                            y: floats && !reduceMotion ? (drift ? -14 : 14) : 0)
+                }
+                .opacity(0.32)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onChange(of: floats && !reduceMotion, initial: true) { _, active in
+            if active {
+                drift = false
+                withAnimation(.easeInOut(duration: 4.5).repeatForever(autoreverses: true)) { drift = true }
+            } else {
+                withAnimation(.none) { drift = false }
+            }
+        }
+    }
+}
+
+/// A looping perspective card stack with a large third card.
+struct TodayStackDeckView: View {
+    @Environment(\.habitColorTheme) private var colorTheme
+    @AppStorage(AppSoundSettings.storageKey) private var soundEffectsEnabled = true
+    let goals: [Goal]
+    var colorRangeEndOrder = 12
+    @Binding var state: TodayGoalState
+    let selectionTransitionNamespace: Namespace.ID
+    var homeLaunchFrame: CGRect? = nil
+    var useCoverFlow = false
+    var compactCardScale: CGFloat = 1
+    @Binding var showingCustomCardsModal: Bool
+    var onReloadGoals: (() -> Void)? = nil
+    @State private var homeEntrySettled = false
+    @State private var homeLiftedCards: Set<Int> = []
+    @State private var homeFlownCards: Set<Int> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var drag: CGFloat = 0
+    @GestureState private var horizontalDrag: CGFloat = 0
+    @State private var draggedGoalID: String?
+    @State private var interactionSound = AppSoundFeedback()
+    @State private var bounceID: String?
+    @State private var ruleNotice: String?
+    @State private var ruleNoticeID = UUID()
+    @State private var ruleNoticePhase: RuleNoticeExpansionPhase = .capsule
+    @State private var ruleNoticeSourceFrame: CGRect = .zero
+    @State private var addCardButtonSourceFrame: CGRect = .zero
+
+    private var focus: Int {
+        goals.firstIndex { $0.id == state.focusedGoalID } ?? 0
+    }
+
+    private var spring: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.46, dampingFraction: 0.72)
+    }
+
+    // 第三张主卡的轮廓是整组卡片唯一的斜边与圆角基准。
+    private var deckCardShape: PerspectiveCardShape {
+        PerspectiveCardShape(topRadius: 29, bottomRadius: 18, bottomInset: 19)
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                let isDuo = UIDevice.current.name.contains("Duo")
+                    || ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true
+                    || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.contains("Duo") == true
+                    || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
+
+                Text(AppLanguage.text(useCoverFlow ? "选择今天的目标" : "右滑/取消选择今天的目标"))
+                    .font(.system(size: useCoverFlow ? (isDuo ? 30 : 44) : 23, weight: .semibold))
+                    .tracking(-0.4)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Spacer(minLength: 8)
+
+                let counterFontSize: CGFloat = useCoverFlow ? (isDuo ? 20 : 28) : 17
+                let counterColor = colorTheme.card(colorTheme.cardBaseColor(at: 0, count: 2))
+                let capsuleHeight: CGFloat = useCoverFlow ? (isDuo ? 42 : 50) : 38
+
+                AddCustomCardButton(
+                    tint: counterColor,
+                    fontSize: counterFontSize * 0.72,
+                    horizontalPadding: 14,
+                    fixedHeight: capsuleHeight,
+                    isSelected: showingCustomCardsModal
+                ) {
+                    showingCustomCardsModal = true
+                }
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: AddCardButtonSourceFrameKey.self,
+                            value: proxy.frame(in: .global)
+                        )
+                    }
+                }
+
+                if ruleNotice == nil {
+                    HStack(spacing: 5) {
+                        Text("\(regularCount)").fontWeight(.semibold)
+                        Text("/ 3")
+                    }
+                    .font(.system(size: counterFontSize))
+                    .foregroundStyle(counterColor)
+                    .padding(.horizontal, 14)
+                    .frame(height: capsuleHeight)
+                    .background {
+                        GeometryReader { geometry in
+                            RuleNoticeBackground(shape: Capsule())
+                                .preference(
+                                    key: RuleNoticeSourceFrameKey.self,
+                                    value: geometry.frame(in: .global)
+                                )
+                        }
+                    }
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                } else {
+                    Color.clear.frame(width: 68, height: capsuleHeight)
+                }
+            }
+            .foregroundStyle(colorTheme == .lavender ? Color.white.opacity(0.94) : Color(red: 0.27, green: 0.23, blue: 0.29))
+            .padding(.horizontal, 4)
+            .padding(.top, 20)
+
+            HStack(spacing: 12) {
+                legend("普通", color: normalColor)
+                legend("周期", color: periodicColor)
+                legend("星标", color: starredColor)
+                Spacer(minLength: 0)
+                Text(AppLanguage.text(useCoverFlow ? "左右滑动浏览" : "上下滑动浏览")).font(.system(size: useCoverFlow ? 19.25 : 11, weight: .medium)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 5)
+
+            if useCoverFlow {
+                coverFlow
+                    .padding(.top, 82)
+            } else {
+            GeometryReader { geometry in
+                let cardHeight = min(geometry.size.height * 0.56, 390)
+                // 第三张作为主展示位，保留原第二张的露出高度；顶部增加一张。
+                let step = max(45, geometry.size.height * 0.094)
+                let visibleSlots = min(goals.count, 6)
+                ZStack(alignment: .top) {
+                    ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
+                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
+                        if slot < visibleSlots {
+                        let isHero = slot == min(2, visibleSlots - 1)
+                        let isCompleted = isCompletedToday(goal)
+                        let isSelected = state.selectedGoalIDs.contains(goal.id)
+                            || state.completedSelectedGoalIDs.contains(goal.id)
+                        let entry = homeEntryPose(slot: slot, visibleSlots: visibleSlots, geometry: geometry, cardHeight: cardHeight, step: step)
+                        let reveal = contentReveal(
+                            slot: slot,
+                            step: step,
+                            height: cardHeight,
+                            visibleSlots: visibleSlots,
+                            viewportHeight: geometry.size.height
+                        )
+                        goalCard(goal, isHero: isHero, selected: isSelected, contentReveal: reveal)
+                            .frame(width: geometry.size.width, height: cardHeight, alignment: .top)
+                            .background { cardSurface(goal, isHero: isHero) }
+                            .overlay(alignment: .topTrailing) {
+                                HStack(spacing: 7) {
+                                    if isSelected {
+                                        if isCompleted {
+                                            completedBadge
+                                                .transition(.scale(scale: 0.72).combined(with: .opacity))
+                                        } else {
+                                            selectedBadge
+                                            .transition(.scale(scale: 0.72).combined(with: .opacity))
+                                        }
+                                    }
+                                }
+                                .frame(height: 52)
+                                .padding(.top, 5)
+                                .padding(.trailing, 59)
+                            }
+                            .clipShape(deckCardShape)
+                            .overlay {
+                                deckCardShape
+                                    .stroke(LinearGradient(colors: [.white.opacity(0.88), .white.opacity(0.25), .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.25)
+                                    .allowsHitTesting(false)
+                            }
+                            // Transform the fill, mask and border together so their edges agree.
+                            .matchedGeometryEffect(
+                                id: "selected-goal-card-\(goal.id)",
+                                in: selectionTransitionNamespace,
+                                properties: .frame,
+                                anchor: .center,
+                                isSource: isSelected
+                            )
+                            .scaleEffect(
+                                x: entry.scaleX
+                                    * (bounceID == goal.id && !reduceMotion ? 1.025 : 1),
+                                y: entry.scaleY
+                                    * (bounceID == goal.id && !reduceMotion ? 1.025 : 1),
+                                anchor: .top
+                            )
+                            .rotationEffect(.degrees(entry.rotation), anchor: .top)
+                            .rotation3DEffect(.degrees(reduceMotion ? 0 : drag / 42), axis: (x: 1, y: 0, z: 0), perspective: 0.55)
+                            .offset(x: entry.x, y: entry.y + dragOffset(slot: slot))
+                            .transition(.identity)
+                            .opacity(homeLaunchFrame != nil && !reduceMotion && !homeEntrySettled && slot > 2 ? 0 : 1)
+                            .offset(x: draggedGoalID == goal.id ? max(0, horizontalDrag) : 0)
+                            .zIndex(Double(slot))
+                            .contentShape(deckCardShape)
+                        }
+                    }
+                    // Keep the interactive star targets above the transformed cards. A button
+                    // inside a scaled and offset card can have a different hit area from its icon.
+                    ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
+                        let slot = (index - focus + 2 + goals.count) % max(1, goals.count)
+                        if slot < visibleSlots {
+                            let scale = cardScale(slot: slot, visibleSlots: visibleSlots)
+                                * (bounceID == goal.id && !reduceMotion ? 1.025 : 1)
+                            starButton(goal)
+                                .scaleEffect(scale)
+                                .position(
+                                    x: geometry.size.width / 2 + (geometry.size.width / 2 - 27) * scale
+                                        + (draggedGoalID == goal.id ? max(0, horizontalDrag) : 0),
+                                    y: cardTop(slot: slot, step: step, height: cardHeight)
+                                        + dragOffset(slot: slot) + 31 * scale
+                                )
+                                .zIndex(100 + Double(slot))
+                                .opacity(homeLaunchFrame != nil && !reduceMotion && !homeEntrySettled ? 0 : 1)
+                                .animation(.easeOut(duration: 0.15), value: homeEntrySettled)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
+                .allowsHitTesting(homeLaunchFrame == nil || reduceMotion || homeEntrySettled)
+                .contentShape(Rectangle())
+                .simultaneousGesture(DragGesture(minimumDistance: 12)
+                    .onChanged { value in
+                        guard abs(value.translation.width) > abs(value.translation.height), draggedGoalID == nil else { return }
+                        draggedGoalID = goalAt(value.startLocation.y, step: step, height: cardHeight, count: visibleSlots)?.id
+                    }
+                    .updating($horizontalDrag) { value, current, _ in
+                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                        current = min(90, max(0, value.translation.width))
+                    }
+                    .updating($drag) { value, current, _ in
+                        guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                        current = max(-90, min(90, value.translation.height))
+                    }
+                    .onEnded { value in
+                        if abs(value.translation.width) > abs(value.translation.height) {
+                            if value.translation.width > 55,
+                               let goal = goalAt(value.startLocation.y, step: step, height: cardHeight, count: visibleSlots) {
+                                toggle(goal)
+                            }
+                            draggedGoalID = nil
+                            return
+                        }
+                        guard abs(value.translation.height) > abs(value.translation.width), abs(value.translation.height) > 48 else { return }
+                        guard !goals.isEmpty else { return }
+                        let next = (focus + (value.predictedEndTranslation.height < 0 ? 1 : -1) + goals.count) % goals.count
+                        if next != focus { interactionSound.play(.pageTurn, enabled: soundEffectsEnabled) }
+                        withAnimation(spring) { state.focusedGoalID = goals[next].id }
+                    })
+                .animation(spring, value: drag == 0)
+                .animation(spring, value: horizontalDrag == 0)
+            }
+            .scaleEffect(compactCardScale, anchor: .top)
+            .padding(.horizontal, 8)
+            .frame(maxHeight: .infinity)
+            .task {
+                guard homeLaunchFrame != nil && !reduceMotion else {
+                    homeEntrySettled = true
+                    return
+                }
+                do {
+                    let flightSpeed = 2.75
+                    // Keep anticipation, stagger and landing in the same ratio as the flight.
+                    try await Task.sleep(for: .seconds(0.10 / flightSpeed))
+                    for slot in 0..<min(3, goals.count) {
+                        // Anticipation and an outward lift lead into the flight; the spring
+                        // eases into the landing with restrained follow-through.
+                        withAnimation(.easeInOut(duration: 0.20 / flightSpeed)) { _ = homeLiftedCards.insert(slot) }
+                        try await Task.sleep(for: .seconds(0.20 / flightSpeed))
+                        withAnimation(.spring(response: 0.80 / flightSpeed, dampingFraction: 0.88)) { _ = homeFlownCards.insert(slot) }
+                        try await Task.sleep(for: .seconds(0.32 / flightSpeed))
+                    }
+                    // Wait for the last card to land before unfolding the complete deck.
+                    try await Task.sleep(for: .seconds(0.60 / flightSpeed))
+                    withAnimation(.spring(response: 0.78, dampingFraction: 0.84)) { homeEntrySettled = true }
+                } catch { }
+            }
+            }
+        }
+        .padding(.horizontal, 24)
+        .onPreferenceChange(RuleNoticeSourceFrameKey.self) { frame in
+            guard frame.width > 0 else { return }
+            if abs(frame.minX - ruleNoticeSourceFrame.minX) > 1 || abs(frame.minY - ruleNoticeSourceFrame.minY) > 1 || abs(frame.width - ruleNoticeSourceFrame.width) > 1 {
+                ruleNoticeSourceFrame = frame
+            }
+        }
+        .onPreferenceChange(AddCardButtonSourceFrameKey.self) { frame in
+            guard frame.width > 0 else { return }
+            if abs(frame.minX - addCardButtonSourceFrame.minX) > 1 || abs(frame.minY - addCardButtonSourceFrame.minY) > 1 || abs(frame.width - addCardButtonSourceFrame.width) > 1 {
+                addCardButtonSourceFrame = frame
+            }
+        }
+        .animation(spring, value: state.focusedGoalID)
+        .animation(spring, value: state.selectedGoalIDs)
+        .animation(spring, value: state.starredGoalIDs)
+        .overlay(alignment: .topTrailing) {
+            if let ruleNotice {
+                RuleNoticeBanner(
+                    message: ruleNotice,
+                    sourceFrame: ruleNoticeSourceFrame,
+                    phase: ruleNoticePhase
+                )
+                    .frame(height: 94)
+                    .padding(.top, 84)
+                    .padding(.horizontal, 24)
+                    .zIndex(500)
+            }
+        }
+        .onAppear {
+            if DevelopmentLaunch.contains("--focus-custom"), let customGoal = goals.first(where: { $0.id.hasPrefix("custom-task:") }) {
+                state.focusedGoalID = customGoal.id
+            } else if let firstGoal = goals.first, !goals.contains(where: { $0.id == state.focusedGoalID }) {
+                state.focusedGoalID = firstGoal.id
+            }
+        }
+    }
+
+    private var coverFlow: some View {
+        GeometryReader { geometry in
+            let height = max(100, min(geometry.size.height - 58, 380))
+            let width = min(height * 0.86, geometry.size.width * 0.46)
+            ZStack {
+                if !goals.isEmpty {
+                    ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
+                        let raw = (index - focus + goals.count) % goals.count
+                        let distance = raw > goals.count / 2 ? raw - goals.count : raw
+                        if abs(distance) <= 3 {
+                            let selected = state.selectedGoalIDs.contains(goal.id)
+                            goalCard(goal, isHero: true, selected: selected, contentReveal: 1)
+                                .frame(width: width, height: height)
+                                .background { cardSurface(goal, isHero: distance == 0) }
+                                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(.white.opacity(0.7), lineWidth: 1)
+                                }
+                                .overlay(alignment: .topTrailing) {
+                                    if distance == 0 { starButton(goal).padding(.top, 16).padding(.trailing, 12) }
+                                }
+                                .overlay(alignment: .bottom) {
+                                    if distance == 0 {
+                                        let isDuo = UIDevice.current.name.contains("Duo")
+                                            || ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true
+                                            || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]?.contains("Duo") == true
+                                            || ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] == "iPhone19,4"
+                                            || (UIScreen.main.bounds.width < 500 && UIScreen.main.bounds.height < 500)
+                                        Button(AppLanguage.text(selected ? "取消选择" : "选择此目标")) { toggle(goal) }
+                                            .font(.system(size: isDuo ? 13.5 : (width < 280 ? 15 : 19), weight: .semibold))
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.8)
+                                            .foregroundStyle(Color(white: 0.40))
+                                            .padding(.horizontal, isDuo ? 12 : 16).padding(.vertical, isDuo ? 6 : 8)
+                                            .background(.white.opacity(0.88), in: Capsule())
+                                            .padding(.bottom, isDuo ? 14 : 22)
+                                    }
+                                }
+                                .rotation3DEffect(.degrees(Double(distance == 0 ? 0 : (distance > 0 ? -50 : 50))), axis: (x: 0, y: 1, z: 0), perspective: 0.7)
+                                .scaleEffect(distance == 0 ? 1 : (abs(distance) == 1 ? 0.86 : (abs(distance) == 2 ? 0.76 : 0.68)))
+                                .offset(x: distance == 0 ? 0 : (distance > 0 ? 1 : -1) * width * (0.78 + CGFloat(abs(distance) - 1) * 0.40))
+                                .zIndex(Double(4 - abs(distance)))
+                                .accessibilityElement(children: .contain)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .offset(y: UIScreen.main.bounds.midY - geometry.frame(in: .global).minY - height / 2)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 25).onEnded { value in
+                guard !goals.isEmpty, abs(value.translation.width) > 45 else { return }
+                let next = (focus + (value.translation.width < 0 ? 1 : -1) + goals.count) % goals.count
+                interactionSound.play(.pageTurn, enabled: soundEffectsEnabled)
+                withAnimation(spring) { state.focusedGoalID = goals[next].id }
+            })
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private struct HomeEntryPose {
+        var scaleX: CGFloat
+        var scaleY: CGFloat
+        var x: CGFloat = 0
+        var y: CGFloat
+        var rotation: Double = 0
+    }
+
+    private func homeEntryPose(slot: Int, visibleSlots: Int, geometry: GeometryProxy, cardHeight: CGFloat, step: CGFloat) -> HomeEntryPose {
+        let finalScale = cardScale(slot: slot, visibleSlots: visibleSlots)
+        let finalY = cardTop(slot: slot, step: step, height: cardHeight)
+        guard let launch = homeLaunchFrame, !reduceMotion, !homeEntrySettled else {
+            return HomeEntryPose(scaleX: finalScale, scaleY: finalScale, y: finalY)
+        }
+        let heroSlot = min(2, visibleSlots - 1)
+        let landingY = cardTop(slot: max(0, heroSlot), step: step, height: cardHeight)
+        if homeFlownCards.contains(slot) || slot > 2 {
+            let stackScale: CGFloat = 1 - CGFloat(max(0, heroSlot - slot)) * 0.035
+            return HomeEntryPose(scaleX: stackScale, scaleY: stackScale, y: landingY - CGFloat(max(0, heroSlot - slot)) * 10)
+        }
+        let viewport = geometry.frame(in: .global)
+        let isLifted = homeLiftedCards.contains(slot)
+        let side: CGFloat = slot == 0 ? -1 : (slot == 1 ? 1 : 0)
+        return HomeEntryPose(
+            scaleX: launch.width / max(1, geometry.size.width),
+            scaleY: launch.height / max(1, cardHeight),
+            x: launch.midX - viewport.midX + (isLifted ? side * 24 : 0),
+            y: launch.minY - viewport.minY + CGFloat(slot - 2) * 8 - (isLifted ? 42 : 0),
+            rotation: isLifted ? Double(side) * 5 : 0
+        )
+    }
+
+    private func legend(_ title: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(AppLanguage.text(title)).font(.system(size: useCoverFlow ? 19.25 : 11, weight: .medium))
+        }.foregroundStyle(Color(red: 0.31, green: 0.25, blue: 0.33))
+    }
+
+    private var selectedBadge: some View {
+        ZStack {
+            Circle().fill(.ultraThinMaterial)
+            Circle().stroke(.white.opacity(0.88), lineWidth: 1.2)
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 25, height: 25)
+        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var completedBadge: some View {
+        ZStack {
+            Circle()
+                .fill(LinearGradient(
+                    colors: [Color(red: 0.35, green: 0.94, blue: 0.73), Color(red: 0.12, green: 0.70, blue: 0.56)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 27, height: 27)
+        .allowsHitTesting(false)
+        .accessibilityLabel(AppLanguage.text("已完成，保持选择"))
+    }
+
+    private func cardSurface(_ goal: Goal, isHero: Bool) -> some View {
+        let tint = colorTheme.selectedDeckCardColor(at: goal.order - 1, count: colorRangeEndOrder)
+        return SelectedDeckCardSurface(tint: tint)
+            .overlay {
+                if goal.cardArtworkAsset != nil || goal.resolvedFloraType != nil {
+                    GoalCardArtwork(goal: goal, widthScale: 2.1875, floats: isHero)
+                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                }
+            }
+    }
+
+    private func goalCard(_ goal: Goal, isHero: Bool, selected: Bool, contentReveal: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Text(String(format: "%02d", goal.order))
+                    .font(.system(size: useCoverFlow ? 22.75 : 13, weight: .semibold, design: .rounded))
+                    .frame(width: useCoverFlow ? 42 : 34, height: useCoverFlow ? 42 : 34)
+                    .background(.white.opacity(0.16), in: Circle())
+
+                Text(AppLanguage.text(goal.title))
+                    .font(.system(size: useCoverFlow ? 29.75 : (isHero ? 17 : 16), weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(useCoverFlow ? 0.65 : 0.72)
+
+                if isHero && !useCoverFlow {
+                    Text(AppLanguage.text(taskTypeTitle(for: goal)))
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 7).padding(.vertical, 4)
+                        .foregroundStyle(Color(red: 0.16, green: 0.18, blue: 0.22))
+                        .background(taskTypeColor(for: goal), in: Capsule())
+                        .transition(.opacity.combined(with: .scale(scale: 0.88)))
+                }
+                Spacer(minLength: 4)
+                Image(systemName: state.starredGoalIDs.contains(goal.id) ? "star.fill" : "star")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(state.starredGoalIDs.contains(goal.id) ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
+                    .frame(width: 52, height: 52)
+                    .hidden()
+            }
+            .padding(.leading, 20).padding(.trailing, 12).padding(.top, useCoverFlow ? 16 : 5)
+            .foregroundStyle(.white)
+            .zIndex(2)
+
+            if isHero && useCoverFlow {
+                Text(AppLanguage.text(taskTypeTitle(for: goal)))
+                    .font(.system(size: 19.25, weight: .bold))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .foregroundStyle(Color(red: 0.16, green: 0.18, blue: 0.22))
+                    .background(taskTypeColor(for: goal), in: Capsule())
+                    .padding(.leading, 20)
+            }
+
+            if isHero {
+                VStack(spacing: 10) {
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.94))
+                            .shadow(color: .black.opacity(0.45), radius: 3)
+                    }
+                    BalancedGoalSummary(
+                        summary: goal.summary,
+                        fontSize: 22,
+                        weight: .bold,
+                        color: .white.opacity(0.98)
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.horizontal, 22)
+                .padding(.bottom, 30)
+                .offset(y: useCoverFlow ? -32 : 0)
+                .opacity(contentReveal)
+            } else {
+                BalancedGoalSummary(
+                    summary: goal.summary,
+                    fontSize: 18,
+                    weight: .bold,
+                    color: .white.opacity(0.94)
+                )
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 6)
+                    .opacity(contentReveal)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func starButton(_ goal: Goal) -> some View {
+        let starred = state.starredGoalIDs.contains(goal.id)
+        let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
+        return StarTapControl(starred: starred, available: starred || canStar) {
+            toggleStar(goal)
+        }
+    }
+
+    private func toggleStar(_ goal: Goal) {
+        let starred = state.starredGoalIDs.contains(goal.id)
+        let canStar = !state.isFirstSelection && state.starredGoalIDs.count < state.starLimit
+
+        guard starred || canStar else {
+            showRuleNotice(
+                state.isFirstSelection
+                    ? AppLanguage.text("首次确认习惯选择后，才能设置星标。")
+                    : String(format: AppLanguage.text("星标习惯最多选择 %lld 个，请先取消一个已有星标。"), state.starLimit)
+            )
+            return
+        }
+
+        if !starred { interactionSound.play(.starMarked, enabled: soundEffectsEnabled) }
+        withAnimation(spring) {
+            if starred {
+                state.starredGoalIDs.remove(goal.id)
+                let regularLimit = 3 + SubscriptionManager.currentExtraDailyHabitsQuota
+                if goal.countsTowardQuota && regularCount >= regularLimit {
+                    state.selectedGoalIDs.remove(goal.id)
+                }
+            } else if canStar {
+                state.starredGoalIDs.insert(goal.id)
+                state.selectedGoalIDs.insert(goal.id)
+            }
+        }
+    }
+
+    private func taskTypeTitle(for goal: Goal) -> String {
+        state.starredGoalIDs.contains(goal.id) ? "星标" : goal.isPeriodic ? "周期" : "普通"
+    }
+
+    private func taskTypeColor(for goal: Goal) -> Color {
+        if state.starredGoalIDs.contains(goal.id) {
+            return starredColor
+        }
+        if goal.isPeriodic {
+            return periodicColor
+        }
+        return normalColor
+    }
+
+    private var normalColor: Color { Color(red: 0.17, green: 0.72, blue: 0.67) }
+    private var periodicColor: Color { Color(red: 0.70, green: 0.58, blue: 0.91) }
+    private var starredColor: Color { Color(red: 0.96, green: 0.36, blue: 0.24) }
+
+    private func contentReveal(slot: Int, step: CGFloat, height: CGFloat, visibleSlots: Int, viewportHeight: CGFloat) -> CGFloat {
+        let currentTop = cardTop(slot: slot, step: step, height: height)
+        let nextTop = slot + 1 < visibleSlots
+            ? cardTop(slot: slot + 1, step: step, height: height)
+            : viewportHeight
+        let exposedHeight = min(height, max(0, nextTop - currentTop))
+        return min(1, max(0, (exposedHeight - 46) / max(1, height * 0.46)))
+    }
+
+    private func dragOffset(slot: Int) -> CGFloat {
+        guard !reduceMotion else { return 0 }
+        return drag * (0.46 + CGFloat(slot) * 0.07)
+    }
+
+    private func cardWidthRatio(slot: Int, visibleSlots: Int) -> CGFloat {
+        guard visibleSlots >= 3 else { return 1 }
+        return switch slot {
+        case 0: 0.81
+        case 1: 0.9
+        default: 1
+        }
+    }
+
+    private func cardScale(slot: Int, visibleSlots: Int) -> CGFloat {
+        let current = cardWidthRatio(slot: slot, visibleSlots: visibleSlots)
+        guard !reduceMotion, drag != 0 else { return current }
+        let nextSlot = drag < 0 ? max(0, slot - 1) : min(visibleSlots - 1, slot + 1)
+        let next = cardWidthRatio(slot: nextSlot, visibleSlots: visibleSlots)
+        let progress = min(1, abs(drag) / 90)
+        return current + (next - current) * progress
+    }
+
+    private func cardTop(slot: Int, step: CGFloat, height: CGFloat) -> CGFloat {
+        let fourthTop = step * 2 + height * 0.75
+        let fifthTop = fourthTop + height * 0.28
+        let sixthTop = fifthTop + height * 0.19
+        return switch slot {
+        case 0: 0
+        case 1: step
+        case 2: step * 2
+        case 3: fourthTop
+        case 4: fifthTop
+        default: sixthTop + CGFloat(slot - 5) * max(48, height * 0.18)
+        }
+    }
+
+    private func goalAt(_ y: CGFloat, step: CGFloat, height: CGFloat, count: Int) -> Goal? {
+        guard !goals.isEmpty else { return nil }
+        for slot in (0..<count).reversed() {
+            let top = cardTop(slot: slot, step: step, height: height)
+            if y >= top && y <= top + height {
+                let index = (focus - 2 + slot + goals.count) % goals.count
+                return goals[index]
+            }
+        }
+        return nil
+    }
+
+    private func toggle(_ goal: Goal) {
+        guard !isCompletedToday(goal) else {
+            showRuleNotice(AppLanguage.text("你很棒，任务已经完成了"))
+            return
+        }
+        let wasSelected = state.selectedGoalIDs.contains(goal.id)
+        let regularLimit = 3 + SubscriptionManager.currentExtraDailyHabitsQuota
+        guard wasSelected || !goal.countsTowardQuota || state.completedRegularGoalIDs.contains(goal.id) || regularCount < regularLimit else {
+            showRuleNotice(String(format: AppLanguage.text("当天最多选择 %lld 个普通或周期目标，请先取消一个再选择。"), regularLimit))
+            return
+        }
+        interactionSound.play(.selection, enabled: soundEffectsEnabled)
+        withAnimation(spring) {
+            if wasSelected { state.selectedGoalIDs.remove(goal.id); state.starredGoalIDs.remove(goal.id) }
+            else { state.selectedGoalIDs.insert(goal.id) }
+            bounceID = goal.id
+        }
+        guard !reduceMotion else { bounceID = nil; return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.76)) { bounceID = nil }
+        }
+    }
+
+    private var regularCount: Int {
+        let current = Set(goals.filter {
+            state.selectedGoalIDs.contains($0.id) && !state.starredGoalIDs.contains($0.id) && $0.countsTowardQuota
+        }.map(\.id))
+        return current.union(state.completedRegularGoalIDs).count
+    }
+
+    private func isCompletedToday(_ goal: Goal) -> Bool {
+        goal.completedToday || state.completedSelectedGoalIDs.contains(goal.id)
+    }
+
+    private func showRuleNotice(_ message: String) {
+        let id = UUID()
+        ruleNoticeID = id
+        withTransaction(Transaction(animation: nil)) {
+            ruleNotice = message
+            ruleNoticePhase = .capsule
+        }
+        Task { @MainActor in
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
+                ruleNoticePhase = .horizontal
+            }
+            try? await Task.sleep(for: .seconds(0.38))
+            guard ruleNoticeID == id else { return }
+            withAnimation(.spring(response: 0.48, dampingFraction: 0.90)) {
+                ruleNoticePhase = .expanded
+            }
+            try? await Task.sleep(for: .seconds(5))
+            guard ruleNoticeID == id else { return }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.90)) {
+                ruleNoticePhase = .horizontal
+            }
+            try? await Task.sleep(for: .seconds(0.42))
+            guard ruleNoticeID == id else { return }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.90)) {
+                ruleNoticePhase = .capsule
+            }
+            try? await Task.sleep(for: .seconds(0.34))
+            guard ruleNoticeID == id else { return }
+            withTransaction(Transaction(animation: nil)) {
+                ruleNotice = nil
+            }
+        }
+    }
+}
+
+private struct StarTapControl: View {
+    let starred: Bool
+    let available: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: starred ? "star.fill" : "star")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(starred ? Color(red: 1, green: 0.87, blue: 0.44) : .white)
+                .frame(width: 52, height: 52)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .opacity(available ? 1 : 0.42)
+            .accessibilityLabel(starred ? AppLanguage.text("取消星标") : AppLanguage.text("设为星标"))
+            .accessibilityHint(starred ? AppLanguage.text("取消星标；普通名额已满时会同时取消选择") : AppLanguage.text("设为星标并加入今日选择，不占普通名额"))
+    }
+}
+
+private struct RuleNoticeBanner: View {
+    let message: String
+    let sourceFrame: CGRect
+    let phase: RuleNoticeExpansionPhase
+
+    var body: some View {
+        GeometryReader { geometry in
+            let targetFrame = geometry.frame(in: .global)
+            let startFrame = sourceFrame.width > 0
+                ? sourceFrame
+                : CGRect(x: targetFrame.maxX - 68, y: targetFrame.minY, width: 68, height: 40)
+            let size = backgroundSize(in: geometry.size, startFrame: startFrame)
+            let center = backgroundCenter(in: geometry.size, targetFrame: targetFrame, startFrame: startFrame, size: size)
+            let shape = RoundedRectangle(cornerRadius: min(size.height / 2, 26), style: .continuous)
+
+            ZStack(alignment: .topLeading) {
+                RuleNoticeBackground(shape: shape)
+                    .overlay {
+                        shape.stroke(.white.opacity(0.72), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.14), radius: 14, y: 7)
+                    .frame(width: size.width, height: size.height)
+                    .position(center)
+
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .fixedSize()
+                    Text(AppLanguage.text(message))
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .foregroundStyle(Color(red: 0.28, green: 0.20, blue: 0.24))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+                .opacity(phase == .expanded ? 1 : 0)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isStaticText)
+    }
+
+    private func backgroundSize(in bounds: CGSize, startFrame: CGRect) -> CGSize {
+        switch phase {
+        case .capsule:
+            return startFrame.size
+        case .horizontal:
+            return CGSize(width: bounds.width, height: startFrame.height)
+        case .expanded:
+            return bounds
+        }
+    }
+
+    private func backgroundCenter(in bounds: CGSize, targetFrame: CGRect, startFrame: CGRect, size: CGSize) -> CGPoint {
+        switch phase {
+        case .capsule:
+            return CGPoint(x: startFrame.midX - targetFrame.minX, y: startFrame.midY - targetFrame.minY)
+        case .horizontal:
+            return CGPoint(x: startFrame.maxX - targetFrame.minX - size.width / 2, y: startFrame.midY - targetFrame.minY)
+        case .expanded:
+            return CGPoint(x: bounds.width / 2, y: bounds.height / 2)
+        }
+    }
+}
+
+private enum RuleNoticeExpansionPhase: Equatable {
+    case capsule
+    case horizontal
+    case expanded
+}
+
+private struct RuleNoticeSourceFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next.width > 0 { value = next }
+    }
+}
+
+private struct RuleNoticeBackground<S: Shape>: View {
+    let shape: S
+
+    var body: some View {
+        shape
+            .fill(.white.opacity(0.90))
+    }
+}

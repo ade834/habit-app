@@ -1,0 +1,3219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>序芽 · 动作视觉纯享版 (多语言母版)</title>
+  <style>
+    :root {
+      --bg-cream: #F8F3F6;
+      --pink-rose: #EE46A0;
+      --orange-peach: #FFA96B;
+      --amber-warm: #FFCA82;
+      --green-leaf: #3AA867;
+      --dark-ink: #2B252E;
+      --gray-muted: #6B6270;
+      --card-magenta: #DE509E;
+      --card-rose: #F5647F;
+      --card-peach: #FFA96B;
+      --posy-indigo: #2E3860;
+      --posy-gold: #EBB23D;
+      --posy-sage: #A6B88C;
+      --disney-spring: cubic-bezier(0.34, 1.45, 0.64, 1);
+      --google-fluid: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background: var(--bg-cream);
+      color: var(--dark-ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans", "Segoe UI", sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* 背景流体光晕 (双主光球碰撞融合) */
+    #ambientCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      filter: blur(80px);
+      opacity: 0.88;
+      z-index: 1;
+    }
+    .frosted-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(248, 243, 246, 0.42);
+      backdrop-filter: blur(28px);
+      -webkit-backdrop-filter: blur(28px);
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    /* MG 主舞台视窗 (第一性原理：绝对撑满 WKWebView 视口，绝无边缘外溢) */
+    .mg-stage {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 10;
+    }
+
+    @media (max-width: 600px) {
+      .director-hud {
+        display: none !important;
+      }
+    }
+
+    
+    /* 选卡完成后的主页回跳指引横幅 */
+    .home-return-banner {
+      position: absolute;
+      top: 620px;
+      left: 20px;
+      right: 20px;
+      margin: 0 auto;
+      max-width: 236px;
+      background: rgba(255, 255, 255, 0.96);
+      border: 1.5px solid rgba(255, 255, 255, 1.0);
+      border-radius: 20px;
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 10px 28px rgba(43, 37, 46, 0.12);
+      opacity: 0;
+      transform: translateY(-10px);
+      z-index: 38;
+      pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .home-return-icon { font-size: 16px; }
+    .home-return-text { font-size: 13.5px; font-weight: 800; color: #251F28; letter-spacing: 0.3px; }
+
+    /* 下方新增自定义卡片醒目提示胶囊 */
+    .custom-card-cue-pill {
+      position: absolute;
+      bottom: 96px;
+      left: 20px;
+      right: 20px;
+      margin: 0 auto;
+      max-width: 330px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1.5px dashed #DE509E;
+      border-radius: 22px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 8px 24px rgba(222, 80, 158, 0.15);
+      opacity: 0;
+      transform: translateY(15px);
+      z-index: 36;
+      pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .custom-card-cue-icon {
+      font-size: 16px;
+      font-weight: 900;
+      color: #DE509E;
+      background: #FDF0F5;
+      width: 24px;
+      height: 24px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .custom-card-cue-text {
+      font-size: 13px;
+      font-weight: 800;
+      color: #DE509E;
+      letter-spacing: 0.2px;
+    }
+
+    /* ========================================================
+       ACT 1: 晨启与微粒原点
+       ======================================================== */
+    .seed-dot {
+      position: absolute;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--pink-rose), var(--orange-peach));
+      box-shadow: 0 0 35px rgba(238, 70, 160, 0.7);
+      transform: scale(0);
+      z-index: 30;
+      pointer-events: none;
+    }
+    .seed-ripple {
+      position: absolute;
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: 2px solid var(--pink-rose);
+      opacity: 0;
+      transform: scale(0.2);
+      pointer-events: none;
+      z-index: 29;
+    }
+
+    /* 符号化排版层 */
+    .typo-container {
+      position: absolute;
+      top: 278px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      opacity: 0;
+      transform: translateY(20px);
+      z-index: 9999; display: flex !important;
+    }
+    .art-badge-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #FFFFFF;
+      border: 1.5px solid rgba(255, 255, 255, 0.95);
+      padding: 7px 18px;
+      border-radius: 20px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+    }
+    .art-badge-icon { font-size: 15px; }
+    .art-badge-text { font-size: 13.5px; font-weight: 700; color: var(--dark-ink); letter-spacing: 0.3px; }
+
+    .date-pill {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      background: #FFFFFF;
+      border: 1.5px solid rgba(255, 255, 255, 0.95);
+      padding: 6px 18px;
+      border-radius: 20px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+    }
+    .date-num { font-size: 26px; font-weight: 800; color: var(--dark-ink); line-height: 1; }
+    .date-month { font-size: 13px; font-weight: 800; color: var(--pink-rose); letter-spacing: 0.5px; }
+
+    /* ========================================================
+       ACT 2: 极简纯色动作卡片舞台
+       ======================================================== */
+    .cards-deck-stage {
+      position: absolute;
+      top: 278px;
+      left: 0;
+      right: 0;
+      margin: 0 auto;
+      width: 100%;
+      max-width: 420px;
+      height: 380px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 25;
+      pointer-events: none;
+    }
+
+    .mini-card {
+      position: absolute;
+      width: 296px;
+      height: 260px;
+      border-radius: 26px;
+      padding: 16px 18px 14px 18px;
+      box-sizing: border-box;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 16px 38px rgba(43, 37, 46, 0.14), 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      transform-origin: center center;
+      pointer-events: none;
+      overflow: hidden;
+      will-change: transform, opacity;
+    }
+    .mini-card.c-left { background: linear-gradient(145deg, #DE509E, #BA3782); z-index: 1; }
+    .mini-card.c-mid { background: linear-gradient(145deg, #F5647F, #D84B68); z-index: 3; }
+    .mini-card.c-right { background: linear-gradient(145deg, #FFA96B, #E58645); z-index: 2; }
+
+    .card-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card-idx { font-size: 14px; font-weight: 800; letter-spacing: 1.5px; opacity: 0.92; }
+    .card-tag {
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.20);
+      padding: 3px 10px;
+      border-radius: 12px;
+      letter-spacing: 0.5px;
+      backdrop-filter: blur(4px);
+    }
+
+    .card-hero-body {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      margin-top: 2px;
+    }
+    .card-hero-icon {
+      font-size: 42px;
+      line-height: 1;
+      margin-bottom: 6px;
+      filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.15));
+    }
+    .card-title {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.5px;
+    }
+
+    .card-bottom-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 36px;
+      margin-top: auto;
+    }
+    .card-action-cue {
+      font-size: 12px;
+      font-weight: 700;
+      opacity: 0.92;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .card-meta-pill {
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(255, 255, 255, 0.25);
+      padding: 3px 9px;
+      border-radius: 10px;
+      letter-spacing: 0.5px;
+    }
+
+    .selected-badge {
+      background: #FFFFFF;
+      color: #3AA867;
+      border: 1px solid rgba(255, 255, 255, 0.95);
+      padding: 4px 12px;
+      border-radius: 14px;
+      font-size: 12.5px;
+      font-weight: 800;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+      opacity: 0;
+      transform: scale(0.6);
+      transform-origin: right center;
+    }
+
+    /* 底栏原位右滑手势动态引导轨 */
+    .swipe-guide-track {
+      position: absolute;
+      bottom: 14px;
+      left: 12px;
+      right: 12px;
+      height: 44px;
+      background: rgba(20, 16, 24, 0.78);
+      border: 2px dashed rgba(255, 255, 255, 0.95);
+      border-radius: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 6px 0 10px;
+      box-sizing: border-box;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 9999; display: flex !important;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    }
+    .swipe-guide-content {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .swipe-hand-icon {
+      font-size: 16px;
+      animation: handBounce 0.9s infinite alternate ease-in-out;
+    }
+    @keyframes handBounce {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(5px); }
+    }
+    .swipe-chevrons {
+      font-size: 16px;
+      font-weight: 900;
+      color: #FFE680;
+      letter-spacing: 2px;
+      animation: chevronsPulse 1.0s infinite;
+    }
+    @keyframes chevronsPulse {
+      0%, 100% { opacity: 0.35; transform: translateX(0); }
+      50% { opacity: 1; transform: translateX(7px); }
+    }
+    .swipe-text-multilingual {
+      font-size: 11px;
+      font-weight: 800;
+      color: #FFFFFF;
+      letter-spacing: 0.8px;
+    }
+    .swipe-target-pill {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #3AA867;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 900;
+      box-shadow: 0 2px 8px rgba(58, 168, 103, 0.6);
+      animation: targetPulse 1.0s infinite alternate;
+    }
+    @keyframes targetPulse {
+      0% { transform: scale(0.92); }
+      100% { transform: scale(1.08); }
+    }
+
+    /* 触觉波纹指示光圈 */
+    .touch-ripple-circle {
+      position: absolute;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.95);
+      background: rgba(255, 255, 255, 0.35);
+      transform: translate(-50%, -50%) scale(0.3);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 55;
+    }
+
+    /* 底部一键确认胶囊 (悬浮于导航栏上方，绝无遮挡) */
+    .confirm-pill {
+      position: absolute;
+      bottom: 94px;
+      left: 50%;
+      transform: translateX(-50%) translateY(35px) scale(0.85);
+      background: #251F28;
+      color: white;
+      padding: 12px 32px;
+      border-radius: 24px;
+      font-size: 14.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.25);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
+      opacity: 0;
+      z-index: 35;
+      box-sizing: border-box;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    /* ========================================================
+       ACT 3: 专注执行与极简记录、星光爆发
+       ======================================================== */
+    .focus-stage {
+      position: absolute;
+      top: 332px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 28;
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+    }
+    .focus-card {
+      width: min(90vw, 344px);
+      background: #FFFFFF;
+      border: 2px solid rgba(255, 255, 255, 0.95);
+      border-radius: 32px;
+      padding: 22px 24px;
+      box-shadow: 0 24px 60px rgba(43, 37, 46, 0.12);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transform-origin: center center;
+    }
+    .focus-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .focus-tag {
+      font-size: 12px;
+      font-weight: 800;
+      color: #DE509E;
+      background: #FDF0F5;
+      padding: 4px 12px;
+      border-radius: 12px;
+    }
+    .focus-star {
+      font-size: 14px;
+      font-weight: 800;
+      color: #FFA96B;
+    }
+    .focus-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--dark-ink);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .focus-input-box {
+      background: #FAF7F9;
+      border: 1.5px solid #F0E8ED;
+      border-radius: 18px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .focus-input-icon { font-size: 16px; opacity: 0.6; }
+    .focus-input-content {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--dark-ink);
+      min-height: 20px;
+      display: flex;
+      align-items: center;
+    }
+    .typing-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 16px;
+      background: var(--pink-rose);
+      margin-left: 2px;
+      animation: cursorBlink 0.8s infinite;
+    }
+    @keyframes cursorBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .focus-btn {
+      width: 100%;
+      height: 48px;
+      border: none;
+      border-radius: 24px;
+      background: linear-gradient(90deg, #DE509E, #F5647F);
+      color: white;
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 10px 24px rgba(222, 80, 158, 0.35);
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    #celebrationCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 45;
+    }
+    .energy-bounce-pill {
+      position: absolute;
+      top: 316px;
+      background: linear-gradient(135deg, #FFE680, #FFCA82);
+      border: 1.5px solid #FFFFFF;
+      padding: 10px 24px;
+      border-radius: 24px;
+      font-size: 17px;
+      font-weight: 800;
+      color: #5C4100;
+      box-shadow: 0 16px 36px rgba(255, 202, 130, 0.6);
+      transform: scale(0) translateY(0);
+      opacity: 0;
+      z-index: 50;
+      pointer-events: none;
+    }
+
+    /* ========================================================
+       ACT 4: 滋养 · POSY GARDEN 成长花园 (蓝金星芒 4阶段生长动效)
+       ======================================================== */
+    .growth-stage {
+      position: absolute;
+      top: 280px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 26;
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+    }
+    .sprout-art-box {
+      width: min(90vw, 344px);
+      background: #FFFFFF;
+      border: 2px solid rgba(255, 255, 255, 0.95);
+      border-radius: 32px;
+      padding: 16px 20px 18px 20px;
+      box-shadow: 0 24px 60px rgba(43, 37, 46, 0.12);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    .stage-stepper {
+      display: flex;
+      gap: 6px;
+      background: #FAF7F9;
+      padding: 4px;
+      border-radius: 18px;
+      margin-bottom: 6px;
+    }
+    .stage-pill {
+      font-size: 11px;
+      font-weight: 700;
+      color: #8C7B8E;
+      padding: 4px 12px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.3s ease;
+    }
+    .stage-pill.active {
+      background: #FFFFFF;
+      color: #DE509E;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      transform: scale(1.05);
+    }
+
+    .bloom-viewport-box {
+      width: 280px;
+      height: 220px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    #bloomSvg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .posy-stem {
+      stroke: #2E3860;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      fill: none;
+      stroke-dasharray: 140;
+      stroke-dashoffset: 140;
+      transition: none;
+    }
+    .posy-halo {
+      fill: none;
+      stroke: rgba(46, 56, 96, 0.18);
+      stroke-width: 1;
+      stroke-dasharray: 2 3;
+    }
+    .posy-blob {
+      filter: blur(8px);
+      transform-origin: center center;
+    }
+
+    .sprout-info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      margin-top: 10px;
+      padding: 0 4px;
+    }
+    .sprout-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--dark-ink);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sprout-sub {
+      font-size: 12px;
+      font-weight: 700;
+      color: #DE509E;
+      background: #FDF0F5;
+      padding: 3px 10px;
+      border-radius: 10px;
+    }
+    .sprout-meter-bg {
+      width: 100%;
+      height: 7px;
+      background: #F0E8ED;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .sprout-meter-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #3AA867, #FFCA82);
+      border-radius: 5px;
+      transition: none;
+    }
+
+    /* ========================================================
+       ACT 5: 复盘闭环 (周连击 + 月热力全景)
+       ======================================================== */
+    .review-stage {
+      position: absolute;
+      top: 298px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 27;
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+    }
+    .review-card {
+      width: min(90vw, 344px);
+      background: #FFFFFF;
+      border: 2px solid rgba(255, 255, 255, 0.95);
+      border-radius: 32px;
+      padding: 20px 22px;
+      box-shadow: 0 24px 60px rgba(43, 37, 46, 0.12);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      transform-origin: center center;
+    }
+    .review-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .review-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--dark-ink);
+    }
+    .review-badge {
+      font-size: 12px;
+      font-weight: 800;
+      color: #2E8551;
+      background: #EAF7EE;
+      padding: 4px 12px;
+      border-radius: 12px;
+    }
+
+    .weekly-bars-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      height: 120px;
+      padding: 10px 16px 4px 16px;
+      background: #FAF7F9;
+      border-radius: 20px;
+    }
+    .week-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: 28px;
+    }
+    .week-slot {
+      width: 24px;
+      height: 80px;
+      background: #EDE4EA;
+      border-radius: 12px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: flex-end;
+    }
+    .week-fill {
+      width: 100%;
+      height: 0%;
+      background: linear-gradient(180deg, #F5647F, #DE509E);
+      border-radius: 12px;
+      transition: none;
+    }
+    .week-lbl {
+      font-size: 11px;
+      font-weight: 700;
+      color: #8C7B8E;
+    }
+
+    .monthly-grid-box {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      background: #FAF7F9;
+      border-radius: 20px;
+      padding: 14px 18px;
+    }
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 7px;
+    }
+    .month-tile {
+      aspect-ratio: 1;
+      border-radius: 8px;
+      background: #EDE4EA;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 800;
+      color: #8C7B8E;
+      transition: background 0.25s, transform 0.25s, color 0.25s;
+    }
+    .month-tile.lit {
+      background: linear-gradient(135deg, #3AA867, #2E8551);
+      color: white;
+      transform: scale(1.04);
+      box-shadow: 0 2px 8px rgba(58, 168, 103, 0.4);
+    }
+
+    .review-footer {
+      font-size: 12px;
+      font-weight: 700;
+      color: #6A444C;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ========================================================
+       底部常驻液态导航栏 (第一性原理：离底安全区充足避障，绝不截断)
+       ======================================================== */
+    .bottom-nav-group {
+      position: absolute;
+      bottom: 22px;
+      left: 16px;
+      right: 16px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      z-index: 40;
+      opacity: 0;
+      transform: translateY(20px);
+      box-sizing: border-box;
+    }
+    .liquid-nav-container {
+      position: relative;
+      flex: 1;
+      height: 60px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1.2px solid rgba(255, 255, 255, 0.88);
+      border-radius: 30px;
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      box-shadow: 0 10px 24px rgba(43, 37, 46, 0.06);
+      display: flex;
+      align-items: center;
+      padding: 5px;
+      box-sizing: border-box;
+    }
+    .nav-droplet {
+      position: absolute;
+      top: 5px;
+      height: 50px;
+      border-radius: 25px;
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 4px 14px rgba(238, 70, 160, 0.20);
+      transform-origin: center center;
+      z-index: 1;
+      transition: none;
+    }
+    .nav-items {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      z-index: 2;
+    }
+    .nav-item {
+      flex: 1;
+      height: 50px;
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--dark-ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      cursor: pointer;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .nav-settings-circle {
+      width: 60px;
+      height: 60px;
+      min-width: 60px;
+      border-radius: 30px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1.2px solid rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      box-shadow: 0 10px 24px rgba(43, 37, 46, 0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: var(--dark-ink);
+      box-sizing: border-box;
+    }
+
+    /* 结语品牌 Slogan */
+    .brand-outro {
+      position: absolute;
+      bottom: 96px;
+      left: 20px;
+      right: 20px;
+      margin: 0 auto;
+      text-align: center;
+      z-index: 35;
+      opacity: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 45;
+      pointer-events: none;
+    }
+    .brand-slogan-main {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--dark-ink);
+      letter-spacing: -0.3px;
+      filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.06));
+    }
+    .brand-slogan-sub {
+      font-size: 13px;
+      font-weight: 600;
+      color: #7A697C;
+      letter-spacing: 0.5px;
+    }
+
+    .mini-cursor {
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.98);
+      border: 2.5px solid var(--pink-rose);
+      box-shadow: 0 8px 24px rgba(238, 70, 160, 0.45);
+      transform: translate(-50%, -50%) scale(0);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 60;
+    }
+
+    /* HUD 控制条 */
+    .director-hud {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.88);
+      border: 1.5px solid rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(18px);
+      border-radius: 20px;
+      padding: 7px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      z-index: 80;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+    }
+    .hud-btn {
+      border: none;
+      background: linear-gradient(135deg, var(--card-rose), var(--card-peach));
+      color: white;
+      padding: 6px 14px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(245, 100, 127, 0.35);
+      transition: transform 0.1s;
+    }
+    .hud-btn:active { transform: scale(0.95); }
+    .hud-btn.sec {
+      background: #F0E8ED;
+      color: #554452;
+      box-shadow: none;
+    }
+    .hud-info {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--dark-ink);
+      min-width: 250px;
+    }
+    .hud-timeline-track {
+      width: 140px;
+      height: 6px;
+      background: #EADEE5;
+      border-radius: 3px;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .hud-timeline-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--card-rose), var(--card-peach));
+      border-radius: 3px;
+    }
+    .hud-time {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #DE509E;
+      background: #FDF0F5;
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-family: monospace;
+    }
+
+    /* ========================================================
+       开场提示交互弹窗 (多语言选择 + 确认播放)
+       ======================================================== */
+    .welcome-modal-overlay { display: none !important; pointer-events: none !important; opacity: 0 !important;
+      position: absolute;
+      inset: 0;
+      background: rgba(30, 24, 34, 0.48);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    .welcome-modal-overlay.hidden {
+      display: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+    .welcome-modal-card {
+      width: min(90vw, 420px);
+      background: #FFFFFF;
+      border: 2px solid rgba(255, 255, 255, 0.95);
+      border-radius: 32px;
+      padding: 30px 32px;
+      box-shadow: 0 24px 64px rgba(43, 37, 46, 0.22);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      animation: modalPopIn 0.5s cubic-bezier(0.34, 1.4, 0.64, 1.0);
+    }
+    @keyframes modalPopIn {
+      0% { transform: scale(0.85); opacity: 0; }
+      100% { transform: scale(1.0); opacity: 1; }
+    }
+    .modal-lang-selector {
+      display: none !important;
+      background: #F4EEF2;
+      padding: 4px;
+      border-radius: 20px;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+    .modal-lang-chip {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #6A5D6E;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .modal-lang-chip.active {
+      background: #FFFFFF;
+      color: #251F28;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .modal-icon-badge {
+      font-size: 42px;
+      margin-bottom: 14px;
+      filter: drop-shadow(0 6px 16px rgba(245, 100, 127, 0.35));
+    }
+    .modal-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #251F28;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    .modal-desc {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: #726274;
+      line-height: 1.5;
+      margin-bottom: 24px;
+      padding: 0 10px;
+    }
+    .modal-btn-row {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      gap: 10px;
+    }
+    .modal-confirm-btn {
+      width: 100%;
+      height: 48px;
+      border: none;
+      border-radius: 24px;
+      background: linear-gradient(135deg, #F5647F, #DE509E);
+      color: white;
+      font-size: 15.5px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(222, 80, 158, 0.38);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .modal-confirm-btn:hover {
+      transform: scale(1.02);
+      box-shadow: 0 14px 28px rgba(222, 80, 158, 0.48);
+    }
+    .modal-confirm-btn:active {
+      transform: scale(0.97);
+    }
+    .modal-skip-btn {
+      width: 100%;
+      height: 40px;
+      border: none;
+      background: transparent;
+      color: #8C7B8E;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border-radius: 20px;
+    }
+    .modal-skip-btn:hover {
+      background: #F4EEF2;
+      color: #251F28;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 背景流体光晕 Canvas -->
+  <canvas id="ambientCanvas"></canvas>
+  <div class="frosted-overlay"></div>
+
+  <!-- MG 主舞台视窗 -->
+  <div class="mg-stage" id="mgStage">
+
+    <!-- 0. 种子微粒原点 -->
+    <div class="seed-dot" id="seedDot"></div>
+    <div class="seed-ripple" id="seedRipple"></div>
+
+    <!-- 1. 符号化排版层 -->
+    <div class="typo-container" id="typoBlock">
+      <div class="art-badge-pill">
+        <span class="art-badge-icon">🎯</span>
+        <span class="art-badge-text" id="todayPillText">今日聚焦目标</span>
+      </div>
+      <div class="date-pill">
+        <span class="date-num">26</span>
+        <span class="date-month" id="dateMonthText">8月</span>
+      </div>
+    </div>
+
+    <!-- 2. 三张动作色块卡片舞台 (原版排列: H9 -> H6 -> H4) -->
+    
+    <!-- 选卡后引导回到主页横幅 -->
+    <div class="home-return-banner" id="homeReturnBanner">
+      <span class="home-return-icon">🏠</span>
+      <span class="home-return-text" id="homeReturnBannerText">回到主页 · 开始专注记录</span>
+    </div>
+
+    <!-- 下方明确提示可以增加自定义卡片 -->
+    <div class="custom-card-cue-pill" id="customCardCuePill">
+      <div class="custom-card-cue-icon">+</div>
+      <span class="custom-card-cue-text" id="customCardCueText">+ 新增自定义习惯卡片</span>
+    </div>
+    <div class="cards-deck-stage" id="deckStage">
+      <!-- 卡片 1 (知识输出 · 表达) -->
+      <div class="mini-card c-left" id="cardLeft">
+        <div class="card-top-row">
+          <span class="card-idx">01</span>
+          <span class="card-tag" id="c1Tag">表达</span>
+        </div>
+        <div class="card-hero-body">
+          <div class="card-hero-icon">💡</div>
+          <div class="card-title" id="c1Title">知识输出</div>
+        </div>
+        <div class="card-bottom-bar">
+          <div class="card-action-cue" id="c1Cue">👉 右滑选择</div>
+          <span class="card-meta-pill" id="c1Meta">习惯 01</span>
+        </div>
+      </div>
+
+      <!-- 卡片 2 (信息管理 · 核心焦点) -->
+      <div class="mini-card c-mid" id="cardMid">
+        <!-- 底栏原位右滑引导轨 (纯动作视觉指引，弱化繁复文字) -->
+        <div class="swipe-guide-track" id="swipeGuideTrack">
+          <div class="swipe-guide-content">
+            <span class="swipe-hand-icon">👉</span>
+            <span class="swipe-chevrons">››››</span>
+            <span class="swipe-text-multilingual" id="swipeRailText">右滑选择</span>
+          </div>
+          <div class="swipe-target-pill">✓</div>
+        </div>
+
+        <div class="card-top-row">
+          <span class="card-idx">02</span>
+          <span class="selected-badge" id="selectedBadge">✓ 已选择</span>
+        </div>
+        <div class="card-hero-body">
+          <div class="card-hero-icon">🎯</div>
+          <div class="card-title" id="c2Title">信息管理</div>
+        </div>
+        <div class="card-bottom-bar">
+          <div class="card-action-cue" id="cardMidHint" style="display: none !important;">👉 右滑选择</div>
+          <span class="card-meta-pill" id="c2Meta">专注习惯</span>
+        </div>
+      </div>
+
+      <!-- 卡片 3 (睡前断网 · 睡眠) -->
+      <div class="mini-card c-right" id="cardRight">
+        <div class="card-top-row">
+          <span class="card-idx">03</span>
+          <span class="card-tag" id="c3Tag">睡眠</span>
+        </div>
+        <div class="card-hero-body">
+          <div class="card-hero-icon">🌙</div>
+          <div class="card-title" id="c3Title">睡前断网</div>
+        </div>
+        <div class="card-bottom-bar">
+          <div class="card-action-cue" id="c3Cue">👉 右滑选择</div>
+          <span class="card-meta-pill" id="c3Meta">习惯 03</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 触觉波纹指示光圈 -->
+    <div class="touch-ripple-circle" id="touchRipple"></div>
+
+    <!-- 底部一键确认胶囊 -->
+    <div class="confirm-pill" id="confirmPill">
+      <span id="confirmPillText">✓ 确认选择 (1)</span>
+    </div>
+
+    <!-- 3. 专注执行层 -->
+    <div class="focus-stage" id="focusStage">
+      <div class="focus-card" id="focusCard">
+        <div class="focus-header">
+          <span class="focus-tag" id="focusTagText">⚡ 注意力管理</span>
+          <span class="focus-star">★ <span id="focusScore">124</span></span>
+        </div>
+        <div class="focus-title"><span>🎯</span><span id="focusTitleText">管理信息摄入</span></div>
+        <div class="focus-input-box">
+          <span class="focus-input-icon">✍️</span>
+          <div class="focus-input-content">
+            <span id="focusTypedText"></span><span class="typing-cursor" id="focusCursor"></span>
+          </div>
+        </div>
+        <button class="focus-btn" id="focusBtn">
+          <span id="focusBtnText">✓ 完成本次清理</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 欢庆星光粒子 Canvas -->
+    <canvas id="celebrationCanvas" width="1120" height="680"></canvas>
+
+    <!-- 能量跃升胶囊 -->
+    <div class="energy-bounce-pill" id="energyBouncePill">
+      ★ +10 能量星光 (134)
+    </div>
+
+    <!-- 4. 滋养与花园植物 4 阶段开花层 (原版蓝金星芒 4阶段 + 成长光效) -->
+    <div class="growth-stage" id="growthStage">
+      <div class="sprout-art-box" id="sproutBox">
+        <!-- 4 个生长阶段指示器 -->
+        <div class="stage-stepper">
+          <div class="stage-pill active" id="step1"><span>🌱</span><span id="step1Text">1. 萌芽</span></div>
+          <div class="stage-pill" id="step2"><span>🌿</span><span id="step2Text">2. 含苞</span></div>
+          <div class="stage-pill" id="step3"><span>🌸</span><span id="step3Text">3. 初绽</span></div>
+          <div class="stage-pill" id="step4"><span>✨</span><span id="step4Text">4. 全盛</span></div>
+        </div>
+
+        <!-- POSY GARDEN 原版植物：1. 蓝金星芒 (Hawthorn Star) 4 阶段 SVG + 动态光效 -->
+        <div class="bloom-viewport-box">
+          <svg id="bloomSvg" viewBox="0 0 260 205">
+            <defs>
+              <radialGradient id="gradPedestal" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#F5647F"/>
+                <stop offset="100%" stop-color="#DE509E"/>
+              </radialGradient>
+              <radialGradient id="glowAmber" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#EBB23D" stop-opacity="0.9"/>
+                <stop offset="100%" stop-color="#EBB23D" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="glowIndigo" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#554488" stop-opacity="0.8"/>
+                <stop offset="100%" stop-color="#2E3860" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="gradShockwave" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#FFE680" stop-opacity="0.95"/>
+                <stop offset="45%" stop-color="#FFA96B" stop-opacity="0.6"/>
+                <stop offset="100%" stop-color="#DE509E" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+
+            <!-- 阶段成长动效光效层 (Aura Shockwave + Flash Rays) -->
+            <g id="growthLightGroup" pointer-events="none">
+              <circle id="growthShockwave" cx="130" cy="155" r="0" fill="none" stroke="url(#gradShockwave)" stroke-width="0" opacity="0"/>
+              <circle id="growthCoreFlash" cx="130" cy="155" r="0" fill="#FFFFFF" opacity="0"/>
+              <g id="growthLightRays" opacity="0" transform="translate(130, 65)">
+                <line x1="-40" y1="0" x2="40" y2="0" stroke="#FFE680" stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="0" y1="-40" x2="0" y2="40" stroke="#FFE680" stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="-28" y1="-28" x2="28" y2="28" stroke="#FFA96B" stroke-width="1.8" stroke-linecap="round"/>
+                <line x1="-28" y1="28" x2="28" y2="-28" stroke="#FFA96B" stroke-width="1.8" stroke-linecap="round"/>
+              </g>
+            </g>
+
+            <!-- POSY 粉红微光椭圆地台 -->
+            <ellipse cx="130" cy="195" rx="54" ry="10" fill="rgba(238, 70, 160, 0.22)"/>
+            <ellipse cx="130" cy="193" rx="46" ry="7" fill="url(#gradPedestal)"/>
+            <ellipse cx="130" cy="193" rx="36" ry="4" fill="#6A1A40"/>
+
+            <!-- 伴随生长的纵向星芒主茎与点阵副茎 -->
+            <path class="posy-stem" id="flowerStem" d="M 130 193 L 130 65"/>
+            <path id="stemDottedL" d="M 112 193 Q 112 130 118 85" stroke="rgba(46, 56, 96, 0.35)" stroke-width="1.8" stroke-dasharray="2 4" fill="none"/>
+            <path id="stemDottedR" d="M 148 193 Q 148 130 142 85" stroke="rgba(46, 56, 96, 0.35)" stroke-width="1.8" stroke-dasharray="2 4" fill="none"/>
+
+            <!-- 阶段 1: 萌芽 -->
+            <g id="stage1Group">
+              <circle class="posy-halo" cx="130" cy="155" r="14"/>
+              <circle class="posy-halo" cx="130" cy="155" r="22"/>
+              <circle class="posy-halo" cx="130" cy="155" r="30"/>
+              <path d="M 130 155 Q 120 145 118 138" stroke="#496E49" stroke-width="1.5" fill="none"/>
+              <circle cx="118" cy="138" r="4.5" fill="#A6B88C" stroke="#2E3860" stroke-width="1.2"/>
+              <circle cx="118" cy="138" r="2" fill="#2E3860"/>
+              <path d="M 130 155 Q 138 142 140 132" stroke="#496E49" stroke-width="1.5" fill="none"/>
+              <circle cx="140" cy="132" r="5" fill="#A6B88C" stroke="#2E3860" stroke-width="1.2"/>
+              <circle cx="140" cy="132" r="2.2" fill="#2E3860"/>
+            </g>
+
+            <!-- 阶段 2: 含苞 -->
+            <g id="stage2Group" style="transform-origin: 130px 105px;">
+              <ellipse class="posy-blob" cx="134" cy="101" rx="26" ry="22" fill="url(#glowAmber)" opacity="0.45"/>
+              <g id="s2Lattice"></g>
+            </g>
+
+            <!-- 阶段 3: 初绽 -->
+            <g id="stage3Group" style="transform-origin: 130px 65px;">
+              <ellipse class="posy-blob" cx="138" cy="57" rx="34" ry="28" fill="url(#glowAmber)" opacity="0.45"/>
+              <ellipse class="posy-blob" cx="120" cy="73" rx="26" ry="22" fill="url(#glowIndigo)" opacity="0.35"/>
+              <circle class="posy-halo" cx="130" cy="65" r="24"/>
+              <circle class="posy-halo" cx="130" cy="65" r="36"/>
+              <g id="s3Rays"></g>
+            </g>
+
+            <!-- 阶段 4: 全盛繁盛 -->
+            <g id="stage4Group" style="transform-origin: 130px 65px;">
+              <ellipse class="posy-blob" cx="144" cy="55" rx="42" ry="36" fill="url(#glowAmber)" opacity="0.55"/>
+              <ellipse class="posy-blob" cx="114" cy="75" rx="36" ry="30" fill="url(#glowIndigo)" opacity="0.42"/>
+              <ellipse class="posy-blob" cx="130" cy="65" rx="20" ry="20" fill="#FFE680" opacity="0.6"/>
+              <circle class="posy-halo" cx="130" cy="65" r="26"/>
+              <circle class="posy-halo" cx="130" cy="65" r="42"/>
+              <g id="s4StarMesh"></g>
+              <circle cx="130" cy="65" r="8" fill="#2E3860" stroke="#FFCA82" stroke-width="1.8"/>
+              <circle cx="130" cy="65" r="3.5" fill="#EBB23D"/>
+              <circle id="satDot1" cx="130" cy="20" r="3" fill="#EBB23D"/>
+              <circle id="satDot2" cx="175" cy="65" r="2.8" fill="#A6B88C"/>
+              <circle id="satDot3" cx="95" cy="90" r="2.5" fill="#FFE680"/>
+            </g>
+          </svg>
+        </div>
+
+        <div class="sprout-info-row">
+          <div class="sprout-title" id="sproutTitleText"><span>✨</span><span id="sproutSpeciesName">序芽花 · 蓝金星芒</span></div>
+          <div class="sprout-sub" id="sproutStageBadge">阶段 1/4 · 萌芽</div>
+        </div>
+        <div class="sprout-meter-bg">
+          <div class="sprout-meter-fill" id="sproutMeter"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. 复盘闭环层 -->
+    <div class="review-stage" id="reviewStage">
+      <div class="review-card" id="reviewCard">
+        <div class="review-header">
+          <div class="review-title" id="reviewTitle">周连击达成</div>
+          <div class="review-badge" id="reviewBadge">🔥 100% 满勤</div>
+        </div>
+
+        <!-- 周复盘柱形连击 -->
+        <div class="weekly-bars-box" id="weeklyBarsBox">
+          <div class="week-col"><div class="week-slot"><div class="week-fill" id="w0"></div></div><span class="week-lbl">一</span></div>
+          <div class="week-col"><div class="week-slot"><div class="week-fill" id="w1"></div></div><span class="week-lbl">二</span></div>
+          <div class="week-col"><div class="week-slot"><div class="week-fill" id="w2"></div></div><span class="week-lbl">三</span></div>
+          <div class="week-col"><div class="week-slot"><div class="week-fill" id="w3"></div></div><span class="week-lbl">四</span></div>
+          <div class="week-col"><div class="week-slot"><div class="week-fill" id="w4"></div></div><span class="week-lbl">五</span></div>
+          <div class="week-col"><div class="week-slot"><div class="week-fill" id="w5"></div></div><span class="week-lbl">六</span></div>
+          <div class="week-col"><div class="week-slot"><div class="week-fill" id="w6"></div></div><span class="week-lbl">日</span></div>
+        </div>
+
+        <!-- 月度 28 天热力矩阵 -->
+        <div class="monthly-grid-box" id="monthlyGridBox">
+          <div class="month-grid" id="monthGrid"></div>
+        </div>
+
+        <div class="review-footer" id="reviewFooter">
+          <span>🌿</span>
+          <span id="reviewFooterText">7 天连续达成 · 秩序自然沉淀</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部常驻原生导航栏 -->
+    <div class="bottom-nav-group" id="liquidNav">
+      <div class="liquid-nav-container">
+        <div class="nav-droplet" id="navDroplet"></div>
+        <div class="nav-items">
+          <div class="nav-item"><span>🏠</span><span id="navTodayText">今天</span></div>
+          <div class="nav-item"><span>🌱</span><span id="navGardenText">花园</span></div>
+          <div class="nav-item"><span>📖</span><span id="navReviewText">复盘</span></div>
+        </div>
+      </div>
+      <div class="nav-settings-circle">
+        <span>⚙️</span>
+      </div>
+    </div>
+
+    <!-- 结语品牌 Slogan -->
+    <div class="brand-outro" id="brandOutro">
+      <div class="brand-slogan-main" id="brandSloganMain">序芽 · 慢慢来，让习惯生根。</div>
+      <div class="brand-slogan-sub" id="brandSloganSub">让小习惯，慢慢开花</div>
+    </div>
+
+    <!-- 虚拟指尖动效光标 -->
+    <div class="mini-cursor" id="miniCursor"></div>
+  </div>
+
+  <!-- 底部微控制器与时间码 -->
+  <div class="director-hud">
+    <button class="hud-btn" onclick="togglePlay()" id="btnPlay">❚❚ 暂停</button>
+    <button class="hud-btn sec" onclick="restart()" id="btnReplay">↺ 重放</button>
+    <button class="hud-btn sec" onclick="toggleAudio()" id="btnSound">🔊 声音</button>
+    <div class="hud-info" id="chapterInfo">01 晨启 · 唤醒与呼吸卡片</div>
+    <div class="hud-timeline-track" id="timelineTrack" onclick="seekByClick(event)">
+      <div class="hud-timeline-fill" id="timelineFill"></div>
+    </div>
+    <div class="hud-time" id="timeCode">0.0s / 32.0s</div>
+  </div>
+
+  <!-- 开场提示交互弹窗 (中英日三语选择 + 确认播放) -->
+  <div class="welcome-modal-overlay" id="welcomeModal">
+    <div class="welcome-modal-card">
+      <div class="modal-lang-selector" id="modalLangSelector">
+        <button class="modal-lang-chip active" id="chipZH" onclick="selectModalLang('zh')">中文</button>
+        <button class="modal-lang-chip" id="chipEN" onclick="selectModalLang('en')">English</button>
+        <button class="modal-lang-chip" id="chipJA" onclick="selectModalLang('ja')">日本語</button>
+      </div>
+      <div class="modal-icon-badge">🌱✨</div>
+      <h2 class="modal-title" id="modalTitle">开启序芽动效导览？</h2>
+      <p class="modal-desc" id="modalDesc">32秒视觉动效指南，带你了解序芽的习惯养成与成长花园。</p>
+      <div class="modal-btn-row">
+        <button class="modal-confirm-btn" id="modalConfirmBtn" onclick="confirmAndPlay()">
+          <span id="modalConfirmText">▶ 确认开启导览</span>
+        </button>
+        <button class="modal-skip-btn" id="modalSkipBtn" onclick="skipToApp()">
+          <span id="modalSkipText">跳过动画 (直接进入)</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================
+    // 多语言本地化字典 (严格对标项目官方文案)
+    // ==========================================
+    const I18N = {
+      zh: {
+        modalTitle: "开启序芽动效导览？",
+        modalDesc: "32秒视觉动效指南，带你了解序芽的习惯养成与成长花园。",
+        modalConfirm: "▶ 确认开启导览",
+        modalSkip: "跳过动画 (直接进入)",
+                desktopReturnCue: "回到主页 · 开始专注记录",
+        customCardCue: "+ 新增自定义习惯卡片",
+        customCardSub: "支持随时添加属于你的日常习惯",
+        todayPill: "今日聚焦目标",
+        dateMonth: "8月",
+        c1Tag: "表达", c1Title: "知识输出", c1Cue: "👉 右滑选择", c1Meta: "习惯 01",
+        c2Title: "信息管理", c2Badge: "✓ 已选择", c2Cue: "👉 右滑选择", c2Meta: "专注习惯",
+        c2Selected: "✓ 已选择",
+        c3Tag: "睡眠", c3Title: "睡前断网", c3Cue: "👉 右滑选择", c3Meta: "习惯 03",
+        swipeRail: "右滑选择",
+        confirmPill: "✓ 确认选择 (1)",
+        focusTag: "⚡ 注意力管理", focusTitle: "管理信息摄入",
+        focusTyped: "清理无效信息源，留出深度思考空间。",
+        focusBtn: "✓ 完成本次清理", focusBtnDone: "✨ 已完成本次清理",
+        energyBadge: "★ +10 能量星光 (134)",
+        step1: "1. 萌芽", step2: "2. 含苞", step3: "3. 初绽", step4: "4. 全盛",
+        sproutSpecies: "序芽花 · 蓝金星芒",
+        stage1Badge: "阶段 1/4 · 萌芽", stage2Badge: "阶段 2/4 · 含苞", stage3Badge: "阶段 3/4 · 初绽", stage4Badge: "阶段 4/4 · 全盛",
+        weeklyTitle: "周连击达成", weeklyBadge: "🔥 100% 满勤",
+        weekDays: ["一", "二", "三", "四", "五", "六", "日"],
+        weeklyFooter: "7 天连续达成 · 秩序自然沉淀",
+        monthlyTitle: "月度热力全景", monthlyBadge: "✨ 26/28 达成",
+        monthlyFooter: "月度达成率 93% · 让坚持，慢慢开花",
+        navToday: "今天", navGarden: "花园", navReview: "复盘",
+        sloganMain: "序芽 · 慢慢来，让习惯生根。",
+        sloganSub: "让小习惯，慢慢开花",
+        btnPause: "❚❚ 暂停",
+        btnPlay: "▶ 播放",
+        btnReplay: "↺ 重放",
+        btnSound: "🔊 声音",
+        btnMute: "🔇 静音",
+        ch1: "01 晨启 · 唤醒与呼吸卡片",
+        ch2: "02 选卡 · 卡片集右滑选择与确认",
+        ch3: "03 专注 · 极简记录与欢庆星光",
+        ch4: "04 滋养 · 蓝金星芒 4阶段盛开",
+        ch5: "05 复盘 · 周连击与月度热力全景"
+      },
+      en: {
+        modalTitle: "Start Maybii Onboarding Tour?",
+        modalDesc: "A 32-second visual motion guide to explore habit building and your Garden.",
+        modalConfirm: "▶ Start Tour",
+        modalSkip: "Skip (Enter App)",
+                desktopReturnCue: "Back to Home · Start Today's Log",
+        customCardCue: "+ Add Custom Habit Card",
+        customCardSub: "Create your own habits anytime",
+        todayPill: "Today's Focus",
+        dateMonth: "AUG",
+        c1Tag: "Express", c1Title: "Knowledge Output", c1Cue: "👉 Swipe Right", c1Meta: "Habit 01",
+        c2Title: "Digital Detox", c2Badge: "✓ Selected", c2Cue: "👉 Swipe Right", c2Meta: "Focus Habit",
+        c2Selected: "✓ Selected",
+        c3Tag: "Sleep", c3Title: "Night Disconnect", c3Cue: "👉 Swipe Right", c3Meta: "Habit 03",
+        swipeRail: "Swipe Right to Select",
+        confirmPill: "✓ Confirm Selection (1)",
+        focusTag: "⚡ Focus Care", focusTitle: "Filter Information Stream",
+        focusTyped: "Clear noisy distractions, save space for deep thought.",
+        focusBtn: "✓ Complete Entry", focusBtnDone: "✨ Completed",
+        energyBadge: "★ +10 Energy Spark (134)",
+        step1: "1. Sprout", step2: "2. Bud", step3: "3. Bloom", step4: "4. Full Radiance",
+        sproutSpecies: "Maybii Flower · Constellation Star",
+        stage1Badge: "Stage 1/4 · Sprout", stage2Badge: "Stage 2/4 · Bud", stage3Badge: "Stage 3/4 · Bloom", stage4Badge: "Stage 4/4 · Full Radiance",
+        weeklyTitle: "Weekly Streak Complete", weeklyBadge: "🔥 100% Perfect",
+        weekDays: ["M", "T", "W", "T", "F", "S", "S"],
+        weeklyFooter: "7-Day Consistency · Natural Rhythm",
+        monthlyTitle: "Monthly Habit Heatmap", monthlyBadge: "✨ 26/28 Done",
+        monthlyFooter: "93% Monthly Rate · Let your effort bloom",
+        navToday: "Today", navGarden: "Garden", navReview: "Review",
+        sloganMain: "Maybii · Take your time. Let habits take root.",
+        sloganSub: "Start small. Let your effort bloom.",
+        btnPause: "❚❚ Pause",
+        btnPlay: "▶ Play",
+        btnReplay: "↺ Replay",
+        btnSound: "🔊 Sound",
+        btnMute: "🔇 Mute",
+        ch1: "01 Morning · Awakening & Breathing Cards",
+        ch2: "02 Choose · 3D Deck Stack & Right-Swipe Lock",
+        ch3: "03 Focus · Minimal Check-in & Starlight Burst",
+        ch4: "04 Nourish · Constellation Star 4-Stage Bloom",
+        ch5: "05 Review · Weekly Streak & Monthly Heatmap"
+      },
+      ja: {
+        modalTitle: "序芽チュートリアルを開始しますか？",
+        modalDesc: "32秒のビジュアルガイドで、習慣の育成と花園の成長をご案内します。",
+        modalConfirm: "▶ ガイドを開始する",
+        modalSkip: "スキップ (アプリへ進む)",
+                desktopReturnCue: "ホームに戻って記録を開始",
+        customCardCue: "+ カスタム習慣カードを追加",
+        customCardSub: "自分だけの習慣をいつでも作成可能",
+        todayPill: "今日の目標",
+        dateMonth: "8月",
+        c1Tag: "表現", c1Title: "知識のアウトプット", c1Cue: "👉 右スワイプ", c1Meta: "習慣 01",
+        c2Title: "情報管理", c2Badge: "✓ 選択済み", c2Cue: "👉 右スワイプで選択", c2Meta: "集中習慣",
+        c2Selected: "✓ 選択済み",
+        c3Tag: "睡眠", c3Title: "就寝前の切断", c3Cue: "👉 右スワイプ", c3Meta: "習慣 03",
+        swipeRail: "右へスワイプして選択",
+        confirmPill: "✓ 選択を確定 (1)",
+        focusTag: "⚡ 集中力管理", focusTitle: "情報のインプットを整える",
+        focusTyped: "不要な情報を減らし、思考の余白をつくる。",
+        focusBtn: "✓ 今回の整理を完了", focusBtnDone: "✨ 完了しました",
+        energyBadge: "★ +10 エネルギー星光 (134)",
+        step1: "1. 発芽", step2: "2. 蕾", step3: "3. 開花", step4: "4. 満開",
+        sproutSpecies: "序芽花 · 星芒の輝き",
+        stage1Badge: "ステージ 1/4 · 発芽", stage2Badge: "ステージ 2/4 · 蕾", stage3Badge: "ステージ 3/4 · 開花", stage4Badge: "ステージ 4/4 · 満开",
+        weeklyTitle: "週間ストリーク達成", weeklyBadge: "🔥 100% 達成",
+        weekDays: ["月", "火", "水", "木", "金", "土", "日"],
+        weeklyFooter: "7日間連続達成 · 日常にリズムを",
+        monthlyTitle: "月間ヒートマップ", monthlyBadge: "✨ 26/28 達成",
+        monthlyFooter: "達成率 93% · 続けた日々が、花になる",
+        navToday: "今日", navGarden: "花園", navReview: "振返り",
+        sloganMain: "序芽 · ゆっくりと、習慣を根づかせよう。",
+        sloganSub: "今日から始める、小さな習慣が花になる。",
+        btnPause: "❚❚ 一時停止",
+        btnPlay: "▶ 再生",
+        btnReplay: "↺ 最初から",
+        btnSound: "🔊 音声",
+        btnMute: "🔇 消音",
+        ch1: "01 朝の目覚め · 呼吸するカード",
+        ch2: "02 選択 · 立体デッキと右スワイプ決定",
+        ch3: "03 集中 · シンプル記録と星光の歓喜",
+        ch4: "04 育成 · 星芒の輝き 4段階開花",
+        ch5: "05 振返り · 週間ストリークと月間ヒートマップ"
+      }
+    };
+
+    let currentLang = 'zh';
+
+    // ==========================================
+    // 纯离线 Web Audio 音乐与节点音效合成引擎
+    // ==========================================
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+        this.bgmTimer = null;
+        this.bgmGain = null;
+        this.sfxGain = null;
+        this.isPlayingBGM = false;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioCtx();
+          this.bgmGain = this.ctx.createGain();
+          this.bgmGain.gain.value = 0.20;
+          this.bgmGain.connect(this.ctx.destination);
+
+          this.sfxGain = this.ctx.createGain();
+          this.sfxGain.gain.value = 0.35;
+          this.sfxGain.connect(this.ctx.destination);
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      toggleMute() {
+        this.muted = !this.muted;
+        if (this.bgmGain && this.sfxGain && this.ctx) {
+          const t = this.ctx.currentTime;
+          this.bgmGain.gain.setValueAtTime(this.muted ? 0 : 0.20, t);
+          this.sfxGain.gain.setValueAtTime(this.muted ? 0 : 0.35, t);
+        }
+        return this.muted;
+      }
+
+      startBGM() {
+        if (!this.ctx || this.isPlayingBGM || this.muted) return;
+        this.isPlayingBGM = true;
+        // 清新安宁的和弦琶音 (Cmaj7 - Am7 - Fmaj7 - G)
+        const pattern = [
+          [261.63, 392.00, 493.88],
+          [329.63, 523.25],
+          [220.00, 329.63, 440.00],
+          [261.63, 392.00],
+          [174.61, 261.63, 349.23],
+          [220.00, 392.00],
+          [196.00, 293.66, 392.00],
+          [246.94, 329.63]
+        ];
+        let step = 0;
+
+        const playStep = () => {
+          if (!this.isPlayingBGM || !this.ctx || this.muted) return;
+          const notes = pattern[step % pattern.length];
+          const now = this.ctx.currentTime;
+          notes.forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const noteGain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(1400, now);
+
+            osc.type = idx === 0 ? 'triangle' : 'sine';
+            osc.frequency.setValueAtTime(freq, now);
+
+            noteGain.gain.setValueAtTime(0.001, now);
+            noteGain.gain.exponentialRampToValueAtTime(0.24 / notes.length, now + 0.04);
+            noteGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.1);
+
+            osc.connect(filter);
+            filter.connect(noteGain);
+            noteGain.connect(this.bgmGain);
+
+            osc.start(now + idx * 0.05);
+            osc.stop(now + 1.2);
+          });
+          step++;
+          this.bgmTimer = setTimeout(playStep, 720);
+        };
+        playStep();
+      }
+
+      stopBGM() {
+        this.isPlayingBGM = false;
+        if (this.bgmTimer) clearTimeout(this.bgmTimer);
+      }
+
+      playPop() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(320, now);
+        osc.frequency.exponentialRampToValueAtTime(680, now + 0.08);
+        g.gain.setValueAtTime(0.35, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        osc.connect(g);
+        g.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      }
+
+      playSwipeLock() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(587.33, now);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+        g.gain.setValueAtTime(0.3, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc.connect(g);
+        g.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.36);
+      }
+
+      playTap() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(240, now);
+        osc.frequency.exponentialRampToValueAtTime(120, now + 0.06);
+        g.gain.setValueAtTime(0.28, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+        osc.connect(g);
+        g.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.07);
+      }
+
+      playCelebration() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const freqs = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+        freqs.forEach((f, i) => {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(f, now + i * 0.04);
+          g.gain.setValueAtTime(0.2, now + i * 0.04);
+          g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.04 + 0.4);
+          osc.connect(g);
+          g.connect(this.sfxGain);
+          osc.start(now + i * 0.04);
+          osc.stop(now + i * 0.04 + 0.42);
+        });
+      }
+
+      playWaterdrop() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(1200, now + 0.05);
+        osc.frequency.exponentialRampToValueAtTime(600, now + 0.15);
+        g.gain.setValueAtTime(0.3, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.connect(g);
+        g.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.17);
+      }
+
+      playBloomStage(stage) {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const chords = [
+          [329.63, 659.25],
+          [392.00, 783.99],
+          [523.25, 659.25, 1046.50],
+          [523.25, 659.25, 783.99, 1046.50, 1318.51]
+        ];
+        const notes = chords[stage - 1] || chords[0];
+        notes.forEach((freq, i) => {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + i * 0.05);
+          g.gain.setValueAtTime(0.28 / notes.length, now + i * 0.05);
+          g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.7);
+          osc.connect(g);
+          g.connect(this.sfxGain);
+          osc.start(now + i * 0.05);
+          osc.stop(now + i * 0.05 + 0.72);
+        });
+      }
+
+      playBarStep(step) {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88];
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(scale[step % scale.length], now);
+        g.gain.setValueAtTime(0.2, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.connect(g);
+        g.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.24);
+      }
+
+      playHeatmapShimmer() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(1760, now + 0.15);
+        g.gain.setValueAtTime(0.15, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.connect(g);
+        g.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.2);
+      }
+
+      playZenChime() {
+        if (!this.ctx || this.muted) return;
+        const now = this.ctx.currentTime;
+        [261.63, 523.25, 783.99].forEach((f) => {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(f, now);
+          g.gain.setValueAtTime(0.18, now);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
+          osc.connect(g);
+          g.connect(this.sfxGain);
+          osc.start(now);
+          osc.stop(now + 1.85);
+        });
+      }
+    }
+
+    const soundEngine = new SoundEngine();
+
+    // ==========================================
+    // 1. 流体光球 Canvas 引擎
+    // ==========================================
+    const canvas = document.getElementById('ambientCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const orbs = [
+      { x: 0.28, y: 0.32, vx: 0.00045, vy: 0.00030, r: 0.42, color: 'rgba(245, 100, 127, 0.42)' },
+      { x: 0.72, y: 0.65, vx: -0.00035, vy: -0.00045, r: 0.46, color: 'rgba(255, 169, 107, 0.38)' },
+      { x: 0.50, y: 0.50, vx: 0.00025, vy: -0.00020, r: 0.36, color: 'rgba(222, 80, 158, 0.28)' }
+    ];
+
+    function drawAmbient(t) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const w = canvas.width;
+      const h = canvas.height;
+
+      orbs.forEach((orb) => {
+        const cx = (orb.x + Math.sin(t * 0.4 + orb.r) * 0.08) * w;
+        const cy = (orb.y + Math.cos(t * 0.35 + orb.r) * 0.08) * h;
+        const radius = orb.r * Math.min(w, h);
+
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        grad.addColorStop(0, orb.color);
+        grad.addColorStop(1, 'rgba(248, 243, 246, 0)');
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    // ==========================================
+    // 2. 全屏欢庆彩带与星光粒子引擎 (Full-Screen Confetti & Starlight Stream)
+    // ==========================================
+    const celCanvas = document.getElementById('celebrationCanvas');
+    const celCtx = celCanvas.getContext('2d');
+    let particles = [];
+
+    function resizeCelCanvas() {
+      if (celCanvas) {
+        celCanvas.width = window.innerWidth || 402;
+        celCanvas.height = window.innerHeight || 874;
+      }
+    }
+    window.addEventListener('resize', resizeCelCanvas);
+    resizeCelCanvas();
+
+    function spawnCelebration() {
+      resizeCelCanvas();
+      particles = [];
+      const w = celCanvas.width;
+      const h = celCanvas.height;
+      const ribbonColors = ['#EE46A0', '#FFA96B', '#FFD15C', '#3AA867', '#00C896', '#7059FF', '#FF5B79', '#4E95FF'];
+
+      // 1. 全屏顶部倾泻落下的长彩带 (Confetti Ribbons) - 120根
+      for (let i = 0; i < 120; i++) {
+        particles.push({
+          type: 'ribbon',
+          x: Math.random() * w,
+          y: -20 - Math.random() * 260,
+          w: 6 + Math.random() * 8,
+          h: 12 + Math.random() * 16,
+          vx: (Math.random() - 0.5) * 3.5,
+          vy: 2.8 + Math.random() * 4.6,
+          angle: Math.random() * Math.PI * 2,
+          angularSpeed: (Math.random() - 0.5) * 0.16,
+          flutterSpeed: 0.04 + Math.random() * 0.08,
+          flutterAngle: Math.random() * Math.PI * 2,
+          color: ribbonColors[Math.floor(Math.random() * ribbonColors.length)],
+          alpha: 1.0,
+          decay: 0.0035 + Math.random() * 0.0030
+        });
+      }
+
+      // 2. 按钮中心爆发的星光与圆彩点 (Sparkles & Bursts) - 80个
+      const cx = w * 0.5;
+      const cy = h * 0.60;
+      for (let i = 0; i < 80; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 4.0 + Math.random() * 10.0;
+        particles.push({
+          type: 'star',
+          x: cx,
+          y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 2.5,
+          r: 2.5 + Math.random() * 4.5,
+          color: ribbonColors[Math.floor(Math.random() * ribbonColors.length)],
+          alpha: 1.0,
+          decay: 0.012 + Math.random() * 0.014
+        });
+      }
+    }
+
+    function updateParticles() {
+      if (!particles.length) {
+        celCtx.clearRect(0, 0, celCanvas.width, celCanvas.height);
+        return;
+      }
+      celCtx.clearRect(0, 0, celCanvas.width, celCanvas.height);
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= p.decay;
+
+        if (p.type === 'ribbon') {
+          p.vy += 0.04; // 平缓重力
+          p.angle += p.angularSpeed;
+          p.flutterAngle += p.flutterSpeed;
+          p.x += Math.sin(p.flutterAngle) * 1.5; // 空气摇曳感
+
+          if (p.alpha <= 0 || p.y > celCanvas.height + 40) {
+            particles.splice(i, 1);
+            continue;
+          }
+
+          celCtx.save();
+          celCtx.globalAlpha = Math.max(0, p.alpha);
+          celCtx.translate(p.x, p.y);
+          celCtx.rotate(p.angle);
+          const flipScale = Math.sin(p.flutterAngle);
+          celCtx.scale(1, flipScale);
+          celCtx.fillStyle = p.color;
+          celCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+          celCtx.restore();
+        } else {
+          // star / dot
+          p.vy += 0.16;
+          if (p.alpha <= 0 || p.y > celCanvas.height + 20) {
+            particles.splice(i, 1);
+            continue;
+          }
+
+          celCtx.save();
+          celCtx.globalAlpha = Math.max(0, p.alpha);
+          celCtx.fillStyle = p.color;
+          celCtx.beginPath();
+          celCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          celCtx.fill();
+          celCtx.restore();
+        }
+      }
+    }
+
+    // ==========================================
+    // 3. POSY 蓝金星芒 SVG 几何晶格构建
+    // ==========================================
+    function buildPosyGeometry() {
+      const s2Lattice = document.getElementById('s2Lattice');
+      const r2 = 28;
+      const nodes2 = [];
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        nodes2.push({ x: 130 + Math.cos(a) * r2, y: 105 + Math.sin(a) * r2 });
+      }
+      let s2Html = '';
+      for (let i = 0; i < 6; i++) {
+        const next = (i + 1) % 6;
+        s2Html += `<line x1="${nodes2[i].x}" y1="${nodes2[i].y}" x2="${nodes2[next].x}" y2="${nodes2[next].y}" stroke="#A6B88C" stroke-width="1.3"/>`;
+        s2Html += `<line x1="130" y1="105" x2="${nodes2[i].x}" y2="${nodes2[i].y}" stroke="rgba(235, 178, 61, 0.45)" stroke-width="1"/>`;
+      }
+      nodes2.forEach(n => {
+        s2Html += `<circle cx="${n.x}" cy="${n.y}" r="3.2" fill="#EBB23D" stroke="#2E3860" stroke-width="1"/>`;
+      });
+      s2Html += `<circle cx="130" cy="105" r="4.5" fill="#2E3860" stroke="#FFCA82" stroke-width="1.2"/>`;
+      s2Lattice.innerHTML = s2Html;
+
+      const s3Rays = document.getElementById('s3Rays');
+      let s3Html = '';
+      const r3 = 42;
+      for (let i = 0; i < 12; i++) {
+        const a = (i * Math.PI) / 6;
+        const x2 = 130 + Math.cos(a) * r3;
+        const y2 = 65 + Math.sin(a) * r3;
+        const isLong = i % 2 === 0;
+        s3Html += `<line x1="130" y1="65" x2="${x2}" y2="${y2}" stroke="${isLong ? '#EBB23D' : '#DE509E'}" stroke-width="${isLong ? 1.6 : 1.1}"/>`;
+        s3Html += `<circle cx="${x2}" cy="${y2}" r="${isLong ? 3.0 : 2.2}" fill="${isLong ? '#FFE680' : '#A6B88C'}" stroke="#2E3860" stroke-width="0.9"/>`;
+      }
+      s3Rays.innerHTML = s3Html;
+
+      const s4StarMesh = document.getElementById('s4StarMesh');
+      let s4Html = '';
+      const rInner = 28;
+      const rOuter = 52;
+      const innerNodes = [];
+      const outerNodes = [];
+      for (let i = 0; i < 8; i++) {
+        const aIn = (i * Math.PI) / 4;
+        innerNodes.push({ x: 130 + Math.cos(aIn) * rInner, y: 65 + Math.sin(aIn) * rInner });
+        const aOut = (i * Math.PI) / 4 + Math.PI / 8;
+        outerNodes.push({ x: 130 + Math.cos(aOut) * rOuter, y: 65 + Math.sin(aOut) * rOuter });
+      }
+      for (let i = 0; i < 8; i++) {
+        s4Html += `<line x1="130" y1="65" x2="${innerNodes[i].x}" y2="${innerNodes[i].y}" stroke="#EBB23D" stroke-width="1.8"/>`;
+        s4Html += `<line x1="${innerNodes[i].x}" y1="${innerNodes[i].y}" x2="${outerNodes[i].x}" y2="${outerNodes[i].y}" stroke="#FFA96B" stroke-width="1.3"/>`;
+        const nextIn = (i + 1) % 8;
+        s4Html += `<line x1="${innerNodes[i].x}" y1="${innerNodes[i].y}" x2="${innerNodes[nextIn].x}" y2="${innerNodes[nextIn].y}" stroke="rgba(46, 56, 96, 0.4)" stroke-width="1.1"/>`;
+      }
+      innerNodes.forEach(n => {
+        s4Html += `<circle cx="${n.x}" cy="${n.y}" r="3.6" fill="#FFE680" stroke="#2E3860" stroke-width="1.2"/>`;
+      });
+      outerNodes.forEach(n => {
+        s4Html += `<circle cx="${n.x}" cy="${n.y}" r="2.8" fill="#EBB23D" stroke="#2E3860" stroke-width="1.0"/>`;
+      });
+      s4StarMesh.innerHTML = s4Html;
+    }
+    buildPosyGeometry();
+
+    // ==========================================
+    // 4. 28 天月度热力网格生成
+    // ==========================================
+    const monthGrid = document.getElementById('monthGrid');
+    for (let d = 1; d <= 28; d++) {
+      const tile = document.createElement('div');
+      tile.className = 'month-tile';
+      tile.id = `mDay_${d}`;
+      tile.textContent = d;
+      monthGrid.appendChild(tile);
+    }
+
+    // ==========================================
+    // 5. 迪士尼与 SwiftUI 原生物理弹簧函数
+    // ==========================================
+    function easeOvershoot(x) {
+      const c4 = (2 * Math.PI) / 3;
+      return x === 0 ? 0 : x === 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
+    }
+    function squashStretch(p) {
+      return Math.sin(p * Math.PI) * 0.16;
+    }
+    function clamp(val, min, max) {
+      return Math.min(Math.max(val, min), max);
+    }
+    function swiftUISpring(p) {
+      if (p <= 0) return 0;
+      if (p >= 1) return 1;
+      const t_sec = p * 0.7;
+      const zeta = 0.86;
+      const omega = 10.134;
+      const omega_d = 5.171;
+      const decay = Math.exp(-zeta * omega * t_sec);
+      return 1.0 - decay * (Math.cos(omega_d * t_sec) + 1.685 * Math.sin(omega_d * t_sec));
+    }
+
+    // ==========================================
+    // 6. 32 秒全闭环 MG 动作时钟
+    // ==========================================
+    const TOTAL_DURATION = 32.0;
+    let startTime = performance.now();
+    let isPlaying = false;
+    let manualOffset = 0;
+    let lastAudioT = -1;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramLang = urlParams.get('lang');
+    const paramAutoplay = urlParams.get('autoplay');
+    const paramT = urlParams.get('t');
+
+    if (paramLang && I18N[paramLang]) {
+      currentLang = paramLang;
+    }
+
+    if (paramT !== null) {
+      manualOffset = parseFloat(paramT);
+      isPlaying = false;
+    }
+
+    const seedDot = document.getElementById('seedDot');
+    const seedRipple = document.getElementById('seedRipple');
+    const typoBlock = document.getElementById('typoBlock');
+
+    const deckStage = document.getElementById('deckStage');
+    const cardLeft = document.getElementById('cardLeft');
+    const cardMid = document.getElementById('cardMid');
+    const cardRight = document.getElementById('cardRight');
+    const swipeGuideTrack = document.getElementById('swipeGuideTrack');
+    const cardMidHint = document.getElementById('cardMidHint');
+    const touchRipple = document.getElementById('touchRipple');
+    const selectedBadge = document.getElementById('selectedBadge');
+    const confirmPill = document.getElementById('confirmPill');
+    const homeReturnBanner = document.getElementById('homeReturnBanner');
+    const customCardCuePill = document.getElementById('customCardCuePill');
+
+
+    const focusStage = document.getElementById('focusStage');
+    const focusCard = document.getElementById('focusCard');
+    const focusTypedText = document.getElementById('focusTypedText');
+    const focusBtn = document.getElementById('focusBtn');
+    const focusScore = document.getElementById('focusScore');
+    const energyBouncePill = document.getElementById('energyBouncePill');
+
+    const growthStage = document.getElementById('growthStage');
+    const sproutBox = document.getElementById('sproutBox');
+    const sproutSpeciesName = document.getElementById('sproutSpeciesName');
+    const sproutStageBadge = document.getElementById('sproutStageBadge');
+    const step1 = document.getElementById('step1');
+    const step2 = document.getElementById('step2');
+    const step3 = document.getElementById('step3');
+    const step4 = document.getElementById('step4');
+
+    const flowerStem = document.getElementById('flowerStem');
+    const stage1Group = document.getElementById('stage1Group');
+    const stage2Group = document.getElementById('stage2Group');
+    const stage3Group = document.getElementById('stage3Group');
+    const stage4Group = document.getElementById('stage4Group');
+    const growthShockwave = document.getElementById('growthShockwave');
+    const growthCoreFlash = document.getElementById('growthCoreFlash');
+    const growthLightRays = document.getElementById('growthLightRays');
+    const satDot1 = document.getElementById('satDot1');
+    const satDot2 = document.getElementById('satDot2');
+    const satDot3 = document.getElementById('satDot3');
+    const sproutMeter = document.getElementById('sproutMeter');
+
+    const reviewStage = document.getElementById('reviewStage');
+    const reviewCard = document.getElementById('reviewCard');
+    const reviewTitle = document.getElementById('reviewTitle');
+    const reviewBadge = document.getElementById('reviewBadge');
+    const weeklyBarsBox = document.getElementById('weeklyBarsBox');
+    const monthlyGridBox = document.getElementById('monthlyGridBox');
+    const reviewFooterText = document.getElementById('reviewFooterText');
+
+    const liquidNav = document.getElementById('liquidNav');
+    const navDroplet = document.getElementById('navDroplet');
+    const brandOutro = document.getElementById('brandOutro');
+
+    const miniCursor = document.getElementById('miniCursor');
+    const chapterInfo = document.getElementById('chapterInfo');
+    const timeCode = document.getElementById('timeCode');
+    const timelineFill = document.getElementById('timelineFill');
+
+    let celebrationTriggered = false;
+
+    // 辅助设置底部水滴位置
+    function setDropletIndex(indexFloat) {
+      const container = document.querySelector('.liquid-nav-container');
+      if (!container || !navDroplet) return;
+      const availableWidth = container.offsetWidth - 10;
+      const itemWidth = availableWidth / 3;
+      navDroplet.style.width = `${itemWidth}px`;
+      const i0 = Math.floor(clamp(indexFloat, 0, 2));
+      const i1 = Math.min(i0 + 1, 2);
+      const frac = clamp(indexFloat - i0, 0, 1);
+      const left = 5 + (i0 + frac) * itemWidth;
+      const stretch = Math.sin(frac * Math.PI) * 0.22;
+      navDroplet.style.left = `${left}px`;
+      navDroplet.style.transform = `scale(${1 + stretch}, ${1 - stretch * 0.75})`;
+
+      const navItems = document.querySelectorAll('.nav-item');
+      navItems.forEach((item, idx) => {
+        const dist = Math.abs(indexFloat - idx);
+        const active = clamp(1 - dist, 0, 1);
+        item.style.opacity = `${0.45 + active * 0.55}`;
+        item.style.transform = `scale(${0.96 + active * 0.08})`;
+      });
+    }
+
+    // 动作节点声音事件表
+    const sfxEvents = [
+      { time: 2.0, fn: () => soundEngine.playPop() },
+      { time: 8.2, fn: () => soundEngine.playSwipeLock() },
+      { time: 9.4, fn: () => soundEngine.playSwipeLock() },
+      { time: 11.4, fn: () => soundEngine.playTap() },
+      { time: 16.2, fn: () => soundEngine.playCelebration() },
+      { time: 18.0, fn: () => soundEngine.playWaterdrop() },
+      { time: 18.5, fn: () => soundEngine.playBloomStage(1) },
+      { time: 20.0, fn: () => soundEngine.playBloomStage(2) },
+      { time: 21.6, fn: () => soundEngine.playBloomStage(3) },
+      { time: 23.0, fn: () => soundEngine.playBloomStage(4) },
+      { time: 25.0, fn: () => soundEngine.playWaterdrop() },
+      { time: 25.5, fn: () => soundEngine.playBarStep(0) },
+      { time: 25.65, fn: () => soundEngine.playBarStep(1) },
+      { time: 25.80, fn: () => soundEngine.playBarStep(2) },
+      { time: 25.95, fn: () => soundEngine.playBarStep(3) },
+      { time: 26.10, fn: () => soundEngine.playBarStep(4) },
+      { time: 26.25, fn: () => soundEngine.playBarStep(5) },
+      { time: 26.40, fn: () => soundEngine.playBarStep(6) },
+      { time: 28.5, fn: () => soundEngine.playHeatmapShimmer() },
+      { time: 30.6, fn: () => soundEngine.playZenChime() }
+    ];
+
+    function checkAudioTriggers(prevT, currT) {
+      if (!isPlaying || currT < prevT) return;
+      sfxEvents.forEach(evt => {
+        if (prevT < evt.time && currT >= evt.time) {
+          evt.fn();
+        }
+      });
+    }
+
+    function renderFrame(t) {
+      drawAmbient(t);
+      updateParticles();
+
+      const d = I18N[currentLang] || I18N.zh;
+
+      timeCode.textContent = `${t.toFixed(1)}s / ${TOTAL_DURATION.toFixed(1)}s`;
+      timelineFill.style.width = `${(t / TOTAL_DURATION) * 100}%`;
+
+      // 检查节点音效触发
+      if (lastAudioT >= 0) {
+        checkAudioTriggers(lastAudioT, t);
+      }
+      lastAudioT = t;
+
+      // ----------------------------------------------------
+      // SECTION 1: 晨启 · 原点唤醒与卡片破土 (0.0s ~ 6.0s)
+      // ----------------------------------------------------
+      if (t < 6.0) {
+        chapterInfo.textContent = d.ch1;
+
+        deckStage.style.opacity = '1';
+        deckStage.style.visibility = 'visible';
+        focusStage.style.opacity = '0';
+        focusStage.style.visibility = 'hidden';
+        growthStage.style.opacity = '0';
+        growthStage.style.visibility = 'hidden';
+        reviewStage.style.opacity = '0';
+        reviewStage.style.visibility = 'hidden';
+        brandOutro.style.opacity = '0';
+        confirmPill.style.opacity = '0';
+        if (homeReturnBanner) homeReturnBanner.style.opacity = '0';
+        if (customCardCuePill) customCardCuePill.style.opacity = '0';
+        selectedBadge.style.opacity = '0';
+        swipeGuideTrack.style.opacity = '0'; 
+        touchRipple.style.opacity = '0';
+
+        if (t >= 0.8) {
+          const pNav = clamp((t - 0.8) / 0.6, 0, 1);
+          const easeNav = easeOvershoot(pNav);
+          liquidNav.style.opacity = `${pNav}`;
+          liquidNav.style.transform = `translateY(${(1 - easeNav) * 25}px)`;
+          setDropletIndex(0.0);
+        } else {
+          liquidNav.style.opacity = '0';
+        }
+
+        // 种子弹出并扩散涟漪
+        if (t < 1.2) {
+          const p = t / 1.2;
+          if (p < 0.6) {
+            const s = easeOvershoot(p / 0.6);
+            seedDot.style.transform = `scale(${s * 1.6})`;
+            seedDot.style.opacity = '1';
+          } else {
+            const pSub = (p - 0.6) / 0.4;
+            seedDot.style.transform = `scale(${1.6 - pSub * 1.6})`;
+            seedDot.style.opacity = `${1 - pSub}`;
+            seedRipple.style.transform = `scale(${0.2 + pSub * 2.5})`;
+            seedRipple.style.opacity = `${0.8 - pSub * 0.8}`;
+          }
+        } else {
+          seedDot.style.opacity = '0';
+          seedRipple.style.opacity = '0';
+        }
+
+        // 符号化排版层浮入
+        if (t >= 0.8) {
+          const p = clamp((t - 0.8) / 0.9, 0, 1);
+          const ease = easeOvershoot(p);
+          typoBlock.style.opacity = `${p}`;
+          typoBlock.style.transform = `translateY(${(1 - ease) * 20}px)`;
+        } else {
+          typoBlock.style.opacity = '0';
+        }
+
+        // 三张实心卡片破土弹出 (对标原生 HomePreviewDeckView 扇形参数)
+        if (t >= 2.0 && t < 3.6) {
+          const p1 = clamp((t - 2.0) / 0.8, 0, 1);
+          const ease1 = easeOvershoot(p1);
+          const sq1 = squashStretch(p1);
+          cardLeft.style.opacity = '1';
+          cardLeft.style.transform = `translateX(-69px) translateY(${(1 - ease1) * 80 + 20}px) rotate(-7deg) scale(${0.74 + ease1 * 0.20 + sq1})`;
+
+          const p2 = clamp((t - 2.1) / 0.8, 0, 1);
+          const ease2 = easeOvershoot(p2);
+          const sq2 = squashStretch(p2);
+          cardMid.style.opacity = '1';
+          cardMid.style.transform = `translateX(0px) translateY(${(1 - ease2) * 80}px) rotate(0deg) scale(${0.78 + ease2 * 0.22 + sq2})`;
+
+          const p3 = clamp((t - 2.2) / 0.8, 0, 1);
+          const ease3 = easeOvershoot(p3);
+          const sq3 = squashStretch(p3);
+          cardRight.style.opacity = '1';
+          cardRight.style.transform = `translateX(69px) translateY(${(1 - ease3) * 80 + 18}px) rotate(7deg) scale(${0.74 + ease3 * 0.20 + sq3})`;
+        } else if (t < 2.0) {
+          cardLeft.style.opacity = '0';
+          cardMid.style.opacity = '0';
+          cardRight.style.opacity = '0';
+        }
+
+        if (t >= 3.6) {
+          cardLeft.style.opacity = '1';
+          cardMid.style.opacity = '1';
+          cardRight.style.opacity = '1';
+          const breath = Math.sin((t - 3.6) * 3) * 3;
+          cardMid.style.transform = `translateX(0px) translateY(${breath}px) rotate(0deg) scale(1.0)`;
+          cardLeft.style.transform = `translateX(-69px) translateY(${20 - breath * 0.6}px) rotate(-7deg) scale(0.94)`;
+          cardRight.style.transform = `translateX(69px) translateY(${18 + breath * 0.6}px) rotate(7deg) scale(0.94)`;
+
+          const pCursor = clamp((t - 3.8) / 1.0, 0, 1);
+          miniCursor.style.opacity = `${pCursor}`;
+          miniCursor.style.left = `50%`;
+          miniCursor.style.top = `${548 + (1 - pCursor) * 40}px`;
+
+          if (t >= 4.8 && t < 5.4) {
+            miniCursor.style.transform = `translate(-50%, -50%) scale(0.82)`;
+            cardMid.style.transform = `translateX(0px) translateY(${breath + 4}px) scale(1.02, 0.98)`;
+          } else {
+            miniCursor.style.transform = `translate(-50%, -50%) scale(1.0)`;
+          }
+        }
+      }
+
+      // ----------------------------------------------------
+      // SECTION 2: 选卡 · 动作视觉聚焦与右滑选择 (6.0s ~ 12.0s)
+      // ----------------------------------------------------
+      else if (t < 12.0) {
+        chapterInfo.textContent = d.ch2;
+
+        deckStage.style.opacity = '1';
+        deckStage.style.visibility = 'visible';
+        cardLeft.style.opacity = '1';
+        cardMid.style.opacity = '1';
+        cardRight.style.opacity = '1';
+        focusStage.style.opacity = '0';
+        focusStage.style.visibility = 'hidden';
+        growthStage.style.opacity = '0';
+        growthStage.style.visibility = 'hidden';
+        reviewStage.style.opacity = '0';
+        reviewStage.style.visibility = 'hidden';
+        liquidNav.style.opacity = '1';
+        liquidNav.style.transform = 'translateY(0)';
+        setDropletIndex(0.0);
+        brandOutro.style.opacity = '0';
+
+        const pFade = clamp((t - 6.0) / 0.8, 0, 1);
+        typoBlock.style.opacity = `${1 - pFade}`;
+
+        // 6.0s ~ 8.0s: 背景上下卡片后撤，核心卡片局部夸张放大 (聚焦选择)
+        if (t >= 6.0 && t < 8.0) {
+          const p = clamp((t - 6.0) / 1.4, 0, 1);
+          const ease = easeOvershoot(p);
+
+          cardLeft.style.zIndex = '1';
+          cardLeft.style.transform = `translateX(0px) translateY(${-64 - ease * 28}px) scale(${0.90 - ease * 0.06})`;
+          cardLeft.style.opacity = `${1.0 - ease * 0.55}`;
+
+          cardMid.style.zIndex = '10';
+          // 局部夸张放大至 1.08x，上提聚焦
+          cardMid.style.transform = `translateX(0px) translateY(${12 - ease * 14}px) scale(${1.0 + ease * 0.08})`;
+
+          cardRight.style.zIndex = '2';
+          cardRight.style.transform = `translateX(0px) translateY(${88 + ease * 34}px) scale(${0.92 - ease * 0.06})`;
+          cardRight.style.opacity = `${1.0 - ease * 0.55}`;
+
+          miniCursor.style.opacity = '0';
+          selectedBadge.style.opacity = '0';
+          if (t < 6.2) { swipeGuideTrack.style.opacity = '0'; }
+          touchRipple.style.opacity = '0';
+        } else if (t < 6.0) {
+          // handled in sec1
+        } else {
+          // t >= 8.0
+          cardLeft.style.zIndex = '1';
+          cardLeft.style.transform = `translateX(0px) translateY(-92px) scale(0.84)`;
+          cardLeft.style.opacity = '0.45';
+
+          cardRight.style.zIndex = '2';
+          cardRight.style.transform = `translateX(0px) translateY(122px) scale(0.86)`;
+          cardRight.style.opacity = '0.45';
+        }
+
+        // 6.2s ~ 10.4s: 纯手势右滑动作 (带夸张滑动距离 68px 与局部光效，极醒目)
+        if (t >= 6.2 && t < 10.4) {
+          cardMid.style.zIndex = '10';
+          if (t < 9.8) {
+            const pTrack = clamp((t - 6.2) / 0.4, 0, 1);
+            swipeGuideTrack.style.opacity = `${pTrack}`; 
+          } else {
+            const pTrackOut = clamp((t - 9.8) / 0.5, 0, 1);
+            swipeGuideTrack.style.opacity = `${1 - pTrackOut}`; 
+          }
+
+          if (t >= 6.4 && t < 7.0) {
+            const pRip = clamp((t - 6.4) / 0.6, 0, 1);
+            touchRipple.style.left = `calc(50% - 70px)`;
+            touchRipple.style.top = `486px`;
+            touchRipple.style.transform = `translate(-50%, -50%) scale(${0.4 + pRip * 1.8})`;
+            touchRipple.style.opacity = `${1 - pRip}`;
+          } else {
+            touchRipple.style.opacity = '0';
+          }
+
+          const pSwipe = clamp((t - 6.6) / 2.6, 0, 1);
+          miniCursor.style.opacity = '1';
+          miniCursor.style.left = `calc(50% + ${(pSwipe - 0.5) * 120}px)`;
+          miniCursor.style.top = `486px`;
+          miniCursor.style.transform = `translate(-50%, -50%) scale(0.85)`;
+
+          // 夸张右滑位移 68px
+          const slideX = pSwipe * 68;
+          const tiltDeg = pSwipe * 2.2;
+          cardMid.style.transform = `translateX(${slideX}px) translateY(-2px) rotate(${tiltDeg}deg) scale(${1.08 + pSwipe * 0.02})`;
+
+          if (pSwipe > 0.40) {
+            const pBadge = clamp((pSwipe - 0.40) / 0.45, 0, 1);
+            const easeB = easeOvershoot(pBadge);
+            selectedBadge.style.opacity = `${pBadge}`;
+            selectedBadge.style.transform = `scale(${easeB})`;
+            cardMidHint.innerHTML = `<span>${d.c2Selected}</span>`;
+            cardMid.style.boxShadow = `0 24px 56px rgba(245, 100, 127, 0.48), 0 0 0 3px #FFFFFF`;
+          } else {
+            selectedBadge.style.opacity = '0';
+            cardMidHint.innerHTML = `<span>${d.c2Cue}</span>`;
+          }
+        } else if (t >= 10.4) {
+          cardMid.style.zIndex = '10';
+          cardMid.style.transform = `translateX(68px) translateY(-2px) rotate(2.2deg) scale(1.10)`;
+          selectedBadge.style.opacity = '1';
+          selectedBadge.style.transform = 'scale(1.0)';
+          cardMidHint.innerHTML = `<span>${d.c2Selected}</span>`;
+          cardMid.style.boxShadow = `0 24px 56px rgba(245, 100, 127, 0.48), 0 0 0 3px #FFFFFF`;
+          swipeGuideTrack.style.opacity = '0'; 
+          touchRipple.style.opacity = '0';
+        }
+
+        // 6.5s ~ 10.2s: 下方明确提示可以增加自定义卡片
+        if (t >= 6.5 && t < 10.2) {
+          const pCue = clamp((t - 6.5) / 0.6, 0, 1);
+          if (customCardCuePill) {
+            customCardCuePill.style.opacity = `${pCue}`;
+            customCardCuePill.style.transform = `translateY(${(1 - pCue) * 15}px)`;
+          }
+        } else {
+          if (customCardCuePill) customCardCuePill.style.opacity = '0';
+        }
+
+        // 10.2s ~ 12.0s: 底部确认选择胶囊升起并被指尖明确按下
+        if (t >= 10.2) {
+          const pPill = clamp((t - 10.2) / 0.7, 0, 1);
+          const easeP = easeOvershoot(pPill);
+          confirmPill.style.opacity = `${pPill}`;
+          confirmPill.style.transform = `translateX(-50%) translateY(${(1 - easeP) * 20}px) scale(${0.90 + easeP * 0.12})`;
+
+          const pTap = clamp((t - 10.8) / 0.7, 0, 1);
+          miniCursor.style.left = `50%`;
+          miniCursor.style.top = `${486 + pTap * 254}px`;
+
+          if (t >= 11.4 && t < 11.9) {
+            miniCursor.style.transform = `translate(-50%, -50%) scale(0.8)`;
+            confirmPill.style.transform = `translateX(-50%) translateY(2px) scale(0.96)`;
+          }
+
+          if (t >= 11.8) {
+            const pTrans = clamp((t - 11.8) / 0.2, 0, 1);
+            deckStage.style.opacity = `${1 - pTrans}`;
+            confirmPill.style.opacity = `${1 - pTrans}`;
+          }
+
+          if (t >= 11.5) {
+            const pHome = clamp((t - 11.5) / 0.4, 0, 1);
+            if (homeReturnBanner) {
+              homeReturnBanner.style.opacity = `${pHome}`;
+              homeReturnBanner.style.transform = `translateY(${(1 - pHome) * (-10)}px)`;
+            }
+          }
+        }
+      }
+
+            // SECTION 3: 专注 · 回到主页进行记录与输入 (12.0s ~ 18.0s)
+      // ----------------------------------------------------
+      else if (t < 18.0) {
+        chapterInfo.textContent = d.ch3;
+
+        deckStage.style.opacity = '0';
+        deckStage.style.visibility = 'hidden';
+        confirmPill.style.opacity = '0';
+        if (customCardCuePill) customCardCuePill.style.opacity = '0';
+
+        // 12.0s ~ 14.5s: 明确展示回到主页横幅，带有醒目的跳动提示
+        if (t < 14.5) {
+          const pOut = clamp((t - 13.8) / 0.7, 0, 1);
+          if (homeReturnBanner) {
+            homeReturnBanner.style.opacity = `${1 - pOut}`;
+            // 微微上下呼吸提示用户“正在主页记录”
+            const breath = Math.sin((t - 12.0) * 6) * 3;
+            homeReturnBanner.style.transform = `translateY(${breath}px)`;
+          }
+        } else {
+          if (homeReturnBanner) homeReturnBanner.style.opacity = '0';
+        }
+        if (customCardCuePill) customCardCuePill.style.opacity = '0';
+        growthStage.style.opacity = '0';
+        growthStage.style.visibility = 'hidden';
+        reviewStage.style.opacity = '0';
+        reviewStage.style.visibility = 'hidden';
+
+        // 导航栏平滑高亮聚焦在“今日/主页”
+        liquidNav.style.opacity = '1';
+        liquidNav.style.transform = 'translateY(0)';
+        setDropletIndex(0.0);
+        brandOutro.style.opacity = '0';
+
+        // 卡片入场动效：从下方带有弹性地升起 (Overshoot Elastic Entry)
+        if (t >= 12.0 && t < 13.2) {
+          const p = clamp((t - 12.0) / 0.8, 0, 1);
+          const ease = easeOvershoot(p);
+          focusStage.style.opacity = `${p}`;
+          focusStage.style.visibility = 'visible';
+          focusCard.style.transform = `translateY(${(1 - ease) * 35}px) scale(${0.88 + ease * 0.12})`;
+          focusCard.style.boxShadow = `0 ${16 + ease * 12}px 50px rgba(222, 80, 158, 0.22)`;
+        } else {
+          focusStage.style.opacity = '1';
+          focusStage.style.visibility = 'visible';
+          focusCard.style.transform = `translateY(0) scale(1.0)`;
+          focusCard.style.boxShadow = `0 24px 60px rgba(43, 37, 46, 0.12)`;
+        }
+
+        // 打字机录入：由手写输入框呈现真实的记录过程
+        if (t >= 12.8 && t < 15.6) {
+          const pText = clamp((t - 12.8) / 2.6, 0, 1);
+          const charLen = Math.floor(pText * d.focusTyped.length);
+          focusTypedText.textContent = d.focusTyped.substring(0, charLen);
+          miniCursor.style.opacity = '0';
+        } else if (t >= 15.6) {
+          focusTypedText.textContent = d.focusTyped;
+        }
+
+        // 指尖按下完成目标按钮
+        if (t < 15.6) {
+          celebrationTriggered = false;
+          focusBtn.style.background = 'linear-gradient(90deg, #DE509E, #F5647F)';
+          focusBtn.innerHTML = `<span>${d.focusBtn}</span>`;
+          focusScore.textContent = '124';
+        }
+        if (t >= 15.6 && t < 18.0) {
+          miniCursor.style.opacity = '1';
+          miniCursor.style.left = `50%`;
+          miniCursor.style.top = `607px`;
+
+          if (t >= 16.2 && t < 17.5) {
+            miniCursor.style.transform = `translate(-50%, -50%) scale(0.8)`;
+            focusBtn.style.transform = `scale(0.96)`;
+            focusBtn.style.background = `linear-gradient(90deg, #3AA867, #2E8551)`;
+            focusBtn.innerHTML = `<span>${d.focusBtnDone}</span>`;
+            focusScore.textContent = "134";
+
+            if (!celebrationTriggered) {
+              spawnCelebration();
+              celebrationTriggered = true;
+            }
+
+            const pBounce = clamp((t - 16.2) / 0.6, 0, 1);
+            const easeB = easeOvershoot(pBounce);
+            energyBouncePill.style.opacity = `${pBounce}`;
+            energyBouncePill.style.transform = `scale(${easeB}) translateY(${(-20) * pBounce}px)`;
+          } else if (t >= 17.5) {
+            miniCursor.style.transform = `translate(-50%, -50%) scale(1.0)`;
+            focusBtn.style.transform = `scale(1.02)`;
+          }
+        }
+      }
+
+      
+
+      // ----------------------------------------------------
+      // SECTION 4: 滋养 · POSY GARDEN 蓝金星芒 4阶段生长与光效 (18.0s ~ 25.0s)
+      // ----------------------------------------------------
+      else if (t < 25.0) {
+        chapterInfo.textContent = d.ch4;
+
+        deckStage.style.opacity = '0';
+        deckStage.style.visibility = 'hidden';
+        confirmPill.style.opacity = '0';
+        if (homeReturnBanner) homeReturnBanner.style.opacity = '0';
+        if (customCardCuePill) customCardCuePill.style.opacity = '0';
+        focusStage.style.opacity = '0';
+        focusStage.style.visibility = 'hidden';
+        energyBouncePill.style.opacity = '0';
+        reviewStage.style.opacity = '0';
+        reviewStage.style.visibility = 'hidden';
+        brandOutro.style.opacity = '0';
+
+        liquidNav.style.opacity = '1';
+        liquidNav.style.transform = 'translateY(0)';
+
+        if (t < 18.7) {
+          const pNav = clamp((t - 18.0) / 0.7, 0, 1);
+          const sp = swiftUISpring(pNav);
+          setDropletIndex(sp * 1.0);
+        } else {
+          setDropletIndex(1.0);
+        }
+
+        if (t >= 18.2 && t < 19.4) {
+          const p = clamp((t - 18.2) / 0.8, 0, 1);
+          const ease = easeOvershoot(p);
+          growthStage.style.opacity = `${p}`;
+          growthStage.style.visibility = 'visible';
+          sproutBox.style.transform = `scale(${0.88 + ease * 0.12})`;
+        } else {
+          growthStage.style.opacity = '1';
+          growthStage.style.visibility = 'visible';
+          sproutBox.style.transform = `scale(1.0)`;
+        }
+
+        // ------------------------------------------------
+        // POSY GARDEN 蓝金星芒 4 阶段状态机与成长光效
+        // ------------------------------------------------
+
+        // 阶段 1: 萌芽 (18.5s ~ 20.0s)
+        if (t < 20.0) {
+          step1.className = 'stage-pill active';
+          step2.className = 'stage-pill';
+          step3.className = 'stage-pill';
+          step4.className = 'stage-pill';
+          sproutSpeciesName.textContent = d.sproutSpecies;
+          sproutStageBadge.textContent = d.stage1Badge;
+
+          const p1 = clamp((t - 18.5) / 1.2, 0, 1);
+          const ease1 = easeOvershoot(p1);
+
+          flowerStem.style.strokeDashoffset = `${140 - ease1 * 38}`;
+
+          stage1Group.style.opacity = `${p1}`;
+          stage1Group.style.transform = `scale(${ease1})`;
+          stage1Group.style.transformOrigin = `130px 155px`;
+
+          stage2Group.style.opacity = '0';
+          stage2Group.style.transform = 'scale(0)';
+          stage3Group.style.opacity = '0';
+          stage3Group.style.transform = 'scale(0)';
+          stage4Group.style.opacity = '0';
+          stage4Group.style.transform = 'scale(0)';
+
+          // 阶段成长光效 1
+          if (p1 < 0.7) {
+            growthShockwave.setAttribute('cx', '130');
+            growthShockwave.setAttribute('cy', '155');
+            growthShockwave.setAttribute('r', `${p1 * 55}`);
+            growthShockwave.setAttribute('stroke-width', `${(1 - p1) * 3.5}`);
+            growthShockwave.style.opacity = `${(1 - p1) * 0.9}`;
+
+            growthCoreFlash.setAttribute('cx', '130');
+            growthCoreFlash.setAttribute('cy', '155');
+            growthCoreFlash.setAttribute('r', `${(1 - p1) * 14}`);
+            growthCoreFlash.style.opacity = `${(1 - p1) * 0.8}`;
+          } else {
+            growthShockwave.style.opacity = '0';
+            growthCoreFlash.style.opacity = '0';
+          }
+          growthLightRays.style.opacity = '0';
+
+          sproutMeter.style.width = `${p1 * 25}%`;
+        }
+
+        // 阶段 2: 含苞 (20.0s ~ 21.6s)
+        else if (t < 21.6) {
+          step1.className = 'stage-pill';
+          step2.className = 'stage-pill active';
+          step3.className = 'stage-pill';
+          step4.className = 'stage-pill';
+          sproutSpeciesName.textContent = d.sproutSpecies;
+          sproutStageBadge.textContent = d.stage2Badge;
+
+          const p2 = clamp((t - 20.0) / 1.3, 0, 1);
+          const ease2 = easeOvershoot(p2);
+
+          flowerStem.style.strokeDashoffset = `${102 - ease2 * 50}`;
+
+          stage1Group.style.opacity = `${1 - p2}`;
+          stage1Group.style.transform = `scale(${1 - p2 * 0.5})`;
+
+          stage2Group.style.opacity = `${p2}`;
+          stage2Group.style.transform = `scale(${ease2})`;
+
+          stage3Group.style.opacity = '0';
+          stage3Group.style.transform = 'scale(0)';
+          stage4Group.style.opacity = '0';
+          stage4Group.style.transform = 'scale(0)';
+
+          // 阶段成长光效 2
+          if (p2 < 0.75) {
+            growthShockwave.setAttribute('cx', '130');
+            growthShockwave.setAttribute('cy', '105');
+            growthShockwave.setAttribute('r', `${p2 * 68}`);
+            growthShockwave.setAttribute('stroke-width', `${(1 - p2) * 4.0}`);
+            growthShockwave.style.opacity = `${(1 - p2) * 0.92}`;
+
+            growthCoreFlash.setAttribute('cx', '130');
+            growthCoreFlash.setAttribute('cy', '105');
+            growthCoreFlash.setAttribute('r', `${(1 - p2) * 18}`);
+            growthCoreFlash.style.opacity = `${(1 - p2) * 0.85}`;
+          } else {
+            growthShockwave.style.opacity = '0';
+            growthCoreFlash.style.opacity = '0';
+          }
+          growthLightRays.style.opacity = '0';
+
+          sproutMeter.style.width = `${25 + p2 * 25}%`;
+        }
+
+        // 阶段 3: 初绽 (21.6s ~ 23.0s)
+        else if (t < 23.0) {
+          step1.className = 'stage-pill';
+          step2.className = 'stage-pill';
+          step3.className = 'stage-pill active';
+          step4.className = 'stage-pill';
+          sproutSpeciesName.textContent = d.sproutSpecies;
+          sproutStageBadge.textContent = d.stage3Badge;
+
+          const p3 = clamp((t - 21.6) / 1.1, 0, 1);
+          const ease3 = easeOvershoot(p3);
+
+          flowerStem.style.strokeDashoffset = `${52 - ease3 * 52}`;
+
+          stage1Group.style.opacity = '0';
+          stage2Group.style.opacity = `${1 - p3}`;
+          stage2Group.style.transform = `scale(${1 - p3 * 0.5})`;
+
+          const budPulse = Math.sin((t - 21.6) * 6) * 0.06;
+          stage3Group.style.opacity = `${p3}`;
+          stage3Group.style.transform = `scale(${ease3 + budPulse})`;
+
+          stage4Group.style.opacity = '0';
+          stage4Group.style.transform = 'scale(0)';
+
+          // 阶段成长光效 3
+          if (p3 < 0.8) {
+            growthShockwave.setAttribute('cx', '130');
+            growthShockwave.setAttribute('cy', '65');
+            growthShockwave.setAttribute('r', `${p3 * 85}`);
+            growthShockwave.setAttribute('stroke-width', `${(1 - p3) * 4.0}`);
+            growthShockwave.style.opacity = `${(1 - p3) * 0.92}`;
+
+            growthLightRays.style.opacity = `${(1 - p3) * 0.9}`;
+            growthLightRays.setAttribute('transform', `translate(130, 65) rotate(${p3 * 90}) scale(${0.6 + p3 * 0.8})`);
+          } else {
+            growthShockwave.style.opacity = '0';
+            growthLightRays.style.opacity = '0';
+          }
+          growthCoreFlash.style.opacity = '0';
+
+          sproutMeter.style.width = `${50 + p3 * 25}%`;
+        }
+
+        // 阶段 4: 全盛繁盛 (23.0s ~ 25.0s)
+        else {
+          step1.className = 'stage-pill';
+          step2.className = 'stage-pill';
+          step3.className = 'stage-pill';
+          step4.className = 'stage-pill active';
+          sproutSpeciesName.textContent = d.sproutSpecies;
+          sproutStageBadge.textContent = d.stage4Badge;
+
+          const p4 = clamp((t - 23.0) / 1.4, 0, 1);
+          const ease4 = easeOvershoot(p4);
+
+          flowerStem.style.strokeDashoffset = '0';
+          stage1Group.style.opacity = '0';
+          stage2Group.style.opacity = '0';
+
+          stage3Group.style.opacity = `${1 - p4}`;
+          stage3Group.style.transform = `scale(${1 - p4})`;
+
+          stage4Group.style.opacity = '1';
+          stage4Group.style.transform = `scale(${ease4})`;
+
+          // 阶段成长光效 4: 全盛繁盛超新星光爆
+          if (p4 < 0.85) {
+            growthShockwave.setAttribute('cx', '130');
+            growthShockwave.setAttribute('cy', '65');
+            growthShockwave.setAttribute('r', `${p4 * 115}`);
+            growthShockwave.setAttribute('stroke-width', `${(1 - p4) * 4.5}`);
+            growthShockwave.style.opacity = `${(1 - p4) * 0.95}`;
+
+            growthCoreFlash.setAttribute('cx', '130');
+            growthCoreFlash.setAttribute('cy', '65');
+            growthCoreFlash.setAttribute('r', `${(1 - p4) * 26}`);
+            growthCoreFlash.style.opacity = `${(1 - p4) * 0.9}`;
+
+            growthLightRays.style.opacity = `${(1 - p4) * 0.95}`;
+            growthLightRays.setAttribute('transform', `translate(130, 65) rotate(${p4 * 180}) scale(${0.8 + p4 * 1.2})`);
+          } else {
+            growthShockwave.style.opacity = '0';
+            growthCoreFlash.style.opacity = '0';
+            growthLightRays.style.opacity = '0';
+          }
+
+          const angle = (t - 23.0) * 2.2;
+          const rSat = 46;
+          satDot1.setAttribute('cx', `${130 + Math.cos(angle) * rSat}`);
+          satDot1.setAttribute('cy', `${65 + Math.sin(angle) * rSat}`);
+
+          satDot2.setAttribute('cx', `${130 + Math.cos(angle + (2 * Math.PI / 3)) * (rSat - 4)}`);
+          satDot2.setAttribute('cy', `${65 + Math.sin(angle + (2 * Math.PI / 3)) * (rSat - 4)}`);
+
+          satDot3.setAttribute('cx', `${130 + Math.cos(angle + (4 * Math.PI / 3)) * (rSat + 5)}`);
+          satDot3.setAttribute('cy', `${65 + Math.sin(angle + (4 * Math.PI / 3)) * (rSat + 5)}`);
+
+          sproutMeter.style.width = `${75 + p4 * 25}%`;
+        }
+
+        miniCursor.style.opacity = '0';
+      }
+
+      // ----------------------------------------------------
+      // SECTION 5: 复盘 · 周连击与月度热力全景 (25.0s ~ 32.0s)
+      // ----------------------------------------------------
+      else {
+        chapterInfo.textContent = d.ch5;
+
+        deckStage.style.opacity = '0';
+        deckStage.style.visibility = 'hidden';
+        confirmPill.style.opacity = '0';
+        if (homeReturnBanner) homeReturnBanner.style.opacity = '0';
+        if (customCardCuePill) customCardCuePill.style.opacity = '0';
+        focusStage.style.opacity = '0';
+        focusStage.style.visibility = 'hidden';
+        growthStage.style.opacity = '0';
+        growthStage.style.visibility = 'hidden';
+
+        liquidNav.style.opacity = '1';
+        liquidNav.style.transform = 'translateY(0)';
+
+        if (t < 25.7) {
+          const pNav = clamp((t - 25.0) / 0.7, 0, 1);
+          const sp = swiftUISpring(pNav);
+          setDropletIndex(1.0 + sp * 1.0);
+        } else {
+          setDropletIndex(2.0);
+        }
+
+        if (t >= 25.2 && t < 26.5) {
+          const p = clamp((t - 25.2) / 0.9, 0, 1);
+          const ease = easeOvershoot(p);
+          reviewStage.style.opacity = `${p}`;
+          reviewStage.style.visibility = 'visible';
+          reviewCard.style.transform = `scale(${0.88 + ease * 0.12})`;
+        } else {
+          reviewStage.style.opacity = '1';
+          reviewStage.style.visibility = 'visible';
+          reviewCard.style.transform = `scale(1.0)`;
+        }
+
+        // 25.5s ~ 28.5s: 周连击 (7天满勤柱图)
+        if (t < 28.5) {
+          weeklyBarsBox.style.display = 'flex';
+          monthlyGridBox.style.display = 'none';
+          reviewTitle.textContent = d.weeklyTitle;
+          reviewBadge.textContent = d.weeklyBadge;
+          reviewFooterText.textContent = d.weeklyFooter;
+
+          const heights = [70, 85, 90, 75, 95, 100, 100];
+          for (let i = 0; i < 7; i++) {
+            const barTime = 25.5 + i * 0.12;
+            const pBar = clamp((t - barTime) / 0.35, 0, 1);
+            const easeBar = easeOvershoot(pBar);
+            const fillEl = document.getElementById(`w${i}`);
+            if (fillEl) fillEl.style.height = `${easeBar * heights[i]}%`;
+          }
+        }
+        // 28.5s ~ 32.0s: 月复盘 (28天热力矩阵)
+        else {
+          weeklyBarsBox.style.display = 'none';
+          monthlyGridBox.style.display = 'flex';
+          reviewTitle.textContent = d.monthlyTitle;
+          reviewBadge.textContent = d.monthlyBadge;
+          reviewFooterText.textContent = d.monthlyFooter;
+
+          const pMonth = clamp((t - 28.5) / 2.2, 0, 1);
+          const activeDays = Math.floor(pMonth * 26);
+          for (let dNum = 1; dNum <= 28; dNum++) {
+            const tile = document.getElementById(`mDay_${dNum}`);
+            if (tile) {
+              if (dNum <= activeDays && dNum !== 11 && dNum !== 20) {
+                tile.classList.add('lit');
+              } else {
+                tile.classList.remove('lit');
+              }
+            }
+          }
+        }
+
+        // 30.6s ~ 32.0s: 最终品牌 Slogan 优雅浮现
+        if (t >= 30.6) {
+          const pOut = clamp((t - 30.6) / 0.8, 0, 1);
+          brandOutro.style.opacity = `${pOut}`;
+          brandOutro.style.transform = `translateY(${(1 - pOut) * 10}px)`;
+          reviewStage.style.opacity = `${1 - pOut * 0.35}`;
+        } else {
+          brandOutro.style.opacity = '0';
+        }
+
+        miniCursor.style.opacity = '0';
+      }
+    }
+
+    function animateLoop(now) {
+      if (isPlaying) {
+        const elapsed = (now - startTime) / 1000 + manualOffset;
+        if (elapsed >= TOTAL_DURATION) {
+          startTime = now;
+          manualOffset = 0;
+          celebrationTriggered = false;
+          lastAudioT = -1;
+        }
+        renderFrame(elapsed % TOTAL_DURATION);
+      }
+  
+    // 自动激活音效引擎与任意触摸唤醒 (解决 iOS WebKit 自动播放限制)
+    function unlockAudio() {
+      soundEngine.init();
+      soundEngine.startBGM();
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('touchend', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    }
+    document.addEventListener('touchstart', unlockAudio, { passive: true });
+    document.addEventListener('touchend', unlockAudio, { passive: true });
+    document.addEventListener('click', unlockAudio, { passive: true });
+    try {
+      soundEngine.init();
+      soundEngine.startBGM();
+    } catch (e) {
+      console.log('Autoplay muted by browser policy until interaction:', e);
+    }
+
+    requestAnimationFrame(animateLoop);
+    }
+
+    // ==========================================
+    // 7. 用户交互与控制器逻辑
+    // ==========================================
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      const d = I18N[currentLang] || I18N.zh;
+      const btn = document.getElementById('btnPlay');
+      btn.textContent = isPlaying ? d.btnPause : d.btnPlay;
+      if (isPlaying) {
+        startTime = performance.now();
+        soundEngine.init();
+        soundEngine.startBGM();
+      } else {
+        soundEngine.stopBGM();
+      }
+    }
+
+    function restart() {
+      manualOffset = 0;
+      celebrationTriggered = false;
+      lastAudioT = -1;
+      startTime = performance.now();
+      isPlaying = true;
+      const d = I18N[currentLang] || I18N.zh;
+      document.getElementById('btnPlay').textContent = d.btnPause;
+      soundEngine.init();
+      soundEngine.startBGM();
+    }
+
+    function toggleAudio() {
+      soundEngine.init();
+      const isMuted = soundEngine.toggleMute();
+      const d = I18N[currentLang] || I18N.zh;
+      const btn = document.getElementById('btnSound');
+      btn.textContent = isMuted ? d.btnMute : d.btnSound;
+    }
+
+    function seekByClick(e) {
+      const rect = document.getElementById('timelineTrack').getBoundingClientRect();
+      const frac = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+      manualOffset = frac * TOTAL_DURATION;
+      startTime = performance.now();
+      celebrationTriggered = false;
+      lastAudioT = manualOffset - 0.01;
+      renderFrame(manualOffset);
+    }
+
+    function selectModalLang(lang) {
+      currentLang = lang;
+      applyLanguage(lang);
+    }
+
+    function applyLanguage(lang) {
+      const d = I18N[lang] || I18N.zh;
+
+      // 弹窗文本
+      document.getElementById('modalTitle').textContent = d.modalTitle;
+      document.getElementById('modalDesc').textContent = d.modalDesc;
+      document.getElementById('modalConfirmText').textContent = d.modalConfirm;
+      document.getElementById('modalSkipText').textContent = d.modalSkip;
+
+      // 顶部排版
+      document.getElementById('todayPillText').textContent = d.todayPill;
+      if (document.getElementById('homeReturnBannerText')) {
+        document.getElementById('homeReturnBannerText').textContent = d.desktopReturnCue;
+      }
+      if (document.getElementById('customCardCueText')) {
+        document.getElementById('customCardCueText').textContent = d.customCardCue;
+      }
+
+      document.getElementById('dateMonthText').textContent = d.dateMonth;
+
+      // 卡片 1, 2, 3
+      document.getElementById('c1Tag').textContent = d.c1Tag;
+      document.getElementById('c1Title').textContent = d.c1Title;
+      document.getElementById('c1Cue').textContent = d.c1Cue;
+      document.getElementById('c1Meta').textContent = d.c1Meta;
+
+      document.getElementById('c2Title').textContent = d.c2Title;
+      document.getElementById('selectedBadge').textContent = d.c2Badge;
+      document.getElementById('c2Meta').textContent = d.c2Meta;
+      document.getElementById('cardMidHint').innerHTML = `<span>${d.c2Cue}</span>`;
+      document.getElementById('swipeRailText').textContent = d.swipeRail;
+
+      document.getElementById('c3Tag').textContent = d.c3Tag;
+      document.getElementById('c3Title').textContent = d.c3Title;
+      document.getElementById('c3Cue').textContent = d.c3Cue;
+      document.getElementById('c3Meta').textContent = d.c3Meta;
+
+      // 确认按钮
+      document.getElementById('confirmPillText').textContent = d.confirmPill;
+
+      // 专注卡片
+      document.getElementById('focusTagText').textContent = d.focusTag;
+      document.getElementById('focusTitleText').textContent = d.focusTitle;
+      document.getElementById('focusBtnText').textContent = d.focusBtn;
+      if (document.getElementById('energyBouncePill')) document.getElementById('energyBouncePill').textContent = d.energyBadge;
+
+      // 植物步进器
+      document.getElementById('step1Text').textContent = d.step1;
+      document.getElementById('step2Text').textContent = d.step2;
+      document.getElementById('step3Text').textContent = d.step3;
+      document.getElementById('step4Text').textContent = d.step4;
+      document.getElementById('sproutSpeciesName').textContent = d.sproutSpecies;
+
+      // 导航项
+      document.getElementById('navTodayText').textContent = d.navToday;
+      document.getElementById('navGardenText').textContent = d.navGarden;
+      document.getElementById('navReviewText').textContent = d.navReview;
+
+      // 周复盘星期标签
+      const weekLabels = document.querySelectorAll('.week-lbl');
+      for (let i = 0; i < 7; i++) {
+        if (weekLabels[i] && d.weekDays[i]) {
+          weekLabels[i].textContent = d.weekDays[i];
+        }
+      }
+
+      // 结语品牌 Slogan
+      document.getElementById('brandSloganMain').textContent = d.sloganMain;
+      document.getElementById('brandSloganSub').textContent = d.sloganSub;
+
+      // 底部控制器按钮
+      const playBtn = document.getElementById('btnPlay');
+      if (playBtn) playBtn.textContent = isPlaying ? d.btnPause : d.btnPlay;
+      const replayBtn = document.getElementById('btnReplay');
+      if (replayBtn) replayBtn.textContent = d.btnReplay;
+      const soundBtn = document.getElementById('btnSound');
+      if (soundBtn) soundBtn.textContent = soundEngine.muted ? d.btnMute : d.btnSound;
+
+      // 弹窗语言指示器
+      ['ZH', 'EN', 'JA'].forEach(code => {
+        const chip = document.getElementById(`chip${code}`);
+        if (chip) chip.classList.toggle('active', code.toLowerCase() === lang);
+      });
+    }
+
+    function confirmAndPlay() {
+      soundEngine.init();
+      soundEngine.startBGM();
+
+      const modal = document.getElementById('welcomeModal');
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+
+      isPlaying = true;
+      startTime = performance.now();
+      manualOffset = 0;
+      celebrationTriggered = false;
+      lastAudioT = -1;
+      document.getElementById('btnPlay').textContent = "❚❚ 暂停";
+    }
+
+    function skipToApp() {
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onboarding) {
+        window.webkit.messageHandlers.onboarding.postMessage({ action: 'skip' });
+      }
+      const modal = document.getElementById('welcomeModal');
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+      manualOffset = 31.0;
+      renderFrame(31.0);
+    }
+
+    // ==========================================
+    // 8. 启动与初始化判断
+    // ==========================================
+    applyLanguage(currentLang);
+
+    // 默认展示第一帧静止
+    renderFrame(manualOffset);
+
+    if (paramAutoplay === '1' || paramT !== null) {
+      const modal = document.getElementById('welcomeModal');
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+      if (paramAutoplay === '1') {
+        isPlaying = true;
+        startTime = performance.now();
+      }
+    } else {
+      isPlaying = true;
+      startTime = performance.now();
+    }
+
+
+    // 自动激活音效引擎与任意触摸唤醒 (解决 iOS WebKit 自动播放限制)
+    function unlockAudio() {
+      soundEngine.init();
+      soundEngine.startBGM();
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('touchend', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    }
+    document.addEventListener('touchstart', unlockAudio, { passive: true });
+    document.addEventListener('touchend', unlockAudio, { passive: true });
+    document.addEventListener('click', unlockAudio, { passive: true });
+    try {
+      soundEngine.init();
+      soundEngine.startBGM();
+    } catch (e) {
+      console.log('Autoplay muted by browser policy until interaction:', e);
+    }
+
+    requestAnimationFrame(animateLoop);
+  </script>
+</body>
+</html>
